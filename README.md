@@ -2,38 +2,50 @@
 
 > Why do I need any closed-source editor and any cloud service for note taking and personal knowledge base?
 
-一个本地 Markdown 编辑器, 直接打开 Obsidian vault, 加载 vault 里已安装的 Obsidian 社区插件. 不联网, 不登录, 没有云服务.
-
-justnotes 自己实现了一套与 Obsidian API 兼容的 `obsidian` 模块, 没有复用 Obsidian 的任何代码.
+I just don't think I need any cloud service for personal knowledge base (why do I even need a database? I don't want to look stuff up for like 1 million times a sec.) I just need a local notetaking tool with live-preview, a local tool to search for stuff and a local tool to automatically upload stuff to my cloud drive, so that if I switch device, I can restore it.
 
 ## 运行
 
 需要 [Bun](https://bun.sh).
 
 ```bash
+git clone https://github.com/qiulinfan/justnotes.git
+cd justnotes
 bun install
-node node_modules/electron/install.js   # 第一次安装时下载 Electron
-bun run build
-./node_modules/.bin/electron . --vault /path/to/vault
+bun run start --vault /path/to/your/vault
 ```
 
-不带 `--vault` 启动时会弹出文件夹选择框.
+vault 就是一个放 Markdown 文件的文件夹. 已有的 Obsidian vault 可以直接打开, 里面装的社区插件会被加载.
 
-## 读写哪些文件
+## 这是一个对 Obsidian 的 reverse engineering 吗
 
-- 读取 vault 的 `.obsidian/app.json`, `appearance.json`, `hotkeys.json`, `community-plugins.json` 和 `plugins/`, 只读不写.
-- 插件自己的 `data.json` 由插件按需写入, 与在 Obsidian 里一样.
-- 布局(打开的标签页, 侧栏折叠, 文件树展开状态)存在 justnotes 自己的 localStorage 里, 不写 `.obsidian/workspace.json`, 所以和 Obsidian 交替使用同一个 vault 不会互相覆盖.
+不是. 这是一个 reimplementation of (most) APIs. 用 Electron 做一个 md 编辑器本质上是一个很简单的事情. 甚至在无 AI 时代就很容易做了 (只不过很慢).
 
-## 当前状态
+## 这个 md 编辑器特点是啥
 
-已验证可用的插件: Copy Location, Quick LaTeX, Completr(包括 LaTeX 补全和占位符跳转), YOLO Completion Only(已加载, 设置页正常, 尚未实测 Tab 补全请求).
+可以接 Obsidian 的插件. (所以也可以是一个 LaTeX & Typst 编辑器, 如果你接我的插件的话.)
 
-快捷键: `⌘P` 命令面板, `⌘O` 快速切换, `⌘,` 设置, `⌘N` 新笔记, `⌘S` 保存, `⌘W` 关闭标签页. `hotkeys.json` 里的自定义快捷键会生效.
+不过 Obsidian 有版本更新, API 可能不一样, 所以存在你用的插件接不了的情况, 那就 call 一个 agent 修一下就行了.
 
-尚未实现:
+## 为什么我不用 Obsidian
 
-- Live Preview(隐藏 Markdown 语法, 渲染公式和嵌入内容). 编辑器目前是带语法高亮的源码模式.
-- 阅读视图, 公式渲染(MathJax), 悬停预览, 反向链接, 搜索面板.
-- Obsidian 的核心插件(日记, 模板等).
-- 其余插件: latex-live, kgdistiller, background, omp-sidebar, obsidian-git, quickadd, terminal.
+我用 Obsidian 的体验大部分是好的. 除了偶尔 `>` 开头的部分换行总有问题, 不如 Typora 顺 (但是 Typora 要钱以及没有 AI 辅助写作的 feature), 以及少有的地方不喜欢 (比如选中文本下滑的速度不能定制).
+
+这些本质都是小问题, 但是有一个共性就是闭源软件用的真的不爽. 何况这只是一个 md 编辑器和 previewer, 外加一些很容易做的知识库设计.
+
+以及我真的不认为你需要为了 note taking 购买任何的云服务.
+
+## 现在能用的
+
+- Live Preview: 标题, 粗体斜体, 链接, `[[wikilink]]`, 图片, 任务列表, 引用, 行内和块级公式 (MathJax).
+- 全文搜索 (`⌘⇧F`), 直接读文件, 没有索引.
+- 命令面板 (`⌘P`), 快速切换 (`⌘O`), 设置 (`⌘,`). vault 里 `.obsidian/hotkeys.json` 的快捷键会生效.
+- 测过的 Obsidian 插件: Copy Location, Quick LaTeX, Completr, YOLO Completion Only.
+
+还没有的: 阅读视图, 反向链接, 日记和模板这类核心插件, 自动上传到云盘.
+
+justnotes 只读 `.obsidian/` 里的配置, 不会写, 所以和 Obsidian 交替打开同一个 vault 没问题.
+
+## License
+
+MIT
