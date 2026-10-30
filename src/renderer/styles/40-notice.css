@@ -1,0 +1,23 @@
+/* Notices */
+.notice-container {
+	position: fixed;
+	top: 40px;
+	right: 16px;
+	z-index: 1000;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	align-items: flex-end;
+}
+
+.notice {
+	background: var(--background-secondary-alt);
+	color: var(--text-normal);
+	padding: 10px 16px;
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+	max-width: 380px;
+	font-size: var(--font-ui-small);
+	white-space: pre-wrap;
+	cursor: pointer;
+}

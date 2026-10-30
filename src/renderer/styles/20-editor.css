@@ -1,0 +1,140 @@
+/* Editor */
+.markdown-source-view {
+	height: 100%;
+}
+
+.markdown-source-view .cm-editor {
+	height: 100%;
+	font-family: var(--font-text);
+	font-size: var(--font-text-size);
+	line-height: var(--line-height-normal);
+	color: var(--text-normal);
+	background: var(--background-primary);
+}
+
+.markdown-source-view .cm-editor.cm-focused {
+	outline: none;
+}
+
+.markdown-source-view .cm-scroller {
+	padding: 24px 0 80px;
+	font-family: var(--font-text);
+	line-height: var(--line-height-normal);
+}
+
+/* Keep the gutter beside the text when the text column is centered. */
+.markdown-source-view.is-readable-line-width .cm-scroller {
+	justify-content: center;
+}
+
+.markdown-source-view.is-readable-line-width .cm-content {
+	flex-grow: 0;
+	width: var(--file-line-width);
+	max-width: 100%;
+}
+
+.markdown-source-view .cm-content {
+	caret-color: var(--interactive-accent);
+	padding: 0 24px;
+}
+
+.markdown-source-view .cm-gutters {
+	background: var(--background-primary);
+	color: var(--text-faint);
+	border: none;
+}
+
+.markdown-source-view .cm-cursor {
+	border-left-color: var(--interactive-accent);
+	border-left-width: 2px;
+}
+
+.cm-editor .cm-selectionBackground,
+.cm-editor.cm-focused .cm-selectionBackground,
+.cm-editor .cm-content ::selection {
+	background: var(--text-selection) !important;
+}
+
+.cm-editor .cm-activeLine {
+	background: transparent;
+}
+
+.cm-header {
+	font-weight: 700;
+}
+
+.cm-header-1 {
+	font-size: var(--h1-size);
+}
+
+.cm-header-2 {
+	font-size: var(--h2-size);
+}
+
+.cm-header-3 {
+	font-size: var(--h3-size);
+}
+
+.cm-header-4 {
+	font-size: var(--h4-size);
+}
+
+.cm-header-5 {
+	font-size: var(--h5-size);
+}
+
+.cm-strong {
+	font-weight: 700;
+}
+
+.cm-em {
+	font-style: italic;
+}
+
+.cm-strikethrough {
+	text-decoration: line-through;
+}
+
+.cm-link,
+.cm-url {
+	color: var(--text-accent);
+}
+
+.cm-inline-code {
+	font-family: var(--font-monospace);
+	font-size: 0.875em;
+	background: var(--code-background);
+	border-radius: var(--radius-s);
+}
+
+.cm-formatting,
+.cm-meta {
+	color: var(--text-faint);
+}
+
+.cm-quote {
+	color: var(--text-muted);
+}
+
+.cm-panels {
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	border-color: var(--background-modifier-border) !important;
+}
+
+.tok-keyword {
+	color: var(--color-purple);
+}
+
+.tok-string {
+	color: var(--color-green);
+}
+
+.tok-comment {
+	color: var(--text-faint);
+	font-style: italic;
+}
+
+.tok-number {
+	color: var(--color-orange);
+}

@@ -30,5 +30,9 @@ await Promise.all([
 ]);
 
 await Bun.write("dist/index.html", Bun.file("src/renderer/index.html"));
-await Bun.write("dist/app.css", Bun.file("src/renderer/app.css"));
+// Stylesheets are split per area under src/renderer/styles and concatenated
+// in file-name order.
+const styles = [...new Bun.Glob("*.css").scanSync("src/renderer/styles")].sort();
+const css = await Promise.all(styles.map((name) => Bun.file(`src/renderer/styles/${name}`).text()));
+await Bun.write("dist/app.css", css.join("\n"));
 await Bun.write("dist/mathjax/tex-svg-full.js", Bun.file("node_modules/mathjax/es5/tex-svg-full.js"));

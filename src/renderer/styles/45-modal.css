@@ -1,0 +1,75 @@
+/* Modals */
+.modal-container {
+	position: fixed;
+	inset: 0;
+	z-index: 100;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.modal-bg {
+	position: absolute;
+	inset: 0;
+	background: var(--background-modifier-cover);
+}
+
+.modal {
+	position: relative;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-l);
+	box-shadow: var(--shadow-l);
+	padding: 20px 24px;
+	width: 560px;
+	max-width: 90vw;
+	max-height: 85vh;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.modal-close-button {
+	position: absolute;
+	top: 12px;
+	right: 14px;
+	width: 22px;
+	height: 22px;
+	cursor: pointer;
+	border-radius: var(--radius-s);
+}
+
+.modal-close-button::before {
+	content: "×";
+	font-size: 20px;
+	line-height: 20px;
+	color: var(--text-muted);
+	display: block;
+	text-align: center;
+}
+
+.modal-title {
+	font-size: 18px;
+	font-weight: 600;
+	margin-bottom: 12px;
+}
+
+.modal-title:empty {
+	display: none;
+}
+
+.modal-content {
+	overflow-y: auto;
+	min-height: 0;
+}
+
+.modal-button-container {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 16px;
+}
+
+.prompt-modal-input {
+	width: 100%;
+}

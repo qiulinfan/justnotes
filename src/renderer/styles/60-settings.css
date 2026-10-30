@@ -1,0 +1,141 @@
+/* Settings */
+.modal.mod-settings {
+	width: 900px;
+	height: 80vh;
+	padding: 0;
+}
+
+.mod-settings .modal-content {
+	height: 100%;
+	overflow: hidden;
+}
+
+.vertical-tabs-container {
+	display: flex;
+	height: 100%;
+}
+
+.vertical-tab-header {
+	width: 220px;
+	flex-shrink: 0;
+	background: var(--background-secondary);
+	padding: 16px 8px;
+	overflow-y: auto;
+}
+
+.vertical-tab-header-group-title {
+	font-size: var(--font-ui-smaller);
+	font-weight: 600;
+	color: var(--text-muted);
+	padding: 6px 10px;
+}
+
+.vertical-tab-nav-item {
+	padding: 5px 10px;
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+}
+
+.vertical-tab-nav-item:hover {
+	background: var(--background-modifier-hover);
+}
+
+.vertical-tab-nav-item.is-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.vertical-tab-content-container {
+	flex: 1;
+	overflow-y: auto;
+	padding: 24px 32px;
+}
+
+.setting-item {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	padding: 12px 0;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.setting-item:first-child {
+	border-top: none;
+}
+
+.setting-item-heading {
+	font-weight: 600;
+	font-size: var(--font-ui-medium);
+	padding-top: 24px;
+}
+
+.setting-item-info {
+	flex: 1;
+	min-width: 0;
+}
+
+.setting-item-name {
+	font-size: var(--font-ui-medium);
+}
+
+.setting-item-description {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	padding-top: 2px;
+}
+
+.setting-item-control {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-shrink: 0;
+}
+
+.setting-item-control textarea {
+	min-width: 280px;
+	min-height: 80px;
+}
+
+.setting-item.is-disabled {
+	opacity: 0.5;
+}
+
+.checkbox-container {
+	width: 40px;
+	height: 22px;
+	border-radius: 11px;
+	background: var(--background-modifier-border-hover);
+	position: relative;
+	cursor: pointer;
+	transition: background 0.15s;
+}
+
+.checkbox-container input {
+	display: none;
+}
+
+.checkbox-container::after {
+	content: "";
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: white;
+	transition: left 0.15s;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.checkbox-container.is-enabled {
+	background: var(--interactive-accent);
+}
+
+.checkbox-container.is-enabled::after {
+	left: 20px;
+}
+
+.extra-setting-button.is-disabled {
+	opacity: 0.4;
+}

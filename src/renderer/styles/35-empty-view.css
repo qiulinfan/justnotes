@@ -1,0 +1,25 @@
+/* Empty view */
+.empty-state {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 16px;
+}
+
+.empty-state-title {
+	font-size: 20px;
+	color: var(--text-muted);
+}
+
+.empty-state-action-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.empty-state-action {
+	color: var(--text-accent);
+	cursor: pointer;
+}

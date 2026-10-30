@@ -2,6 +2,7 @@
 export * from "./app";
 export * from "./editor";
 export * from "./events";
+export * from "./file-manager";
 export * from "./icons";
 export * from "./keymap";
 export * from "./markdown";

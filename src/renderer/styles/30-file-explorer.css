@@ -1,0 +1,74 @@
+/* File explorer */
+.nav-header {
+	padding: 6px 8px;
+	display: flex;
+	justify-content: center;
+}
+
+.nav-buttons-container {
+	display: flex;
+	gap: 4px;
+}
+
+.nav-files-container {
+	padding: 4px 8px 32px;
+	font-size: var(--font-ui-small);
+	height: calc(100% - 44px);
+	overflow-y: auto;
+}
+
+.tree-item-self {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 3px 8px;
+	border-radius: var(--radius-s);
+	color: var(--text-muted);
+	cursor: default;
+	white-space: nowrap;
+}
+
+.tree-item-self:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.nav-file-title {
+	padding-left: 24px;
+}
+
+.nav-file-title.is-active {
+	background: var(--background-modifier-active-hover);
+	color: var(--text-normal);
+}
+
+.tree-item-inner {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.collapse-icon {
+	display: flex;
+	color: var(--text-faint);
+}
+
+.collapse-icon .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.tree-item-children {
+	padding-left: 12px;
+	margin-left: 10px;
+	border-left: 1px solid var(--background-modifier-border);
+}
+
+.nav-file-tag {
+	margin-left: auto;
+	font-size: 10px;
+	text-transform: uppercase;
+	padding: 0 4px;
+	border-radius: var(--radius-s);
+	background: var(--background-secondary-alt);
+	color: var(--text-muted);
+}

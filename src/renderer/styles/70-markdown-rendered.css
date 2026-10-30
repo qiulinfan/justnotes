@@ -1,0 +1,29 @@
+/* Rendered Markdown */
+.markdown-rendered {
+	line-height: var(--line-height-normal);
+}
+
+.markdown-rendered code {
+	font-family: var(--font-monospace);
+	font-size: 0.875em;
+	background: var(--code-background);
+	padding: 1px 4px;
+	border-radius: var(--radius-s);
+}
+
+.markdown-rendered pre {
+	background: var(--code-background);
+	padding: 12px;
+	border-radius: var(--radius-m);
+	overflow-x: auto;
+}
+
+.markdown-rendered pre code {
+	background: none;
+	padding: 0;
+}
+
+.internal-link {
+	color: var(--text-accent);
+	text-decoration: none;
+}

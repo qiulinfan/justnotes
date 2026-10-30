@@ -1,0 +1,239 @@
+/* App shell */
+.app-container {
+	display: flex;
+	flex-direction: column;
+	height: 100vh;
+}
+
+.titlebar {
+	height: 28px;
+	flex-shrink: 0;
+	-webkit-app-region: drag;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	background: var(--titlebar-background);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.horizontal-main-container {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+}
+
+.workspace {
+	flex: 1;
+	display: flex;
+	min-width: 0;
+}
+
+.workspace-ribbon {
+	width: var(--ribbon-width);
+	flex-shrink: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 0;
+	background: var(--background-secondary);
+	border-right: 1px solid var(--background-modifier-border);
+}
+
+.side-dock-actions,
+.side-dock-settings {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.workspace-split {
+	display: flex;
+	min-width: 0;
+	min-height: 0;
+}
+
+.workspace-split.mod-root {
+	flex: 1;
+	flex-direction: row;
+}
+
+.workspace-split.mod-root > .workspace-tabs + .workspace-tabs {
+	border-left: 1px solid var(--background-modifier-border);
+}
+
+.workspace-split.mod-sidedock {
+	width: 280px;
+	flex-direction: column;
+	background: var(--background-secondary);
+}
+
+.workspace-split.mod-left-split {
+	border-right: 1px solid var(--background-modifier-border);
+}
+
+.workspace-split.mod-right-split {
+	border-left: 1px solid var(--background-modifier-border);
+}
+
+.workspace-split.is-collapsed {
+	display: none;
+}
+
+.workspace-tabs {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+
+.workspace-tab-header-container {
+	height: var(--header-height);
+	flex-shrink: 0;
+	display: flex;
+	align-items: flex-end;
+	background: var(--background-secondary);
+	border-bottom: 1px solid var(--background-modifier-border);
+	padding: 0 8px;
+}
+
+.workspace-tab-header-container-inner {
+	display: flex;
+	gap: 2px;
+	overflow-x: auto;
+	min-width: 0;
+}
+
+.mod-sidedock .workspace-tab-header-container {
+	align-items: center;
+}
+
+.workspace-tab-header {
+	max-width: 220px;
+	min-width: 60px;
+	height: 32px;
+	padding: 0 8px;
+	border-radius: var(--radius-m) var(--radius-m) 0 0;
+	color: var(--text-muted);
+	cursor: default;
+	font-size: var(--font-ui-small);
+}
+
+.workspace-tab-header.is-active {
+	background: var(--background-primary);
+	color: var(--text-normal);
+}
+
+.mod-sidedock .workspace-tab-header {
+	min-width: 0;
+	height: 28px;
+	border-radius: var(--radius-s);
+}
+
+.mod-sidedock .workspace-tab-header .workspace-tab-header-inner-title,
+.mod-sidedock .workspace-tab-header .workspace-tab-header-inner-close-button {
+	display: none;
+}
+
+.mod-sidedock .workspace-tab-header.is-active {
+	background: var(--background-modifier-hover);
+}
+
+.workspace-tab-header-inner {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: 100%;
+}
+
+.workspace-tab-header-inner-icon {
+	display: flex;
+}
+
+.workspace-tab-header-inner-icon .svg-icon {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+.workspace-tab-header-inner-title {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.workspace-tab-header-inner-close-button {
+	display: flex;
+	opacity: 0;
+	border-radius: var(--radius-s);
+}
+
+.workspace-tab-header:hover .workspace-tab-header-inner-close-button,
+.workspace-tab-header.is-active .workspace-tab-header-inner-close-button {
+	opacity: 1;
+}
+
+.workspace-tab-header-inner-close-button:hover {
+	background: var(--background-modifier-hover);
+}
+
+.workspace-tab-header-inner-close-button .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.workspace-tab-container {
+	flex: 1;
+	min-height: 0;
+	position: relative;
+}
+
+.workspace-leaf {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.workspace-leaf-content {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.view-header {
+	height: var(--header-height);
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	padding: 0 12px;
+	gap: 8px;
+}
+
+.view-header-title-container {
+	flex: 1;
+	min-width: 0;
+	text-align: center;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.view-actions {
+	display: flex;
+	gap: 2px;
+}
+
+.view-content {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	position: relative;
+}
+
+.mod-root .view-content {
+	background: var(--background-primary);
+}

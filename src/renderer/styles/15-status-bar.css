@@ -1,0 +1,28 @@
+/* Status bar */
+.status-bar {
+	position: fixed;
+	right: 0;
+	bottom: 0;
+	height: var(--status-bar-height);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 0 10px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	background: var(--background-secondary);
+	border-top: 1px solid var(--background-modifier-border);
+	border-left: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m) 0 0 0;
+	z-index: 10;
+}
+
+.status-bar:empty {
+	display: none;
+}
+
+.status-bar-item {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
