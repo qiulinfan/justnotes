@@ -1,14 +1,19 @@
 import * as path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 
-// The vault comes from `--vault <path>`; without it the user picks a folder.
-function vaultFromArgs(): string | undefined {
-	const i = process.argv.indexOf("--vault");
+function argValue(name: string): string | undefined {
+	const i = process.argv.indexOf(name);
 	return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
+// `--profile <dir>` gives this instance its own Electron user data
+// (localStorage, caches), so several instances can run side by side.
+const profile = argValue("--profile");
+if (profile) app.setPath("userData", path.resolve(profile));
+
+// The vault comes from `--vault <path>`; without it the user picks a folder.
 async function createWindow() {
-	let vault = vaultFromArgs();
+	let vault = argValue("--vault");
 	if (!vault) {
 		const picked = await dialog.showOpenDialog({ properties: ["openDirectory"], title: "Open vault" });
 		if (picked.canceled || picked.filePaths.length === 0) return app.quit();
