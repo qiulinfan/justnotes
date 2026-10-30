@@ -17,8 +17,10 @@
         "@lezer/common": "^1.5.5",
         "@lezer/highlight": "^1.2.5",
         "@lezer/lr": "^1.4.12",
+        "@lezer/markdown": "^1.8.1",
         "lucide": "^1.65.0",
         "markdown-it": "^15.0.3",
+        "mathjax": "3.2.2",
         "moment": "^2.31.0",
         "turndown": "^7.2.4",
         "yaml": "^2.9.1",
@@ -268,6 +270,8 @@
     "lucide": ["lucide@1.65.0", "", {}, "sha512-mtWm+77jbrebaz5Nv7lqL0Oj41fuNPxtUOjm1UxHjCDiwKqE5uEYxcfyZcnZrz9KDcmYQbIWcovs/bn+s16kEw=="],
 
     "markdown-it": ["markdown-it@15.0.3", "", { "dependencies": { "argparse": "^3.0.3", "entities": "^8.1.0", "linkify-it": "^6.1.0", "mdurl": "^2.1.0", "punycode.js": "^2.3.1", "uc.micro": "^3.0.0" }, "bin": { "markdown-it": "bin/markdown-it.mjs" } }, "sha512-+Az7Ojz3iRGu8KYMvJ6xVhvrxP3eE+vEtJX75Ow88XBpcQNV/0lGX5ZynIIBftREo4DC2jsveAMDaeltmm8QvQ=="],
+
+    "mathjax": ["mathjax@3.2.2", "", {}, "sha512-Bt+SSVU8eBG27zChVewOicYs7Xsdt40qm4+UpHyX7k0/O9NliPc+x77k1/FEsPsjKPZGJvtRZM1vO+geW0OhGw=="],
 
     "mdurl": ["mdurl@2.1.0", "", {}, "sha512-1+HBaOx0zi/dQWht8rNv9MYf9qqpqL/kxI0hXImU6Y547zM6Sni8BQibt7ifgMcYtQg41ao3Ivd6cnSM86inpg=="],
 

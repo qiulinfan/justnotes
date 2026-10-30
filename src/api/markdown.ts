@@ -99,18 +99,42 @@ md.block.ruler.before("fence", "math_block", (state, start, end, silent) => {
 md.renderer.rules.math_inline = (tokens, idx) => `<span class="math math-inline" data-tex="${md.utils.escapeHtml(tokens[idx].content)}"></span>`;
 md.renderer.rules.math_block = (tokens, idx) => `<div class="math math-block" data-tex="${md.utils.escapeHtml(tokens[idx].content)}"></div>`;
 
-export function renderMath(source: string, display: boolean): HTMLElement {
-	const mj = (window as any).MathJax;
-	if (mj?.tex2chtml) {
-		const el = mj.tex2chtml(source, { display });
-		el.addClass("math", display ? "math-block" : "math-inline");
-		return el;
-	}
-	const el = createSpan({ cls: ["math", display ? "math-block" : "math-inline"], text: display ? `$$${source}$$` : `$${source}$` });
-	return el;
+// MathJax 3 with SVG output and a local font cache, so every rendered formula
+// is self-contained and finishRenderMath has nothing to flush.
+let mathJaxReady: Promise<void> | null = null;
+
+export function loadMathJax() {
+	mathJaxReady ??= new Promise<void>((resolve, reject) => {
+		(window as any).MathJax = {
+			tex: { inlineMath: [["$", "$"]], displayMath: [["$$", "$$"]], processEscapes: true },
+			svg: { fontCache: "local" },
+			startup: { typeset: false, ready: () => (window as any).MathJax.startup.defaultReady() },
+		};
+		const script = document.head.createEl("script", { attr: { src: "mathjax/tex-svg-full.js" } });
+		script.addEventListener("error", () => reject(new Error("MathJax failed to load")));
+		script.addEventListener("load", () =>
+			(window as any).MathJax.startup.promise.then(() => {
+				// Hides the assistive MathML copy that sits beside each SVG.
+				document.head.appendChild((window as any).MathJax.svgStylesheet());
+				resolve();
+			}, reject),
+		);
+	});
+	return mathJaxReady;
 }
 
-export async function loadMathJax() {}
+export function renderMath(source: string, display: boolean): HTMLElement {
+	const mj = (window as any).MathJax;
+	if (mj?.tex2svg) {
+		try {
+			return mj.tex2svg(source, { display });
+		} catch (err) {
+			return createSpan({ cls: "math-error", text: String(err) });
+		}
+	}
+	return createSpan({ cls: "math", text: display ? `$$${source}$$` : `$${source}$` });
+}
+
 export async function finishRenderMath() {}
 export async function loadPrism() {
 	return (window as any).Prism;
@@ -151,7 +175,10 @@ export class MarkdownRenderer extends MarkdownRenderChild {
 		tpl.innerHTML = md.render(frontmatterless);
 		el.appendChild(tpl.content);
 		for (const m of el.findAll(".math[data-tex]")) {
-			m.replaceWith(renderMath(m.getAttribute("data-tex") ?? "", m.hasClass("math-block")));
+			const display = m.hasClass("math-block");
+			const wrap = createEl(display ? "div" : "span", { cls: ["math", display ? "math-block" : "math-inline"] });
+			wrap.appendChild(renderMath(m.getAttribute("data-tex") ?? "", display));
+			m.replaceWith(wrap);
 		}
 		const ctx: MarkdownPostProcessorContext = {
 			docId: Math.random().toString(36).slice(2),

@@ -4,10 +4,12 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { bracketMatching, HighlightStyle, indentOnInput, syntaxHighlighting } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, openSearchPanel, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension, Prec } from "@codemirror/state";
 import { drawSelection, dropCursor, EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { classHighlighter, tags as t } from "@lezer/highlight";
 import { bindEditorFields, Editor, editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
+import { Keymap } from "./keymap";
+import { livePreview, mathSyntax, mathTag } from "./live-preview";
 import { Menu } from "./ui/menu";
 import { TFile } from "./vault";
 import { TextFileView } from "./view";
@@ -32,7 +34,22 @@ const obsidianHighlight = HighlightStyle.define([
 	{ tag: [t.processingInstruction, t.contentSeparator], class: "cm-formatting" },
 	{ tag: t.meta, class: "cm-meta" },
 	{ tag: t.comment, class: "cm-comment" },
+	{ tag: mathTag, class: "cm-math" },
 ]);
+
+// Enter on an empty quote line steps out one quote level, as in Typora,
+// instead of CodeMirror's default of continuing the quote.
+function exitEmptyQuote(view: EditorView) {
+	const { state } = view;
+	const sel = state.selection;
+	if (sel.ranges.length !== 1 || !sel.main.empty) return false;
+	const line = state.doc.lineAt(sel.main.head);
+	if (sel.main.head !== line.to || !/^\s*(>\s*)+$/.test(line.text)) return false;
+	const outer = line.text.replace(/>\s*$/, "").trimEnd();
+	const insert = outer ? `${outer} ` : "";
+	view.dispatch({ changes: { from: line.from, to: line.to, insert }, selection: { anchor: line.from + insert.length }, userEvent: "input" });
+	return true;
+}
 
 export class MarkdownView extends TextFileView {
 	editor: Editor;
@@ -86,6 +103,7 @@ export class MarkdownView extends TextFileView {
 			editorEditorField.init(() => this.editor?.cm ?? null),
 			editorLivePreviewField,
 			this.#plugins.of(this.app.workspace.editorExtensions),
+			Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }])),
 			history(),
 			drawSelection(),
 			dropCursor(),
@@ -96,7 +114,8 @@ export class MarkdownView extends TextFileView {
 			search({ top: true }),
 			autocompletion({ override: [], activateOnTyping: false }),
 			EditorView.lineWrapping,
-			markdown({ base: markdownLanguage, codeLanguages: languages }),
+			markdown({ base: markdownLanguage, codeLanguages: languages, extensions: [mathSyntax] }),
+			livePreview({ resolveImage: (link) => this.#resolveImage(link) }),
 			syntaxHighlighting(obsidianHighlight),
 			syntaxHighlighting(classHighlighter),
 			keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
@@ -118,6 +137,7 @@ export class MarkdownView extends TextFileView {
 				}
 			}),
 			EditorView.domEventHandlers({
+				mousedown: (evt) => this.#onLinkClick(evt),
 				contextmenu: (evt) => {
 					evt.preventDefault();
 					this.#showContextMenu(evt);
@@ -139,6 +159,23 @@ export class MarkdownView extends TextFileView {
 
 	#createState(doc: string) {
 		return EditorState.create({ doc, extensions: this.#baseExtensions() });
+	}
+
+	#resolveImage(link: string) {
+		if (/^[a-z][\w+.-]*:/i.test(link)) return link;
+		const file = this.app.metadataCache.getFirstLinkpathDest(link, this.file?.path ?? "");
+		return file ? this.app.vault.getResourcePath(file) : null;
+	}
+
+	// Rendered links open on click, as in Obsidian's Live Preview.
+	#onLinkClick(evt: MouseEvent) {
+		const el = evt.button === 0 ? (evt.target as HTMLElement).closest("[data-href]") : null;
+		if (!el) return false;
+		evt.preventDefault();
+		const href = el.getAttribute("data-href")!;
+		if (/^[a-z][\w+.-]*:/i.test(href)) require("electron").shell.openExternal(href);
+		else this.app.workspace.openLinkText(decodeURI(href), this.file?.path ?? "", Keymap.isModEvent(evt));
+		return true;
 	}
 
 	reconfigureExtensions() {

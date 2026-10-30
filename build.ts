@@ -31,3 +31,4 @@ await Promise.all([
 
 await Bun.write("dist/index.html", Bun.file("src/renderer/index.html"));
 await Bun.write("dist/app.css", Bun.file("src/renderer/app.css"));
+await Bun.write("dist/mathjax/tex-svg-full.js", Bun.file("node_modules/mathjax/es5/tex-svg-full.js"));

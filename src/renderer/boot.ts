@@ -1,9 +1,10 @@
 import { App } from "../api/app";
 import { installDomExtensions } from "../api/dom";
 import { setIcon } from "../api/icons";
-import { setMarkdownApp } from "../api/markdown";
+import { loadMathJax, setMarkdownApp } from "../api/markdown";
 import { MarkdownView } from "../api/markdown-view";
 import { Notice } from "../api/ui/notice";
+import { SearchView } from "./search";
 import { CommandPalette, EmptyView, FileExplorerView, QuickSwitcher } from "./views";
 
 async function applyTheme(app: App) {
@@ -30,6 +31,13 @@ function registerCoreCommands(app: App) {
 	add("app:open-settings", "Open settings", [["Mod"], ","], () => app.setting.open());
 	add("app:toggle-left-sidebar", "Toggle left sidebar", null, () => app.workspace.leftSplit.toggle());
 	add("app:toggle-right-sidebar", "Toggle right sidebar", null, () => app.workspace.rightSplit.toggle());
+	add("global-search:open", "Search: Search in all files", [["Mod", "Shift"], "f"], async () => {
+		const leaf = await app.workspace.ensureSideLeaf("search", "left", { reveal: true });
+		app.workspace.setActiveLeaf(leaf);
+		const input = (leaf.view as SearchView).inputEl;
+		input.focus();
+		input.select();
+	});
 	add("app:reload", "Reload app without saving", [["Mod"], "r"], () => location.reload());
 	add("workspace:new-tab", "New tab", [["Mod"], "t"], () => app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true }));
 	add("workspace:close", "Close current tab", [["Mod"], "w"], () => app.workspace.activeLeaf?.detach());
@@ -80,14 +88,18 @@ async function boot() {
 	app.viewRegistry.registerView("empty", (leaf) => new EmptyView(leaf));
 	app.viewRegistry.registerView("markdown", (leaf) => new MarkdownView(leaf));
 	app.viewRegistry.registerView("file-explorer", (leaf) => new FileExplorerView(leaf));
+	app.viewRegistry.registerView("search", (leaf) => new SearchView(leaf));
 	app.viewRegistry.registerExtensions(["md"], "markdown");
 
 	buildShell(app);
 	await app.vault.load();
 	await applyTheme(app);
 	await app.hotkeyManager.load();
+	await loadMathJax().catch((err) => console.error(err));
 	registerCoreCommands(app);
 	await app.workspace.getLeftLeaf(false).setViewState({ type: "file-explorer" });
+	await app.workspace.getLeftLeaf(false).setViewState({ type: "search" });
+	app.workspace.revealLeaf(app.workspace.getLeavesOfType("file-explorer")[0]);
 
 	await app.plugins.initialize();
 	await app.restoreLayoutState();

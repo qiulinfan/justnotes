@@ -1119,3 +1119,135 @@ kbd {
 	color: var(--text-accent);
 	text-decoration: none;
 }
+
+/* Live Preview */
+.cm-math {
+	font-family: var(--font-monospace);
+	font-size: 0.9em;
+	color: var(--text-accent);
+}
+
+.markdown-source-view .math-inline {
+	display: inline-block;
+	vertical-align: middle;
+	cursor: text;
+}
+
+.markdown-source-view .math-block {
+	display: block;
+	text-align: center;
+	padding: 6px 0;
+	overflow-x: auto;
+	cursor: text;
+}
+
+.math-error {
+	color: var(--text-error);
+	font-family: var(--font-monospace);
+	font-size: 0.85em;
+}
+
+.HyperMD-header {
+	padding-top: 0.4em;
+}
+
+.HyperMD-quote {
+	border-left: 3px solid var(--interactive-accent);
+	padding-left: 12px !important;
+	color: var(--text-muted);
+}
+
+.HyperMD-codeblock {
+	font-family: var(--font-monospace);
+	font-size: 0.875em;
+	background: var(--code-background);
+}
+
+.list-bullet {
+	display: inline-block;
+	width: 1.1em;
+	color: var(--text-muted);
+}
+
+.task-list-item-checkbox {
+	margin: 0 6px 0 0;
+	vertical-align: middle;
+	cursor: pointer;
+}
+
+.cm-hr {
+	display: inline-block;
+	width: 100%;
+	border: none;
+	border-top: 1px solid var(--background-modifier-border);
+	margin: 0;
+	vertical-align: middle;
+}
+
+.cm-image-embed {
+	max-width: 100%;
+	border-radius: var(--radius-s);
+	vertical-align: bottom;
+}
+
+.cm-link-rendered,
+.cm-hmd-internal-link {
+	color: var(--text-accent);
+	cursor: pointer;
+}
+
+.cm-link-rendered:hover,
+.cm-hmd-internal-link:hover {
+	text-decoration: underline;
+}
+
+/* Search */
+.search-input-row {
+	padding: 8px;
+}
+
+.search-input-row input {
+	width: 100%;
+}
+
+.search-summary {
+	padding: 0 12px 6px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.search-results {
+	padding: 0 8px 32px;
+	font-size: var(--font-ui-small);
+	overflow-y: auto;
+	height: calc(100% - 80px);
+}
+
+.search-result-file-title {
+	padding: 4px 6px;
+	font-weight: 600;
+	color: var(--text-normal);
+	cursor: pointer;
+	border-radius: var(--radius-s);
+}
+
+.search-result-file-title:hover,
+.search-result-match:hover {
+	background: var(--background-modifier-hover);
+}
+
+.search-result-match {
+	padding: 3px 6px 3px 16px;
+	color: var(--text-muted);
+	cursor: pointer;
+	border-radius: var(--radius-s);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.search-result-match mark {
+	background: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.3);
+	color: var(--text-normal);
+	border-radius: 2px;
+}
