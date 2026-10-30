@@ -93,8 +93,10 @@ plain style. Development notes belong in this file.
 ## Plugin status
 
 Verified: copy-location, quick-latex, obsidian-completr (LaTeX completion,
-snippet placeholders), yolo (loads, settings render; Tab completion not tried
-because it calls a paid API).
+snippet placeholders), yolo (live Mercury FIM completion: ghost text appears
+after typing, Tab accepts, Escape rejects; it calls the provider with `fetch`
+and binds Tab/Escape in its own CodeMirror keymap). The owner allows live API
+tests within a small budget; a YOLO completion costs a fraction of a cent.
 
 Not yet adapted, with what each needs beyond the current API:
 
