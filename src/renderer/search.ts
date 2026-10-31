@@ -152,7 +152,11 @@ export class SearchView extends ItemView {
 		const nameRe = re && new RegExp(re.source, re.flags.replace("g", ""));
 		let files = 0;
 		let matches = 0;
-		const all = this.app.vault.getMarkdownFiles().sort((a, b) => b.stat.mtime - a.stat.mtime);
+		// Excluded files (userIgnoreFilters) are left out, as in Obsidian.
+		const all = this.app.vault
+			.getMarkdownFiles()
+			.filter((file) => !this.app.metadataCache.isUserIgnored(file.path))
+			.sort((a, b) => b.stat.mtime - a.stat.mtime);
 		for (const file of all) {
 			const cache = tags === null ? null : this.app.metadataCache.getFileCache(file);
 			// Only a note with the tags is worth reading for them.

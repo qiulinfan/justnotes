@@ -264,7 +264,7 @@ export class BacklinkList {
 		const names = namesOf(file, metadataCache.getFileCache(file));
 		let count = 0;
 		for (const source of vault.getMarkdownFiles().sort(byName)) {
-			if (source === file) continue;
+			if (source === file || metadataCache.isUserIgnored(source.path)) continue;
 			const text = await vault.cachedRead(source);
 			if (!current()) return;
 			const found = findMentions(text, names, mentionSkips(metadataCache.getFileCache(source)));
@@ -429,7 +429,7 @@ export class OutgoingLinkView extends ActiveFilePane {
 		const skips = mentionSkips(metadataCache.getFileCache(file));
 		let count = 0;
 		for (const dest of vault.getMarkdownFiles().sort(byName)) {
-			if (dest === file) continue;
+			if (dest === file || metadataCache.isUserIgnored(dest.path)) continue;
 			const found = findMentions(text, namesOf(dest, metadataCache.getFileCache(dest)), skips);
 			if (!found.length) continue;
 			count++;

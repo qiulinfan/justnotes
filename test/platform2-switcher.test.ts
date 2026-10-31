@@ -23,7 +23,9 @@ const files = [
 
 // The modal's DOM is not needed to rank: getSuggestions reads only the items
 // and their text.
-const switcher = { getItems: () => files, getItemText: QuickSwitcher.prototype.getItemText } as unknown as QuickSwitcher;
+let ignored: string[] = [];
+const app = { metadataCache: { isUserIgnored: (path: string) => ignored.some((prefix) => path.startsWith(prefix)) } };
+const switcher = { app, getItems: () => files, getItemText: QuickSwitcher.prototype.getItemText } as unknown as QuickSwitcher;
 const suggest = (query: string) =>
 	QuickSwitcher.prototype.getSuggestions.call(switcher, query).map(({ item, match }) => {
 		const text = switcher.getItemText(item);
@@ -48,5 +50,16 @@ describe("QuickSwitcher ranking", () => {
 		// pupendo.cs holds d, o, c and s in order, but not "docs".
 		expect(suggest("docs")[0]).toEqual({ text: "281notes/docs/notes-01-08", highlighted: "docs" });
 		expect(suggest("stochastic final")[0].text).toBe("math526-stochastic_process/final");
+	});
+
+	test("excluded files rank after the others", () => {
+		ignored = ["math526-"];
+		try {
+			const final = suggest("final").map((row) => row.text);
+			expect(final[0]).toBe("281notes/FinalReview");
+			expect(final.at(-1)).toBe("math526-stochastic_process/final");
+		} finally {
+			ignored = [];
+		}
 	});
 });

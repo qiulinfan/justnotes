@@ -5,6 +5,7 @@ import { Menu } from "../api/ui/menu";
 import { Modal } from "../api/ui/modal";
 import { Notice } from "../api/ui/notice";
 import { type FuzzyMatch, FuzzySuggestModal } from "../api/ui/suggest";
+import { excludedLast, isFileShown } from "../api/file-visibility";
 import { debounce, prepareFuzzySearch } from "../api/util";
 import { type TAbstractFile, TFile, TFolder } from "../api/vault";
 import { ItemView } from "../api/view";
@@ -77,6 +78,15 @@ export class FileExplorerView extends ItemView {
 			if (evt.target === this.#treeEl) this.#showMenu(evt, this.app.vault.getRoot());
 		});
 		for (const name of ["create", "delete", "rename"]) this.registerEvent(this.app.vault.on(name, () => this.#refresh()));
+		// "Detect all file extensions" shows or hides files at once.
+		let showAll = this.app.vault.getConfig("showUnsupportedFiles");
+		this.registerEvent(
+			this.app.vault.on("config-changed", () => {
+				if (this.app.vault.getConfig("showUnsupportedFiles") === showAll) return;
+				showAll = this.app.vault.getConfig("showUnsupportedFiles");
+				this.#refresh();
+			}),
+		);
 		this.registerEvent(this.app.vault.on("rename", (file: TAbstractFile, oldPath: string) => this.#retargetExpanded(oldPath, file.path)));
 		this.registerEvent(this.app.vault.on("delete", (file: TAbstractFile) => this.#retargetExpanded(file.path, null)));
 		this.registerEvent(this.app.workspace.on("file-open", () => this.#markActive()));
@@ -122,7 +132,7 @@ export class FileExplorerView extends ItemView {
 	}
 
 	#renderFolder(folder: TFolder, el: HTMLElement) {
-		const sorted = [...folder.children].sort((a, b) => {
+		const sorted = folder.children.filter((c) => !(c instanceof TFile) || isFileShown(this.app, c)).sort((a, b) => {
 			if (a instanceof TFolder !== b instanceof TFolder) return a instanceof TFolder ? -1 : 1;
 			return a.name.localeCompare(b.name, undefined, { numeric: true });
 		});
@@ -423,12 +433,17 @@ export class QuickSwitcher extends FuzzySuggestModal<TFile> {
 
 	getItems() {
 		const recent = this.app.workspace.getLastOpenFiles();
-		return this.app.vault.getFiles().sort((a, b) => {
-			const ra = recent.indexOf(a.path);
-			const rb = recent.indexOf(b.path);
-			if (ra !== rb) return (ra < 0 ? 1e9 : ra) - (rb < 0 ? 1e9 : rb);
-			return b.stat.mtime - a.stat.mtime;
-		});
+		const files = this.app.vault
+			.getFiles()
+			.filter((file) => isFileShown(this.app, file))
+			.sort((a, b) => {
+				const ra = recent.indexOf(a.path);
+				const rb = recent.indexOf(b.path);
+				if (ra !== rb) return (ra < 0 ? 1e9 : ra) - (rb < 0 ? 1e9 : rb);
+				return b.stat.mtime - a.stat.mtime;
+			});
+		// Excluded files are less noticeable: after the others.
+		return excludedLast(this.app, files, (file) => file.path);
 	}
 
 	getItemText(file: TFile) {
@@ -466,7 +481,7 @@ export class QuickSwitcher extends FuzzySuggestModal<TFile> {
 			byName.sort((a, b) => Number(b.exact) - Number(a.exact) || b.match.score - a.match.score || b.path - a.path);
 			byPath.sort((a, b) => b.match.score - a.match.score);
 		}
-		return [...byName, ...byPath];
+		return excludedLast(this.app, [...byName, ...byPath], (m) => m.item.path);
 	}
 
 	onChooseItem(file: TFile, evt: MouseEvent | KeyboardEvent) {

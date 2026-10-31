@@ -2,6 +2,7 @@ import { syntaxTree } from "@codemirror/language";
 import type { SyntaxNode } from "@lezer/common";
 import type { App } from "./app";
 import { Editor, type EditorPosition } from "./editor";
+import { excludedLast, isFileShown } from "./file-visibility";
 import { parseFrontMatterAliases } from "./metadata-utils";
 import { EditorSuggest, type EditorSuggestTriggerInfo } from "./ui/suggest";
 import { prepareFuzzySearch, renderMatches, type SearchResult } from "./util";
@@ -56,7 +57,7 @@ export class LinkSuggest extends EditorSuggest<LinkSuggestion> {
 		const { query } = context;
 		const hash = query.indexOf("#");
 		if (hash >= 0) return this.#headings(query.slice(0, hash), query.slice(hash + 1), context.file);
-		const files = this.app.vault.getFiles();
+		const files = this.app.vault.getFiles().filter((f) => isFileShown(this.app, f));
 		const text = (f: TFile) => (f.extension === "md" ? f.path.slice(0, -3) : f.path);
 		const note = (f: TFile) => (f.parent && !f.parent.isRoot() ? f.parent.path : "");
 		if (!query.trim()) {
@@ -65,8 +66,11 @@ export class LinkSuggest extends EditorSuggest<LinkSuggestion> {
 				const i = recent.indexOf(f.path);
 				return i < 0 ? recent.length : i;
 			};
-			return files
-				.sort((a, b) => rank(a) - rank(b) || b.stat.mtime - a.stat.mtime)
+			return excludedLast(
+				this.app,
+				files.sort((a, b) => rank(a) - rank(b) || b.stat.mtime - a.stat.mtime),
+				(f) => f.path,
+			)
 				.slice(0, this.limit)
 				.map((file) => ({ file, display: file.extension === "md" ? file.basename : file.name, note: note(file), match: null }));
 		}
@@ -82,7 +86,12 @@ export class LinkSuggest extends EditorSuggest<LinkSuggestion> {
 				if (m) results.push({ file, display: alias, note: display, match: m, alias });
 			}
 		}
-		return results.sort((a, b) => b.match!.score - a.match!.score);
+		// Excluded files are less noticeable: after the others.
+		return excludedLast(
+			this.app,
+			results.sort((a, b) => b.match!.score - a.match!.score),
+			(r) => r.file.path,
+		);
 	}
 
 	#headings(linkpath: string, query: string, source: TFile | null): LinkSuggestion[] {

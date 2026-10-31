@@ -78,6 +78,15 @@ abstract class BaseGraphView extends ItemView {
 			}),
 		);
 		this.registerEvent(workspace.on("css-change", () => this.renderer?.readTheme()));
+		let ignored = JSON.stringify(vault.getConfig("userIgnoreFilters"));
+		this.registerEvent(
+			vault.on("config-changed", () => {
+				const next = JSON.stringify(vault.getConfig("userIgnoreFilters"));
+				if (next === ignored) return;
+				ignored = next;
+				this.refresh();
+			}),
+		);
 		this.refresh();
 	}
 
@@ -111,7 +120,8 @@ abstract class BaseGraphView extends ItemView {
 		const search = compileQuery(this.options.search);
 		const groups = this.options.colorGroups.map((g) => ({ query: compileQuery(g.query), color: colorCss(g.color) }));
 		const queries = [search, ...groups.map((g) => g.query)].filter((q): q is Query => !!q);
-		const files = vault.getFiles();
+		// Excluded files (userIgnoreFilters) are left out, as in Obsidian.
+		const files = vault.getFiles().filter((file) => this.focused(file.path) || !metadataCache.isUserIgnored(file.path));
 		if (queries.some((q) => q.needsText)) {
 			for (const file of files) {
 				if (file.extension !== "md" || this.#texts.has(file.path)) continue;
