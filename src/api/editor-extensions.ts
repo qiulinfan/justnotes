@@ -685,7 +685,6 @@ function followVault(view: MarkdownView) {
 // Obsidian's own paste and drop handling, after plugins had their turn:
 // files become attachments next to the note, and a URL pasted over
 // selected text links that text.
-const EMBEDDABLE = /^(png|jpe?g|gif|svg|webp|bmp|avif|mp3|wav|m4a|ogg|flac|mp4|webm|ogv|mov|mkv|pdf)$/i;
 const URL_ONLY = /^[a-z][\w+.-]*:\/\/\S+$/i;
 
 async function attach(view: MarkdownView, files: File[], pasted: boolean) {
@@ -704,8 +703,8 @@ async function attach(view: MarkdownView, files: File[], pasted: boolean) {
 			const path = await app.fileManager.getAvailablePathForAttachment(name, sourcePath);
 			target = await app.vault.createBinary(path, await file.arrayBuffer());
 		}
-		const link = app.fileManager.generateMarkdownLink(target, sourcePath);
-		links.push(EMBEDDABLE.test(target.extension) ? `!${link}` : link);
+		// generateMarkdownLink embeds files that are no notes, as Obsidian's does.
+		links.push(app.fileManager.generateMarkdownLink(target, sourcePath));
 	}
 	view.editor.replaceSelection(links.join("\n"), "input.paste");
 }
