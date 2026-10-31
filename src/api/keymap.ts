@@ -71,7 +71,7 @@ const CODE_KEYS: Record<string, string> = {
 	NumpadEnter: "Enter",
 };
 
-export function virtualKey(evt: Pick<KeyboardEvent, "code" | "key">) {
+function virtualKey(evt: Pick<KeyboardEvent, "code" | "key">) {
 	const code = evt.code;
 	if (/^Key[A-Z]$/.test(code)) return code.slice(3);
 	if (/^(Digit|Numpad)\d$/.test(code)) return code.slice(-1);
@@ -118,11 +118,12 @@ export class Keymap {
 	modifiers = "";
 	#scope: Scope;
 
-	constructor(root: Scope) {
+	// `win` is the window whose keys this keymap handles.
+	constructor(root: Scope, win: EventTarget = window) {
 		this.rootScope = this.#scope = root;
-		window.addEventListener("keydown", (evt) => this.#onKeyDown(evt), true);
-		window.addEventListener("keyup", (evt) => this.updateModifiers(evt), true);
-		window.addEventListener("blur", () => (this.modifiers = ""));
+		win.addEventListener("keydown", (evt) => this.#onKeyDown(evt as KeyboardEvent), true);
+		win.addEventListener("keyup", (evt) => this.updateModifiers(evt as KeyboardEvent), true);
+		win.addEventListener("blur", () => (this.modifiers = ""));
 	}
 
 	pushScope(scope: Scope) {

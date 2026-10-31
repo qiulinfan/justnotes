@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { type Command, Commands, HotkeyManager, Keymap, virtualKey } from "../src/api/keymap";
+import { installLanguageExtensions } from "../src/api/dom";
+import { type Command, Commands, HotkeyManager, Keymap, Scope } from "../src/api/keymap";
+
+installLanguageExtensions();
 
 // The one matcher behind Scope.handleKey, HotkeyManager.onTrigger and plugins
 // that call app.keymap.constructor.isMatch (terminal).
@@ -17,13 +20,24 @@ describe("Keymap.isMatch", () => {
 	});
 });
 
-describe("virtualKey", () => {
-	test("punctuation and numpad keys are named by the US key, whatever Shift or the layout print", () => {
-		expect(virtualKey({ code: "Slash", key: "?" })).toBe("/");
-		expect(virtualKey({ code: "BracketLeft", key: "“" })).toBe("[");
-		expect(virtualKey({ code: "Numpad7", key: "Home" })).toBe("7");
-		expect(virtualKey({ code: "KeyF", key: "ƒ" })).toBe("F");
-		expect(virtualKey({ code: "ArrowUp", key: "ArrowUp" })).toBe("ArrowUp");
+describe("KeymapContext.vkey", () => {
+	test("handlers see punctuation and numpad keys named by the US key, whatever Shift, Option or the layout print", () => {
+		const root = new Scope();
+		const win = new EventTarget();
+		new Keymap(root, win);
+		const seen: string[] = [];
+		root.register(null, null, (_evt, ctx) => {
+			seen.push(ctx.vkey);
+		});
+		const keys = [
+			["Slash", "?"],
+			["BracketLeft", "“"],
+			["Numpad7", "Home"],
+			["KeyF", "ƒ"],
+			["ArrowUp", "ArrowUp"],
+		];
+		for (const [code, key] of keys) win.dispatchEvent(Object.assign(new Event("keydown"), { code, key, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false }));
+		expect(seen).toEqual(["/", "[", "7", "F", "ArrowUp"]);
 	});
 });
 
