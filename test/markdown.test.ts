@@ -156,6 +156,16 @@ describe("hidden syntax", () => {
 		expect(out).toContain("after  text");
 	});
 
+	// Obsidian keeps %% in a $$ block (TeX reads it as its own comment) and in
+	// indented code; the reading view once blanked it there.
+	test("math blocks and indented code keep their %%, a list item's paragraph does not", () => {
+		const out = html("$$\na %% b\n$$\n\n> $$\n> c %% d\n> $$\n\ntext\n\n    code %% kept\n\n- item\n\n    para %%gone%% x\n\nafter %%gone%% y");
+		expect(tags(out, "div").map((d) => d["data-tex"])).toEqual(["a %% b", "c %% d"]);
+		expect(out).toContain("<code>code %% kept</code>");
+		expect(out).toContain("para  x");
+		expect(out).toContain("after  y");
+	});
+
 	test("an unclosed comment hides the rest of the note", () => {
 		expect(html("shown\n\n%% open\n\n# gone")).not.toContain("gone");
 	});
