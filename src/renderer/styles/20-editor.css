@@ -208,3 +208,25 @@
 .markdown-source-view.mod-cm6 .cm-type {
 	color: var(--code-tag, var(--color-red));
 }
+
+/* View chrome: header navigation and More options */
+.view-header-left,
+.view-header-nav-buttons {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.view-header-nav-buttons .clickable-icon:not(.mod-active) {
+	opacity: 0.4;
+	cursor: default;
+}
+
+.mod-sidedock .view-header-nav-buttons,
+.view-header-title-parent:empty {
+	display: none;
+}
+
+.workspace-leaf-content:focus {
+	outline: none;
+}

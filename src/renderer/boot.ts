@@ -8,6 +8,7 @@ import { Notice } from "../api/ui/notice";
 import { installTooltips } from "../api/ui/tooltip";
 import { registerCoreCommands } from "./commands";
 import { SearchView } from "./search";
+import { registerViewCommands } from "./view-commands";
 import { EmptyView, FileExplorerView } from "./views";
 
 async function applyTheme(app: App) {
@@ -68,6 +69,7 @@ async function boot() {
 	await loadMathJax().catch((err) => console.error(err));
 	registerCoreCommands(app);
 	registerEditorSuggests(app);
+	registerViewCommands(app);
 	await app.workspace.getLeftLeaf(false).setViewState({ type: "file-explorer" });
 	await app.workspace.getLeftLeaf(false).setViewState({ type: "search" });
 	app.workspace.revealLeaf(app.workspace.getLeavesOfType("file-explorer")[0]);
