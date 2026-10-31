@@ -420,6 +420,10 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 
 	#showTabMenu(evt: MouseEvent) {
 		const workspace = this.app.workspace;
+		// Only "Close" closes a pinned tab; the bulk closes spare pinned tabs.
+		const close = (leaves: WorkspaceLeaf[]) => {
+			for (const leaf of leaves) if (!leaf.pinned) leaf.detach();
+		};
 		const siblings = () => [...(this.parent?.children ?? [])];
 		const menu = new Menu();
 		menu.addItem((i) => i.setSection("close").setTitle("Close").setIcon("x").onClick(() => this.detach()));
@@ -428,28 +432,21 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 				.setSection("close")
 				.setTitle("Close others")
 				.setIcon("x-square")
-				.onClick(() => {
-					for (const leaf of siblings()) if (leaf !== this) leaf.detach();
-				}),
+				.onClick(() => close(siblings().filter((l) => l !== this))),
 		);
 		menu.addItem((i) =>
 			i
 				.setSection("close")
 				.setTitle("Close tabs to the right")
 				.setIcon("arrow-right-to-line")
-				.onClick(() => {
-					const all = siblings();
-					for (const leaf of all.slice(all.indexOf(this) + 1)) leaf.detach();
-				}),
+				.onClick(() => close(siblings().slice(siblings().indexOf(this) + 1))),
 		);
 		menu.addItem((i) =>
 			i
 				.setSection("close")
 				.setTitle("Close all")
 				.setIcon("x-circle")
-				.onClick(() => {
-					for (const leaf of siblings()) leaf.detach();
-				}),
+				.onClick(() => close(siblings())),
 		);
 		menu.addItem((i) =>
 			i

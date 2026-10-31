@@ -23,6 +23,8 @@ export function registerWorkspaceCommands(app: App) {
 		return ok;
 	};
 	const tabs = (leaf: WorkspaceLeaf) => (leaf.parent as WorkspaceTabs).children;
+	// Closing several tabs spares pinned ones.
+	const closable = (leaf: WorkspaceLeaf) => tabs(leaf).filter((l) => !l.pinned && l !== leaf);
 	const select = (leaf: WorkspaceLeaf, act: boolean, index: number) => {
 		const target = tabs(leaf)[index];
 		return when(!!target && target !== leaf, act, () => workspace.setActiveLeaf(target, { focus: true }));
@@ -36,13 +38,14 @@ export function registerWorkspaceCommands(app: App) {
 	command("workspace:split-horizontal", "Split down", undefined, (leaf, act) => when(true, act, () => workspace.duplicateLeaf(leaf, "split", "horizontal")));
 	command("workspace:toggle-pin", "Toggle pin", undefined, (leaf, act) => when(true, act, () => leaf.togglePinned()));
 	command("workspace:close-others", "Close all other tabs", undefined, (leaf, act) =>
-		when(tabs(leaf).length > 1, act, () => {
-			for (const other of [...tabs(leaf)]) if (other !== leaf) other.detach();
+		when(closable(leaf).length > 0, act, () => {
+			for (const other of closable(leaf)) other.detach();
 		}),
 	);
 	command("workspace:close-tab-group", "Close this tab group", undefined, (leaf, act) =>
 		when(true, act, () => {
-			for (const other of [...tabs(leaf)]) other.detach();
+			for (const other of closable(leaf)) other.detach();
+			if (!leaf.pinned) leaf.detach();
 		}),
 	);
 	command("workspace:next-tab", "Go to next tab", keys(["Ctrl"], "Tab"), (leaf, act) => select(leaf, act, (tabs(leaf).indexOf(leaf) + 1) % tabs(leaf).length));
