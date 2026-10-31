@@ -1,6 +1,7 @@
 import type { App } from "../api/app";
 import { setIcon } from "../api/icons";
 import { Keymap } from "../api/keymap";
+import { MarkdownView } from "../api/markdown-view";
 import type { CachedMetadata, HeadingCache, Pos, Reference } from "../api/metadata";
 import { parseFrontMatterAliases } from "../api/metadata-utils";
 import { Notice } from "../api/ui/notice";
@@ -131,6 +132,8 @@ function section(parent: HTMLElement, title: string, collapsed: boolean, onToggl
 // follows it, as Obsidian's backlinks, outgoing links and outline do.
 abstract class ActiveFilePane extends ItemView {
 	file: TFile | null = null;
+	// Where `fill` renders, under what `buildHeader` adds.
+	bodyEl!: HTMLElement;
 	#generation = 0;
 	#refresh = debounce(() => this.#render(), 300, true);
 
@@ -148,9 +151,17 @@ abstract class ActiveFilePane extends ItemView {
 	// Fills `el`; `current()` turns false once a later render has begun.
 	abstract fill(file: TFile, el: HTMLElement, current: () => boolean): Promise<void>;
 
+	// Adds what stays above the rendered part.
+	buildHeader(_el: HTMLElement) {}
+
+	// The rendered part is in place.
+	rendered() {}
+
 	async onOpen() {
 		this.headerEl.hide();
 		this.contentEl.addClass("link-pane");
+		this.buildHeader(this.contentEl);
+		this.bodyEl = this.contentEl.createDiv("link-pane-body");
 		const follow = () => {
 			const file = this.app.workspace.getActiveFile();
 			if (file === this.file) return;
@@ -181,10 +192,11 @@ abstract class ActiveFilePane extends ItemView {
 		else el.createDiv({ cls: "link-pane-empty", text: "No file is open." });
 		if (generation !== this.#generation) return;
 		const scroll = this.contentEl.scrollTop;
-		this.contentEl.empty();
-		this.contentEl.append(...Array.from(el.childNodes));
+		this.bodyEl.empty();
+		this.bodyEl.append(...Array.from(el.childNodes));
 		this.contentEl.scrollTop = scroll;
 		this.leaf.updateHeader();
+		this.rendered();
 	}
 }
 
@@ -421,9 +433,48 @@ export class OutgoingLinkView extends ActiveFilePane {
 	}
 }
 
+// The heading a note's line is under: the last one starting at or before it.
+export function headingAt(headings: HeadingCache[], line: number) {
+	let found = -1;
+	for (let i = 0; i < headings.length && headings[i].position.start.line <= line; i++) found = i;
+	return found;
+}
+
+// Which outline nodes a search shows: those whose heading contains the query,
+// ignoring case, and the headings above them. Empty shows everything.
+export function outlineMatches(nodes: OutlineNode[], query: string): Set<OutlineNode> | null {
+	const q = query.trim().toLowerCase();
+	if (!q) return null;
+	const shown = new Set<OutlineNode>();
+	const visit = (node: OutlineNode): boolean => {
+		let hit = node.heading.heading.toLowerCase().includes(q);
+		for (const child of node.children) if (visit(child)) hit = true;
+		if (hit) shown.add(node);
+		return hit;
+	};
+	for (const node of nodes) visit(node);
+	return shown;
+}
+
+interface OutlineItem {
+	node: OutlineNode;
+	el: HTMLElement;
+	self: HTMLElement;
+}
+
 export class OutlineView extends ActiveFilePane {
 	readonly title = "Outline";
 	#collapsed = new Set<string>();
+	#showSearch = false;
+	#query = "";
+	#searchEl!: HTMLElement;
+	#inputEl!: HTMLInputElement;
+	#searchButton!: HTMLElement;
+	#roots: OutlineNode[] = [];
+	// In document order, as the cache lists the headings.
+	#items: OutlineItem[] = [];
+	#active: OutlineItem | null = null;
+	#follow = debounce(() => this.#highlight(), 100, true);
 
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
@@ -436,7 +487,48 @@ export class OutlineView extends ActiveFilePane {
 
 	async onOpen() {
 		this.registerEvent(this.app.metadataCache.on("changed", (file: TFile) => file === this.file && this.refresh()));
+		// The cursor in the editor, the scroll position in the reading view.
+		this.registerDomEvent(document, "selectionchange", () => this.#follow());
+		this.registerDomEvent(document, "scroll", (evt: Event) => (evt.target as HTMLElement).closest?.(".markdown-reading-view") && this.#follow(), { capture: true, passive: true });
+		this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.#follow()));
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.#follow()));
 		await super.onOpen();
+	}
+
+	buildHeader(el: HTMLElement) {
+		const nav = el.createDiv("nav-header");
+		const buttons = nav.createDiv("nav-buttons-container");
+		this.#searchButton = buttons.createDiv({ cls: "clickable-icon nav-action-button", attr: { "aria-label": "Show search filter" } });
+		setIcon(this.#searchButton, "search");
+		this.#searchButton.addEventListener("click", () => this.#setShowSearch(!this.#showSearch, true));
+		this.#searchEl = el.createDiv("search-input-container outline-search");
+		this.#inputEl = this.#searchEl.createEl("input", { type: "search", placeholder: "Search..." });
+		this.#inputEl.value = this.#query;
+		this.#inputEl.addEventListener("input", () => {
+			this.#query = this.#inputEl.value;
+			this.#applyFilter();
+			this.app.workspace.requestSaveLayout();
+		});
+		this.#inputEl.addEventListener("keydown", (evt) => {
+			if (evt.key !== "Escape") return;
+			evt.preventDefault();
+			this.#setShowSearch(false, false);
+		});
+		this.#setShowSearch(this.#showSearch, false);
+	}
+
+	// Hiding the box drops its filter, as in Obsidian.
+	#setShowSearch(show: boolean, focus: boolean) {
+		this.#showSearch = show;
+		this.#searchButton?.toggleClass("is-active", show);
+		this.#searchEl?.toggle(show);
+		if (!show && this.#query) {
+			this.#query = "";
+			if (this.#inputEl) this.#inputEl.value = "";
+			this.#applyFilter();
+		}
+		if (show && focus) this.#inputEl.focus();
+		this.app.workspace.requestSaveLayout();
 	}
 
 	changed(file: TAbstractFile) {
@@ -444,11 +536,26 @@ export class OutlineView extends ActiveFilePane {
 	}
 
 	getState() {
-		return { file: this.file?.path ?? null };
+		return { file: this.file?.path ?? null, showSearch: this.#showSearch, searchQuery: this.#query };
+	}
+
+	async setState(state: any) {
+		if (typeof state?.searchQuery === "string") this.#query = state.searchQuery;
+		if (typeof state?.showSearch === "boolean") {
+			this.#showSearch = state.showSearch;
+			if (this.#searchEl) {
+				this.#inputEl.value = this.#query;
+				this.#setShowSearch(this.#showSearch, false);
+				this.#applyFilter();
+			}
+		}
 	}
 
 	async fill(file: TFile, el: HTMLElement) {
+		this.#items = [];
+		this.#active = null;
 		const headings = this.app.metadataCache.getFileCache(file)?.headings ?? [];
+		this.#roots = headingTree(headings);
 		if (!headings.length) {
 			el.createDiv({ cls: "link-pane-empty", text: "No headings found." });
 			return;
@@ -460,6 +567,7 @@ export class OutlineView extends ActiveFilePane {
 				const key = `${file.path}:${heading.position.start.line}`;
 				const item = parent.createDiv("outline-item");
 				const self = item.createDiv("outline-item-self");
+				this.#items.push({ node, el: item, self });
 				const icon = self.createDiv("link-pane-collapse");
 				self.createSpan({ text: heading.heading });
 				const children = item.createDiv("outline-item-children");
@@ -479,7 +587,45 @@ export class OutlineView extends ActiveFilePane {
 				self.addEventListener("click", (evt) => openAt(this.app, file, { line: heading.position.start.line }, evt));
 			}
 		};
-		add(el, headingTree(headings));
+		add(el, this.#roots);
+		this.#items.sort((a, b) => a.node.heading.position.start.line - b.node.heading.position.start.line);
+	}
+
+	rendered() {
+		this.#applyFilter();
+		this.#highlight();
+	}
+
+	// While searching, matching headings show with the headings above them,
+	// unfolded.
+	#applyFilter() {
+		const shown = outlineMatches(this.#roots, this.#query);
+		this.bodyEl?.toggleClass("is-filtering", !!shown);
+		for (const item of this.#items) item.el.toggle(!shown || shown.has(item.node));
+	}
+
+	// The view showing this pane's file: the active one, else the most recent.
+	#markdownView(): MarkdownView | null {
+		const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (active?.file === this.file) return active;
+		const recent = this.app.workspace.getMostRecentLeaf()?.view;
+		return recent instanceof MarkdownView && recent.file === this.file ? recent : null;
+	}
+
+	// Marks the heading the cursor is under (the top of the reading view).
+	#highlight() {
+		const view = this.#markdownView();
+		let item: OutlineItem | null = null;
+		if (view && this.#items.length) {
+			const line = view.getMode() === "preview" ? Math.floor(view.previewMode.getScroll()) : view.editor.getCursor().line;
+			item = this.#items[headingAt(this.#items.map((i) => i.node.heading), line)] ?? null;
+		}
+		if (item === this.#active) return;
+		this.#active?.self.removeClass("is-active");
+		this.#active = item;
+		if (!item) return;
+		item.self.addClass("is-active");
+		if (item.el.isShown()) item.self.scrollIntoView({ block: "nearest" });
 	}
 }
 
