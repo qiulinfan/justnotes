@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -53,6 +53,30 @@ describe("Vault and outside changes", () => {
 		expect(await until(() => modified.length === 2)).toBe(true);
 		expect(await vault.read(file)).toBe("b");
 		expect(await vault.cachedRead(file)).toBe("b");
+	});
+
+	// The outside write lands after the vault's bytes are on disk but before
+	// the vault has looked at the file again to take its write in.
+	test("an outside write landing while the vault takes in its own write reaches 'modify' and cachedRead", async () => {
+		const { vault, modified, full } = await makeVault({ "c.canvas": "{}" });
+		const file = vault.getFileByPath("c.canvas")!;
+		const stat = fs.promises.stat;
+		let landed = false;
+		const spy = spyOn(fs.promises, "stat").mockImplementation(((p: fs.PathLike, ...rest: []) => {
+			if (!landed && String(p) === full("c.canvas")) {
+				landed = true;
+				fs.writeFileSync(full("c.canvas"), '{"outside":2}');
+			}
+			return stat(p, ...rest);
+		}) as typeof fs.promises.stat);
+		try {
+			await vault.modify(file, '{"v":1}');
+		} finally {
+			spy.mockRestore();
+		}
+		expect(landed).toBe(true);
+		expect(await until(() => modified.length === 2)).toBe(true);
+		expect(await vault.cachedRead(file)).toBe('{"outside":2}');
 	});
 });
 

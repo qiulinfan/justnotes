@@ -124,6 +124,19 @@ function respell(path: string, find: (lower: string) => string | undefined, keep
 // replaces by delete-then-create reads as one modification.
 const DELETE_GRACE = 100;
 
+// Writes through a handle and takes the stat from it before closing: the stat
+// is that of these bytes, even when another program writes the file right after.
+async function put(full: string, flag: "w" | "a", data: string | Uint8Array, mtime?: number) {
+	const handle = await fs.promises.open(full, flag);
+	try {
+		await handle.writeFile(data);
+		if (mtime !== undefined) await handle.utimes(new Date(), new Date(mtime));
+		return await handle.stat();
+	} finally {
+		await handle.close();
+	}
+}
+
 // The desktop adapter. It owns the file table and the watchers, and reports
 // every change of a visible path to the vault through one handler, whether the
 // change came from the watcher, from the vault API or from an adapter call.
@@ -149,7 +162,8 @@ export class FileSystemAdapter {
 	#lower = new Map<string, string>();
 	// Folder key ("" for the root) to the keys of the entries directly in it.
 	#children = new Map<string, Set<string>>();
-	#written = new Map<string, DataWriteOptions>();
+	// While an own write is taken in: the stat of its bytes and the ctime asked for.
+	#written = new Map<string, { stat: fs.Stats; ctime?: number }>();
 	#pendingDeletes = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor(basePath: string) {
@@ -366,19 +380,19 @@ export class FileSystemAdapter {
 	}
 
 	write(normalizedPath: string, data: string, options?: DataWriteOptions) {
-		return this.#mutate(normalizedPath, (full) => fs.promises.writeFile(full, data, "utf8"), options);
+		return this.#mutate(normalizedPath, "w", data, options);
 	}
 
 	writeBinary(normalizedPath: string, data: ArrayBuffer, options?: DataWriteOptions) {
-		return this.#mutate(normalizedPath, (full) => fs.promises.writeFile(full, new Uint8Array(data)), options);
+		return this.#mutate(normalizedPath, "w", new Uint8Array(data), options);
 	}
 
 	append(normalizedPath: string, data: string, options?: DataWriteOptions) {
-		return this.#mutate(normalizedPath, (full) => fs.promises.appendFile(full, data, "utf8"), options);
+		return this.#mutate(normalizedPath, "a", data, options);
 	}
 
 	appendBinary(normalizedPath: string, data: ArrayBuffer, options?: DataWriteOptions) {
-		return this.#mutate(normalizedPath, (full) => fs.promises.appendFile(full, new Uint8Array(data)), options);
+		return this.#mutate(normalizedPath, "a", new Uint8Array(data), options);
 	}
 
 	// Serialized with every other change, so no write lands between the read
@@ -387,33 +401,29 @@ export class FileSystemAdapter {
 		return this.#serial(async () => {
 			const norm = this.#respell(key(normalizedPath));
 			const full = this.getFullPath(norm);
-			let changed = false;
-			const data = await this.#writeTurn(norm, async () => {
+			const { data, stat } = await this.#writeTurn(norm, async () => {
 				const before = await fs.promises.readFile(full, "utf8");
 				const after = fn(before);
-				changed = after !== before;
-				if (changed) await fs.promises.writeFile(full, after, "utf8");
-				return after;
+				return { data: after, stat: after === before ? null : await put(full, "w", after, options?.mtime) };
 			});
-			if (changed) await this.#reconcileWrite(norm, full, options);
+			if (stat) await this.#reconcileWrite(norm, stat, options?.ctime);
 			return data;
 		});
 	}
 
-	#mutate(normalizedPath: string, write: (full: string) => Promise<void>, options?: DataWriteOptions) {
+	#mutate(normalizedPath: string, flag: "w" | "a", data: string | Uint8Array, options?: DataWriteOptions) {
 		return this.#serial(async () => {
 			const norm = this.#respell(key(normalizedPath));
 			const full = this.getFullPath(norm);
 			await fs.promises.mkdir(nodePath.dirname(full), { recursive: true });
-			await this.#writeTurn(norm, () => write(full));
-			await this.#reconcileWrite(norm, full, options);
+			const stat = await this.#writeTurn(norm, () => put(full, flag, data, options?.mtime));
+			await this.#reconcileWrite(norm, stat, options?.ctime);
 		});
 	}
 
 	// Node cannot set a birth time, so a requested ctime is kept in the file table.
-	async #reconcileWrite(norm: string, full: string, options?: DataWriteOptions) {
-		if (options?.mtime !== undefined) await fs.promises.utimes(full, new Date(), new Date(options.mtime));
-		this.#written.set(norm, options ?? {});
+	async #reconcileWrite(norm: string, stat: fs.Stats, ctime?: number) {
+		this.#written.set(norm, { stat, ctime });
 		try {
 			await this.reconcileFile(this.#realPath(norm), norm, true);
 		} finally {
@@ -649,7 +659,9 @@ export class FileSystemAdapter {
 	async reconcileFileInternal(realPath: string, normalizedPath: string) {
 		if (!normalizedPath) return;
 		// An own write reports 'modified' even when the stat looks unchanged,
-		// but only for an entry that existed before it.
+		// but only for an entry that existed before it. It records the stat of
+		// its own bytes: when another program has written the file since, the
+		// stat on disk differs from it, and the watcher reports that write too.
 		const written = this.#written.get(normalizedPath);
 		const before = this.files[normalizedPath];
 		let s: fs.Stats;
@@ -664,12 +676,13 @@ export class FileSystemAdapter {
 		await this.#ensureParent(normalizedPath);
 		if (this.files[normalizedPath]?.type === "folder") await this.reconcileDeletion(realPath, normalizedPath, true);
 		const entry = this.files[normalizedPath];
+		const bytes = written?.stat ?? s;
 		if (!entry) {
-			const stat = { ctime: written?.ctime ?? birth(s), mtime: s.mtimeMs, size: s.size };
+			const stat = { ctime: written?.ctime ?? birth(bytes), mtime: bytes.mtimeMs, size: bytes.size };
 			this.#add(normalizedPath, { type: "file", realpath: realPath, ...stat });
 			this.trigger("file-created", normalizedPath, undefined, { ...stat });
 		} else if ((written && entry === before) || entry.mtime !== s.mtimeMs || entry.size !== s.size) {
-			const stat = { ctime: written?.ctime ?? entry.ctime, mtime: s.mtimeMs, size: s.size };
+			const stat = { ctime: written?.ctime ?? entry.ctime, mtime: bytes.mtimeMs, size: bytes.size };
 			Object.assign(entry, stat, { realpath: realPath });
 			this.trigger("modified", normalizedPath, undefined, { ...stat });
 		}
