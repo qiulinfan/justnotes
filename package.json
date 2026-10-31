@@ -3,6 +3,7 @@
 	"version": "0.1.0",
 	"private": true,
 	"license": "MIT",
+	"author": "qiulinfan",
 	"description": "Why do I need any closed-source editor and any cloud service for note taking and personal knowledge base?",
 	"main": "dist/main.js",
 	"bin": {
@@ -14,7 +15,10 @@
 		"start": "bun run build && electron .",
 		"check": "tsc --noEmit -p .",
 		"test": "bun test test",
-		"cli": "bun src/cli/justnotes.ts"
+		"cli": "bun src/cli/justnotes.ts",
+		"dist": "bun run build && electron-builder --publish never",
+		"dist:mac": "bun run build && electron-builder --mac --publish never",
+		"dist:win": "bun run build && electron-builder --win --publish never"
 	},
 	"dependencies": {
 		"@codemirror/autocomplete": "^6.20.4",
@@ -54,6 +58,7 @@
 		"@types/prismjs": "^1.26.6",
 		"@types/turndown": "^5.0.6",
 		"electron": "^45.2.0",
+		"electron-builder": "26.18.0",
 		"esbuild": "^0.28.2",
 		"obsidian": "^1.14.4",
 		"typescript": "^7.0.2"

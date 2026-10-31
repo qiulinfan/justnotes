@@ -67,6 +67,9 @@ plain style. Development notes belong in this file.
   `completion.ts` (the shell scripts) and `complete.ts` (their candidates).
   `src/main/cli.ts` and `cli-server.ts` serve the socket,
   `src/renderer/cli.ts` runs a request in the vault window.
+- `packaging/`: what the packaged app adds (see Packaging and releases): the
+  icon (`icon.svg`, rendered to `icon.png`) and the command's launchers.
+  `electron-builder.yml` is the packaging configuration.
 - `src/renderer/`: host UI (boot, core commands, file explorer, search, view
   and workspace commands, bases view, the core plugins in `core-plugins.ts`
   and the modules it installs) and `styles/NN-*.css`, which keep
@@ -404,8 +407,9 @@ plain style. Development notes belong in this file.
   `installLanguageExtensions()`, and writes nothing. When that cannot answer
   (no `file=` for an active-file default, a change such as `task toggle`) the
   handler throws `NeedsApp` and the command asks the app instead; every other
-  command starts the app when none runs (`electron <repo> --vault <v>
-  [--profile <dir>]`, detached, needing `bun run build`) and waits for its
+  command starts the app when none runs (from source `electron <repo>
+  --vault <v> [--profile <dir>]`, needing `bun run build`; inside the
+  packaged app its own binary, `appCommand`), detached, and waits for its
   socket, as Obsidian's first command launches Obsidian. `--offline` never
   asks or starts the app. A running app that has no window for the vault of
   a `vault` command (`read: true` in the request) answers `unopened` and the
@@ -471,16 +475,92 @@ plain style. Development notes belong in this file.
   or close answers pending ones with an error. A socket file left by a killed
   instance is replaced on the next start; a live one (another instance on the
   same profile) is left alone and that instance serves no CLI.
-- On PATH (not done by the repo): the bin is `src/cli/justnotes.ts`, an
-  executable Bun script that finds the repo through its real path, so a
-  symlink works: `ln -s <repo>/src/cli/justnotes.ts ~/.local/bin/justnotes`
-  (with `~/.local/bin` and `bun` on PATH), or `bun link` in the repo. Shell
+- On PATH (not done by the repo): from source the bin is
+  `src/cli/justnotes.ts`, an executable Bun script that finds the repo
+  through its real path, so a symlink works: `ln -s
+  <repo>/src/cli/justnotes.ts ~/.local/bin/justnotes` (with `~/.local/bin`
+  and `bun` on PATH), or `bun link` in the repo. The packaged app's command
+  needs neither Bun nor the repo: `ln -s
+  /Applications/justnotes.app/Contents/Resources/cli/justnotes
+  ~/.local/bin/justnotes` (Packaging and releases). Shell
   completion: `justnotes completion zsh > ~/.zfunc/_justnotes` (with
   `~/.zfunc` in `fpath` before `compinit`; `source <(justnotes completion
   zsh)` also works), `justnotes completion fish >
   ~/.config/fish/completions/justnotes.fish`, `source <(justnotes completion
   bash)` (bash 3.2 and later). The scripts call `justnotes` on PATH, so they
   need no regenerating when commands change.
+
+## Packaging and releases
+
+- electron-builder (`electron-builder.yml`, pinned in devDependencies)
+  packages the built `dist/`: `bun run dist:mac` makes `justnotes.app` for
+  arm64 and x64 as `.dmg` and `.zip`, `bun run dist:win` an x64 NSIS
+  installer (`-setup.exe`, per user, folder choosable) and `.zip`, `bun run
+  dist` both; each runs `bun run build` first. Output goes to `release/`
+  (ignored). Name, version and author come from package.json, the app id is
+  `io.github.qiulinfan.justnotes`. The default profile is the same
+  `justnotes` user data folder the source build uses.
+- The asar holds `package.json`, `dist/` without source maps and the
+  command, and of node_modules only `@electron/remote`, which main and the
+  page require at runtime; every other dependency is bundled by esbuild or
+  copied into `dist/lib` (MathJax, pdf.js, Mermaid, Prism). A new runtime
+  `require` of a package needs an entry in `files`. There are no native
+  modules (`npmRebuild: false`). Nothing reads the repo at runtime:
+  `__dirname` is `app.asar/dist`, and `file:///lib/` maps into it.
+- The command: `build.ts` bundles `src/cli/justnotes.ts` to
+  `dist/cli/justnotes.mjs` (ESM for its top-level await, with a `require`
+  for bundled CommonJS; the version is package.json's, imported at build
+  time), which goes outside the asar to `Contents/Resources/cli` (macOS) or
+  `resources\cli` (Windows) with its launcher, `packaging/justnotes` (sh,
+  follows symlinks) or `packaging/justnotes.cmd`. The launcher runs it with
+  the app's own binary as Node (`ELECTRON_RUN_AS_NODE=1`), so the Electron
+  fuse RunAsNode must stay on. Under Electron (`process.versions.electron`)
+  `appCommand` starts `process.execPath` without that variable; from source
+  it starts the checkout's electron.
+- Markdown files: the macOS app declares `.md` and `.markdown` as an
+  Alternate Editor (offered in Open With, never taking the default app);
+  Windows declares no association, because NSIS would make justnotes the
+  default `.md` handler. A file arrives as `open-file` (macOS, at launch
+  before `ready`) or as an argument (any platform); `openFile` in `main.ts`
+  opens it in the vault holding it (a known vault, else the nearest folder
+  above with `.obsidian`, else its folder) through `obsidian://open?path=`,
+  asking first for a vault not opened before, since its plugins would run.
+  The app still does not register `obsidian://` with the OS (see Layout), so
+  only links inside the app, `obsidian://` launch arguments and the command
+  reach it.
+- No signing certificates: the macOS app is ad-hoc signed (`identity: "-"`;
+  Apple silicon refuses unsigned code) and not notarized, the Windows
+  executables are unsigned. A downloaded copy is quarantined: right-click >
+  Open on first launch (macOS 15 and later: System Settings > Privacy &
+  Security > Open Anyway), or `xattr -dr com.apple.quarantine
+  /Applications/justnotes.app`. Windows SmartScreen asks once (More info >
+  Run anyway).
+- Cross-building Windows on a Mac works except the NSIS step on Apple
+  silicon without Rosetta: the default makensis is x86_64. Locally use the
+  arm64-capable toolset, `bun run dist:win -c.toolsets.nsis=1.2.1` (a beta
+  bundle, makensis 3.12); CI builds on Windows with the default.
+- Verify a package by launching its binary directly, never an installed
+  copy: `release/mac-arm64/justnotes.app/Contents/MacOS/justnotes
+  --use-mock-keychain --vault <copy> --profile <dir>
+  --remote-debugging-port=<port>` (drive it with `CDP_PORT=<port> bun
+  scripts/cdp.ts`), and its command
+  `release/mac-arm64/justnotes.app/Contents/Resources/cli/justnotes
+  --profile <dir> ...` (`version`, an offline read, an app command; with no
+  app running it starts the packaged one). `open -a <app> <note.md>`
+  exercises `open-file` but launches without `--profile` unless given
+  `--args --profile <dir>`; without one it uses the real default profile.
+- CI (`.github/workflows/build.yml`, actions pinned by commit): on pushes
+  and pull requests to main, macOS (macos-15) runs `bun install
+  --frozen-lockfile`, `bun run check`, `bun test test`, `bun run build` and
+  packages; Windows (windows-2025) checks, builds and packages without the
+  tests, which assume POSIX (Unix sockets and file modes, symlinks, bash
+  completion). Bun's cache and the Electron and electron-builder downloads
+  are cached; the packages are workflow artifacts (`justnotes-macOS`,
+  `justnotes-Windows`).
+- Release: bump `version` in package.json, commit, tag `v<version>` and push
+  the tag. The workflow checks the tag matches package.json and creates a
+  draft GitHub Release with the `.dmg`, `.zip` and `-setup.exe` files and
+  generated notes; publish it by hand.
 
 ## Views, files and saving
 
@@ -729,7 +809,9 @@ blogs with five of its plugins.
 
 ## Verify
 
-- `bun run check` (TypeScript), `bun run build`, `bun run test`.
+- `bun run check` (TypeScript), `bun run build`, `bun run test`; after a
+  change to packaging, main's startup or the command, `bun run dist:mac`
+  and the package checks in Packaging and releases.
 - Test against a copy of a vault, never the owner's real vaults:
   `bun scripts/test-vault.ts <vault> <dest> [plugin-id ...]`. Plugins write
   their `data.json`, and some run external programs. The copy holds no link
