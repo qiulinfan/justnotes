@@ -63,8 +63,9 @@ plain style. Development notes belong in this file.
   `spec.ts` (the built-in command table: names, flags, where each runs, help),
   `commands/vault.ts` and `commands/app.ts` (the built-ins), `run.ts`,
   `output.ts` (results and formats), `offline.ts` (a vault read without the
-  app), `vaults.ts` (which vault a command means, shared with main) and
-  `completion.ts`. `src/main/cli.ts` and `cli-server.ts` serve the socket,
+  app), `vaults.ts` (which vault a command means, shared with main),
+  `completion.ts` (the shell scripts) and `complete.ts` (their candidates).
+  `src/main/cli.ts` and `cli-server.ts` serve the socket,
   `src/renderer/cli.ts` runs a request in the vault window.
 - `src/renderer/`: host UI (boot, core commands, file explorer, search, view
   and workspace commands, bases view, the core plugins in `core-plugins.ts`
@@ -434,8 +435,30 @@ plain style. Development notes belong in this file.
   window, starting the app; Obsidian's is TUI-only), `quit`, `neighbours`
   (the local graph's nodes to a depth, by direction), `command name=` (a
   palette name, exact or the one containing it), `commands verbose`, stdin
-  content and `completion zsh|fish|bash` (static: built-ins and their flags,
-  with enumerated values; plugin commands are not completed).
+  content and `completion zsh|fish|bash`.
+- Completion (`completion.ts`, `complete.ts`): the scripts hold no command
+  list; on every Tab they run the hidden `justnotes __complete <words before
+  the cursor> <current word>`, which prints `word<TAB>description` lines
+  (never an error, status 0) and the shell filters them; a word ending in `=`
+  or `/` takes no space, and the shell completes `--profile`'s folder itself.
+  Candidates: built-ins and their flags from `spec.ts` (an enumerated value
+  `a|b` as `key=a`, `key=b`; flags already on the line are left out), the
+  vault's plugin commands and their CliFlags, `vault=` with the profile's
+  known vaults (a path where two share a name), `path=` one folder level of
+  the vault at a time and `file=` note names (`.md` dropped) from a walk
+  capped at 20,000 entries, hidden folders skipped. Plugin commands come from
+  the running app: a `complete` request (150 ms timeout) that main answers
+  from what the vault's window last reported, picking the vault as for a
+  command but opening no window, waiting for none and running nothing; it
+  answers `{vault, commands}`, `commands` null when no ready window shows
+  the vault. Otherwise, and with `--offline`, they come from
+  `<profile>/cli/completion.json` (0600, folder 0700) for the vault picked
+  locally (vault= or the working folder; no focused window, so none outside
+  a vault). The window reports `pluginCommands()` after `installCli` and
+  after every `app.cliHandlers` change (`CliHandlers.onChange`, debounced
+  200 ms), and main rewrites that vault's entry; a closed vault keeps its
+  last entry, and anything malformed in the file is dropped on read.
+  `__complete` never starts the app; it takes about 20 ms.
 - The socket: main serves one per profile at
   `<profile>/cli/justnotes-cli.sock` (folder 0700, socket 0600; a named pipe
   keyed by the profile on Windows), never a network port. A socket path past
@@ -451,9 +474,11 @@ plain style. Development notes belong in this file.
   symlink works: `ln -s <repo>/src/cli/justnotes.ts ~/.local/bin/justnotes`
   (with `~/.local/bin` and `bun` on PATH), or `bun link` in the repo. Shell
   completion: `justnotes completion zsh > ~/.zfunc/_justnotes` (with
-  `~/.zfunc` in `fpath` before `compinit`), `justnotes completion fish >
+  `~/.zfunc` in `fpath` before `compinit`; `source <(justnotes completion
+  zsh)` also works), `justnotes completion fish >
   ~/.config/fish/completions/justnotes.fish`, `source <(justnotes completion
-  bash)`.
+  bash)` (bash 3.2 and later). The scripts call `justnotes` on PATH, so they
+  need no regenerating when commands change.
 
 ## Views, files and saving
 

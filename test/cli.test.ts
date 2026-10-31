@@ -1,10 +1,10 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { CliFlags, CliHandler } from "../src/api/plugin";
-import { ask } from "../src/cli/justnotes";
-import { type CliResponse, cliAddress, EXIT_USAGE } from "../src/cli/protocol";
+import { completeWords, readCompletionCache, writeCompletionCache } from "../src/cli/complete";
+import { ask, type CliRequest, type CliResponse, cliAddress, EXIT_USAGE } from "../src/cli/protocol";
 import { closeCli, serveCli } from "../src/main/cli-server";
 import { pickVault } from "../src/cli/vaults";
 import { parseCliArgs } from "../src/cli/args";
@@ -142,6 +142,10 @@ describe("pickVault", () => {
 // The socket the `justnotes` command reaches the app over.
 describe("command-line socket", () => {
 	const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jn-cli-")));
+	// ask() moves into the socket's folder when its path is long, as the
+	// one-shot command may; later tests must not start in a removed folder.
+	const home = process.cwd();
+	afterEach(() => process.chdir(home));
 	afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));
 	const echo = async (req: { argv: string[]; cwd: string }): Promise<CliResponse> => ({ stdout: req.argv.join(" "), stderr: req.cwd, code: 3 });
 
@@ -233,6 +237,107 @@ describe("command-line socket", () => {
 			expect(await proc.exited).toBe(0);
 			expect(await new Response(proc.stdout).text()).toBe("Hello\n");
 			expect(seen).toEqual([{ read: true }]);
+		} finally {
+			closeCli(server!, address);
+		}
+	});
+});
+
+// `justnotes __complete`: the candidates the completion scripts offer. The
+// built-ins need nothing; a vault's plugin commands come from the running
+// app, else from the cache the app keeps in the profile.
+describe("completion candidates", () => {
+	const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jn-complete-")));
+	afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));
+	const quickadd = [
+		{
+			name: "quickadd:run",
+			description: "Run a choice",
+			pluginId: "quickadd",
+			flags: { choice: { value: "<name>", description: "Choice name" }, mode: { value: "fast|slow", description: "Mode" }, ui: { description: "Allow prompts" } },
+		},
+	];
+
+	function setup() {
+		const profile = fs.mkdtempSync(path.join(scratch, "p-"));
+		const vault = fs.mkdtempSync(path.join(scratch, "v-"));
+		for (const [file, text] of Object.entries({ "Home.md": "", "Projects/Alpha.md": "", "Projects/Deep/Beta.md": "", "Projects/pic.png": "", ".hidden/Gamma.md": "" })) {
+			fs.mkdirSync(path.dirname(path.join(vault, file)), { recursive: true });
+			fs.writeFileSync(path.join(vault, file), text);
+		}
+		fs.writeFileSync(path.join(profile, "vaults.json"), JSON.stringify([vault]));
+		const words = (...line: string[]) => completeWords(["--profile", profile, `vault=${path.basename(vault)}`, ...line], scratch).then((cs) => cs.map((c) => c.word));
+		return { profile, vault, words };
+	}
+
+	test("the cache keeps each vault's commands privately and drops what is malformed", () => {
+		const { profile, vault } = setup();
+		writeCompletionCache(profile, vault, quickadd);
+		writeCompletionCache(profile, "/other", [{ name: "two words" }, { name: "ok", flags: { "a b": { description: "x" }, k: { value: 3, description: "y" } } }, 7]);
+		expect(readCompletionCache(profile)).toEqual({ [vault]: quickadd, "/other": [{ name: "ok", description: "", pluginId: "", flags: { k: { description: "y" } } }] });
+		expect(fs.statSync(path.join(profile, "cli")).mode & 0o777).toBe(0o700);
+		expect(fs.statSync(path.join(profile, "cli", "completion.json")).mode & 0o777).toBe(0o600);
+	});
+
+	test("without an app, built-ins complete and the vault's plugin commands come from the cache", async () => {
+		const { profile, vault, words } = setup();
+		expect(await words("")).toContain("read");
+		expect(await words("")).not.toContain("quickadd:run");
+		writeCompletionCache(profile, vault, quickadd);
+		expect(await words("")).toEqual(expect.arrayContaining(["read", "quickadd:run"]));
+		// Not offered again: a vault= after one, a flag already given.
+		expect(await words("")).not.toContain("vault=");
+		expect(await words("quickadd:run", "ui", "")).toEqual(["choice=", "mode=fast", "mode=slow", "--copy"]);
+		expect(await words("quickadd:run", "mode=")).toEqual(["mode=fast", "mode=slow"]);
+		expect(await words("help", "")).toContain("quickadd:run");
+		// Another folder, no vault=: no vault, so built-ins only.
+		expect((await completeWords(["--profile", profile, ""], scratch)).map((c) => c.word)).not.toContain("quickadd:run");
+		expect((await completeWords(["--profile", profile, "vault="], scratch)).map((c) => c.word)).toEqual([`vault=${path.basename(vault)}`]);
+	});
+
+	test("file= offers note names, path= one folder level, never hidden folders", async () => {
+		const { words } = setup();
+		expect(await words("read", "file=")).toEqual(["file=Alpha", "file=Beta", "file=Home", "file=pic.png"]);
+		expect(await words("read", "file=b")).toEqual(["file=Beta"]);
+		expect(await words("read", "path=")).toEqual(["path=Home.md", "path=Projects/"]);
+		expect(await words("read", "path=Projects/")).toEqual(["path=Projects/Alpha.md", "path=Projects/Deep/", "path=Projects/pic.png"]);
+		expect(await words("read", "path=../")).toEqual([]);
+	});
+
+	// The app answers from what the vault's window reported; the command it
+	// would run is never sent, so completing runs nothing.
+	test("with an app running, its answer wins over the cache and only a completion request reaches it", async () => {
+		const { profile, vault, words } = setup();
+		writeCompletionCache(profile, vault, quickadd);
+		const seen: CliRequest[] = [];
+		const address = cliAddress(profile);
+		const live = [{ name: "probe:echo", description: "Echo", pluginId: "probe", flags: { level: { value: "low|high", description: "Level" } } }];
+		const server = await serveCli(address, async (req) => {
+			seen.push(req);
+			return { stdout: JSON.stringify({ vault, commands: live }), stderr: "", code: 0 };
+		});
+		try {
+			const commands = await words("");
+			expect(commands).toContain("probe:echo");
+			expect(commands).not.toContain("quickadd:run");
+			expect(await words("probe:echo", "level=")).toEqual(["level=low", "level=high"]);
+			expect(await words("read", "file=H")).toEqual(["file=Home"]);
+			expect(seen.length).toBeGreaterThan(0);
+			for (const req of seen) expect(req).toEqual({ argv: [`vault=${path.basename(vault)}`], cwd: scratch, complete: true });
+		} finally {
+			closeCli(server!, address);
+		}
+	});
+
+	test("an app that does not answer in time leaves the cache to answer", async () => {
+		const { profile, vault, words } = setup();
+		writeCompletionCache(profile, vault, quickadd);
+		const address = cliAddress(profile);
+		const server = await serveCli(address, () => new Promise<CliResponse>(() => {}));
+		try {
+			const started = Date.now();
+			expect(await words("")).toContain("quickadd:run");
+			expect(Date.now() - started).toBeLessThan(1000);
 		} finally {
 			closeCli(server!, address);
 		}

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as net from "node:net";
-import { type CliAddress, type CliRequest, type CliResponse, EXIT_FAILURE, enterSocketDir, LineReader } from "../cli/protocol";
+import { type CliAddress, type CliRequest, type CliResponse, EXIT_FAILURE, enterSocketDir, LineReader, privateDir } from "../cli/protocol";
 
 // The app's side of the `justnotes` command (src/cli/justnotes.ts): a server
 // on the profile's local socket that hands each request to `dispatch` and
@@ -47,16 +47,6 @@ function inSocketDir(address: CliAddress, run: (name: string) => void) {
 	} finally {
 		process.chdir(cwd);
 	}
-}
-
-// The socket's folder belongs to this user and only they may enter it; a
-// folder someone else owns, or a symlink in its place, is refused.
-function privateDir(dir: string) {
-	fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-	const stat = fs.lstatSync(dir);
-	if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`${dir} is not a folder`);
-	if (process.getuid && stat.uid !== process.getuid()) throw new Error(`${dir} belongs to another user`);
-	if ((stat.mode & 0o077) !== 0) fs.chmodSync(dir, 0o700);
 }
 
 function answers(address: CliAddress) {
@@ -114,7 +104,8 @@ function isRequest(value: unknown): value is CliRequest {
 		typeof req.cwd === "string" &&
 		Array.isArray(req.argv) &&
 		req.argv.every((arg) => typeof arg === "string") &&
-		(req.read === undefined || typeof req.read === "boolean")
+		(req.read === undefined || typeof req.read === "boolean") &&
+		(req.complete === undefined || typeof req.complete === "boolean")
 	);
 }
 

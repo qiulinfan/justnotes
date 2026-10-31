@@ -1,9 +1,10 @@
 import * as path from "node:path";
 import { app, BrowserWindow, ipcMain, type WebContents } from "electron";
 import { parseCliArgs } from "../cli/args";
+import { type CompletionAnswer, pluginCommandList, writeCompletionCache } from "../cli/complete";
 import { list, render } from "../cli/output";
 import { type CliRequest, type CliResponse, cliAddress, EXIT_FAILURE, EXIT_USAGE } from "../cli/protocol";
-import { BUILTINS, builtinHelp, flagsOf } from "../cli/spec";
+import { BUILTINS, builtinHelp, flagsOf, type PluginCommand } from "../cli/spec";
 import { pickVault } from "../cli/vaults";
 import { closeCli, serveCli } from "./cli-server";
 import { knownVaults, rememberVault } from "./ipc";
@@ -21,6 +22,8 @@ const ready = new WeakSet<WebContents>();
 const readyWaiters = new WeakMap<WebContents, (() => void)[]>();
 const pending = new Map<number, { contents: WebContents; resolve: (response: CliResponse) => void }>();
 let nextId = 0;
+// The plugin commands each vault's window last reported, for completion.
+const reported = new Map<string, PluginCommand[]>();
 
 ipcMain.on("justnotes:cli-ready", (evt) => {
 	ready.add(evt.sender);
@@ -131,7 +134,20 @@ async function showVault(openVault: OpenVault, vault: string) {
 	return (await whenReady(win.webContents)) ? win : null;
 }
 
+// A completion request: the vault the words name, and its plugin commands
+// when a window shows it and has reported them. Nothing waits or opens.
+function completionAnswer(windows: Map<string, BrowserWindow>, req: CliRequest): CliResponse {
+	const { open, focused } = openVaults(windows);
+	const picked = pickVault(req.argv.slice(0, 1), req.cwd, open, knownVaults(), focused);
+	if ("error" in picked) return fail(picked.error, picked.code);
+	const win = windows.get(picked.vault);
+	const live = !!win && !win.isDestroyed() && ready.has(win.webContents);
+	const answer: CompletionAnswer = { vault: picked.vault, commands: live ? (reported.get(picked.vault) ?? null) : null };
+	return { stdout: JSON.stringify(answer), stderr: "", code: 0 };
+}
+
 async function dispatch(windows: Map<string, BrowserWindow>, openVault: OpenVault, req: CliRequest): Promise<CliResponse> {
+	if (req.complete) return completionAnswer(windows, req);
 	const lead = req.argv[0]?.startsWith("vault=") ? 1 : 0;
 	if (BUILTINS.get(req.argv[lead])?.where === "main") return mainCommand(windows, openVault, req, req.argv.slice(lead), req.argv.slice(0, lead));
 	const { open, focused } = openVaults(windows);
@@ -155,7 +171,22 @@ async function dispatch(windows: Map<string, BrowserWindow>, openVault: OpenVaul
 
 // Serves the profile's socket while the app runs.
 export async function startCli(windows: Map<string, BrowserWindow>, openVault: OpenVault) {
-	const address = cliAddress(app.getPath("userData"));
+	const profile = app.getPath("userData");
+	// A window reports its plugin commands once it takes requests and after
+	// every change (renderer/cli.ts); the cache keeps them for completion
+	// while no app runs.
+	ipcMain.on("justnotes:cli-handlers", (evt, commands: unknown) => {
+		const vault = [...windows].find(([, win]) => !win.isDestroyed() && win.webContents === evt.sender)?.[0];
+		if (!vault) return;
+		const list = pluginCommandList(commands);
+		reported.set(vault, list);
+		try {
+			writeCompletionCache(profile, vault, list);
+		} catch (err) {
+			console.error("Could not write the completion cache", err);
+		}
+	});
+	const address = cliAddress(profile);
 	const server = await serveCli(address, (req) => dispatch(windows, openVault, req));
 	if (!server) {
 		console.error("Another justnotes instance serves the command line for this profile");

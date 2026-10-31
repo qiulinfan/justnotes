@@ -1,5 +1,6 @@
-import type { App } from "../api/app";
+import type { App, CliHandlerEntry } from "../api/app";
 import { getElectron } from "../api/dom";
+import { debounce } from "../api/util";
 import { parseCliArgs } from "../cli/args";
 import { APP_COMMANDS } from "../cli/commands/app";
 import type { Ctx } from "../cli/commands/context";
@@ -12,7 +13,8 @@ import { BUILTINS, builtinHelp, commandHelp, helpText, missingReason } from "../
 // a built-in command (src/cli/spec.ts), else a handler a plugin registered
 // with registerCliHandler, with Obsidian's command-line syntax.
 
-type CliHost = Pick<App, "cliHandlers">;
+// Built-ins need the whole App; help and plugin handlers only the handlers.
+type CliHost = { cliHandlers: Map<string, CliHandlerEntry> };
 
 function pluginCommands(host: CliHost) {
 	return [...host.cliHandlers].map(([name, entry]) => ({ name, description: entry.description, pluginId: entry.pluginId, flags: entry.flags }));
@@ -82,12 +84,20 @@ export async function runCli(host: CliHost, argv: string[], cwd = "/"): Promise<
 	}
 }
 
+// Plugins register several handlers at once (onload), and toggling plugins
+// in settings adds or drops them: main hears the list once they settle.
+const REPORT_DELAY = 200;
+
 // Takes requests from main once plugins have loaded and registered their
-// handlers.
+// handlers, and reports the handlers to main now and after every change, for
+// completion (main keeps them in the profile's cache).
 export function installCli(app: App) {
 	const { ipcRenderer } = getElectron();
 	ipcRenderer.on("justnotes:cli", async (_evt: unknown, id: number, argv: string[], cwd: string) => {
 		ipcRenderer.send("justnotes:cli-result", id, await runCli(app, argv, cwd));
 	});
 	ipcRenderer.send("justnotes:cli-ready");
+	const report = () => ipcRenderer.send("justnotes:cli-handlers", pluginCommands(app));
+	app.cliHandlers.onChange = debounce(report, REPORT_DELAY, true);
+	report();
 }

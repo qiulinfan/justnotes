@@ -1,5 +1,6 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -11,11 +12,15 @@ import * as path from "node:path";
 // folder it ran in (it picks the vault when no vault= is given). `read`
 // marks a command that can read the vault folder itself: the app runs it
 // only in a vault it shows, and otherwise answers with `unopened` instead of
-// opening a window.
+// opening a window. `complete` asks, for shell completion, which plugin
+// commands the vault named by `argv` (only a leading vault=) has registered:
+// the app runs nothing, opens no window and waits for none, and answers a
+// CompletionAnswer as JSON.
 export interface CliRequest {
 	argv: string[];
 	cwd: string;
 	read?: boolean;
+	complete?: boolean;
 }
 
 // What the app answers: text for stdout and stderr, and the exit status.
@@ -62,6 +67,22 @@ export function cliAddress(profile: string): CliAddress {
 
 export const SOCKET_NAME = "justnotes-cli.sock";
 
+// The plugin commands each vault's window last registered, which the app
+// keeps for completion while no app runs (complete.ts), next to the socket.
+export function completionCacheFile(profile: string) {
+	return path.join(profile, "cli", "completion.json");
+}
+
+// The socket's folder belongs to this user and only they may enter it; a
+// folder someone else owns, or a symlink in its place, is refused.
+export function privateDir(dir: string) {
+	fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+	const stat = fs.lstatSync(dir);
+	if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`${dir} is not a folder`);
+	if (process.getuid && stat.uid !== process.getuid()) throw new Error(`${dir} belongs to another user`);
+	if ((stat.mode & 0o077) !== 0) fs.chmodSync(dir, 0o700);
+}
+
 // A socket path longer than sockaddr_un holds (104 bytes on macOS, 108 on
 // Linux) cannot be bound or connected, which a deep --profile reaches. Such a
 // socket is addressed by its name relative to its folder, after changing into
@@ -88,4 +109,45 @@ export class LineReader {
 		if (end < 0) return undefined;
 		return JSON.parse(this.#buffer.slice(0, end));
 	}
+}
+
+const MAX_RESPONSE = 64 << 20;
+
+// Sends one request and resolves with the app's answer, or rejects with the
+// connection error (ENOENT or ECONNREFUSED: no app serves this profile), or
+// after `timeout` ms without an answer when one is given. A long socket path
+// leaves the process in the socket's folder (enterSocketDir).
+export function ask(address: CliAddress, request: CliRequest, timeout?: number): Promise<CliResponse> {
+	return new Promise((resolve, reject) => {
+		const reader = new LineReader(MAX_RESPONSE);
+		const socket = net.connect(enterSocketDir(address));
+		const timer = timeout === undefined ? null : setTimeout(() => {
+			reject(new Error("The app did not answer in time."));
+			socket.destroy();
+		}, timeout);
+		const settle = () => timer && clearTimeout(timer);
+		socket.setEncoding("utf8");
+		socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
+		socket.on("data", (chunk: string) => {
+			try {
+				const response = reader.push(chunk) as CliResponse | undefined;
+				if (response === undefined) return;
+				settle();
+				resolve(response);
+				socket.end();
+			} catch (err) {
+				settle();
+				reject(err);
+				socket.destroy();
+			}
+		});
+		socket.on("error", (err) => {
+			settle();
+			reject(err);
+		});
+		socket.on("close", () => {
+			settle();
+			reject(new Error("The app closed the connection without an answer."));
+		});
+	});
 }

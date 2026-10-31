@@ -20,6 +20,8 @@ export interface CommandSpec {
 	description: string;
 	flags: CliFlags;
 	where: Where;
+	// More lines for `help <command>`.
+	details?: string[];
 }
 
 const FILE: CliFlags = {
@@ -515,6 +517,14 @@ const COMMANDS: CommandSpec[] = [
 		name: "completion",
 		group: "Shell",
 		description: "Print a completion script: justnotes completion zsh|fish|bash",
+		details: [
+			"The script asks justnotes for candidates as you type: commands and their flags, the",
+			"plugins' commands of the vault (from the running app, else as it last saw them),",
+			"vault= names, file= and path= notes. It never starts the app or runs a command.",
+			"  zsh:  justnotes completion zsh > ~/.zfunc/_justnotes  (~/.zfunc in fpath before compinit)",
+			"  fish: justnotes completion fish > ~/.config/fish/completions/justnotes.fish",
+			"  bash: source <(justnotes completion bash)",
+		],
 		flags: { zsh: { description: "zsh" }, fish: { description: "fish" }, bash: { description: "bash" } },
 		where: "client",
 	},
@@ -586,8 +596,8 @@ export function helpText(plugins: PluginCommand[] | null): string {
 }
 
 // One command's flags.
-export function commandHelp(name: string, description: string, flags: CliFlags | null, origin: string): string {
-	const lines = [`${name}  (${origin})`, description];
+export function commandHelp(name: string, description: string, flags: CliFlags | null, origin: string, details: string[] = []): string {
+	const lines = [`${name}  (${origin})`, description, ...(details.length ? ["", ...details] : [])];
 	const entries = Object.entries(flags ?? {});
 	if (entries.length) {
 		lines.push("", "Flags:");
@@ -598,5 +608,5 @@ export function commandHelp(name: string, description: string, flags: CliFlags |
 
 export function builtinHelp(spec: CommandSpec) {
 	const origin = { vault: "built-in; works without a running app", app: "built-in", main: "built-in", client: "built-in" }[spec.where];
-	return commandHelp(spec.name, spec.description, flagsOf(spec), origin);
+	return commandHelp(spec.name, spec.description, flagsOf(spec), origin, spec.details);
 }
