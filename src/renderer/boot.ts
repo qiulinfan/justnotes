@@ -8,6 +8,7 @@ import { MarkdownView } from "../api/markdown-view";
 import { Notice } from "../api/ui/notice";
 import { installTooltips } from "../api/ui/tooltip";
 import { installBases } from "./bases-view";
+import { installCli } from "./cli";
 import { registerCoreCommands } from "./commands";
 import { defaultRightSidebar, installCorePlugins, registerCorePluginViews } from "./core-plugins";
 import { SearchView } from "./search";
@@ -137,6 +138,7 @@ async function boot() {
 	await app.restoreLayoutState({ ...DEFAULT_LAYOUT, right: defaultRightSidebar(app) });
 	app.workspace.setLayoutReady();
 	handleWindowClose(app);
+	installCli(app);
 
 	const failed = Object.keys(app.plugins.manifests).filter((id) => !app.plugins.plugins[id]);
 	if (failed.length) console.info("Plugins not loaded:", failed);

@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell, type WebContents } from "electron";
+import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
 import { handleSchemes, registerSchemes } from "./protocol";
@@ -217,6 +218,7 @@ function openVault(vault: string) {
 	const contents = win.webContents;
 	remoteMain.enable(contents);
 	setupWindowLifecycle(win);
+	trackCliWindow(win);
 	contents.setWindowOpenHandler(({ url }) => {
 		openUrl(url, contents);
 		return { action: "deny" };
@@ -255,6 +257,7 @@ app.whenReady().then(() => {
 	handleSchemes();
 	routeExternalLinks(session.defaultSession);
 	setApplicationMenu();
+	startCli(vaultWindows).catch((err) => console.error("The command line socket could not start", err));
 	return openFirstVault();
 });
 app.on("window-all-closed", () => app.quit());

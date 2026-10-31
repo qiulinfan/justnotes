@@ -285,8 +285,8 @@ export class App {
 	setting: SettingModal;
 	statusBar: HTMLElement;
 	protocolHandlers: Record<string, (params: any) => any> = {};
-	// Handlers plugins register with registerCliHandler, by command id. There
-	// is no command-line transport yet.
+	// Handlers plugins register with registerCliHandler, by command id; the
+	// `justnotes` command runs them (renderer/cli.ts).
 	cliHandlers = new Map<string, { description: string; flags: CliFlags | null; handler: CliHandler; pluginId: string }>();
 	renderContext = new RenderContext();
 	customCss: CustomCss;
