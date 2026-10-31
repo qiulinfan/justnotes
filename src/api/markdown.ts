@@ -144,8 +144,12 @@ function embedPlaceholder(src: string, label?: string) {
 
 // Obsidian hides %%comments%%, inline or across lines, and an unclosed %%
 // hides the rest of the note. Their text is blanked before block parsing, so
-// line numbers stay those of the file; the frontmatter, fenced code and
-// inline code keep their %%.
+// line numbers stay those of the file; the frontmatter, fenced code (also in
+// a quote, callout or list item, as Live Preview's tree has it, and after an
+// item's marker: '- ```py') and inline code keep their %%. A backtick fence's
+// info string holds no backtick: '```a``` b' is inline code.
+const FENCE = /^(?:[ \t]*(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t])))*[ \t]*(`{3,}(?=[^`]*$)|~{3,})/;
+
 function stripComments(src: string) {
 	if (!src.includes("%%")) return src;
 	const lines = src.split("\n");
@@ -159,7 +163,7 @@ function stripComments(src: string) {
 	for (; i < lines.length; i++) {
 		const line = lines[i];
 		if (!inComment) {
-			const f = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+			const f = FENCE.exec(line);
 			if (fence) {
 				if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !line.slice(f[0].length).trim()) fence = null;
 				continue;

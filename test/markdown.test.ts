@@ -145,6 +145,17 @@ describe("hidden syntax", () => {
 		expect(out).toContain("<code>%%kept%%</code>");
 	});
 
+	// A Jupyter or shell %% line in a fence inside a callout or list item once
+	// opened a comment that hid the code and everything after it.
+	test("fences in callouts and list items keep their %%", () => {
+		const out = html("> [!note]\n> ```bash\n> %%bash\n> ```\n\n- item\n\t```py\n\t%%timeit\n\t```\n- ```m\n  %% cell\n  ```\n\n```a``` %%gone%%\n\nafter %%gone%% text");
+		expect(out).toContain('<code class="language-bash is-loaded">%%bash</code>');
+		expect(out).toContain('<code class="language-py is-loaded">%%timeit</code>');
+		expect(out).toContain('<code class="language-m is-loaded">%% cell</code>');
+		expect(out).not.toContain("gone");
+		expect(out).toContain("after  text");
+	});
+
 	test("an unclosed comment hides the rest of the note", () => {
 		expect(html("shown\n\n%% open\n\n# gone")).not.toContain("gone");
 	});
