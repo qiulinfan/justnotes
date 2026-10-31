@@ -136,6 +136,15 @@ export class FileSystemAdapter {
 	insensitive = false;
 	#handler: AdapterChange | null = null;
 	#queue: Promise<unknown> = Promise.resolve();
+	// Per file, the write putting its bytes on disk and the reads under way:
+	// a read waits for that write and a write for the reads begun before it,
+	// so no read sees a file half written. A read never waits for writes
+	// still queued, as code running inside the queue may read. Writes go in
+	// place: a temporary file renamed over a note would give it a new birth
+	// time (its stat.ctime) and drop its mode and extended attributes such
+	// as Finder tags.
+	#writing = new Map<string, Promise<void>>();
+	#reading = new Map<string, Set<Promise<unknown>>>();
 	// Lowercased path to its key in `files`, for case-insensitive volumes.
 	#lower = new Map<string, string>();
 	#written = new Map<string, DataWriteOptions>();
@@ -278,12 +287,60 @@ export class FileSystemAdapter {
 	}
 
 	read(normalizedPath: string) {
-		return fs.promises.readFile(this.getFullPath(normalizedPath), "utf8");
+		return this.#readTurn(normalizedPath, (full) => fs.promises.readFile(full, "utf8"));
 	}
 
-	async readBinary(normalizedPath: string) {
-		const b = await fs.promises.readFile(this.getFullPath(normalizedPath));
-		return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+	readBinary(normalizedPath: string) {
+		return this.#readTurn(normalizedPath, async (full) => {
+			const b = await fs.promises.readFile(full);
+			return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+		});
+	}
+
+	// One key per file for the read and write turns: on a case-insensitive
+	// volume every spelling of a path names the same file.
+	#turnKey(normalizedPath: string) {
+		const norm = key(normalizedPath);
+		return this.insensitive ? norm.toLowerCase() : norm;
+	}
+
+	#readTurn<T>(normalizedPath: string, read: (full: string) => Promise<T>): Promise<T> {
+		const turn = this.#turnKey(normalizedPath);
+		const start = () => read(this.getFullPath(normalizedPath));
+		const writing = this.#writing.get(turn);
+		const run = writing ? writing.then(start) : start();
+		let reads = this.#reading.get(turn);
+		if (!reads) this.#reading.set(turn, (reads = new Set()));
+		reads.add(run);
+		const done = () => {
+			reads.delete(run);
+			if (!reads.size && this.#reading.get(turn) === reads) this.#reading.delete(turn);
+		};
+		run.then(done, done);
+		return run;
+	}
+
+	// Puts a file's bytes on disk once the reads begun before have finished;
+	// reads begun meanwhile wait for it. Runs inside #serial, so writes of
+	// one file never overlap.
+	async #writeTurn<T>(norm: string, write: () => Promise<T>): Promise<T> {
+		const turn = this.#turnKey(norm);
+		const reads = [...(this.#reading.get(turn) ?? [])];
+		let finish = () => {};
+		const writing = new Promise<void>((resolve) => (finish = resolve));
+		this.#writing.set(turn, writing);
+		try {
+			if (reads.length) await Promise.allSettled(reads);
+			return await write();
+		} finally {
+			if (this.#writing.get(turn) === writing) this.#writing.delete(turn);
+			finish();
+		}
+	}
+
+	// Whether a write is putting the file's bytes on disk at the moment.
+	isWriting(normalizedPath: string) {
+		return this.#writing.has(this.#turnKey(normalizedPath));
 	}
 
 	write(normalizedPath: string, data: string, options?: DataWriteOptions) {
@@ -308,12 +365,15 @@ export class FileSystemAdapter {
 		return this.#serial(async () => {
 			const norm = this.#respell(key(normalizedPath));
 			const full = this.getFullPath(norm);
-			const before = await fs.promises.readFile(full, "utf8");
-			const data = fn(before);
-			if (data !== before) {
-				await fs.promises.writeFile(full, data, "utf8");
-				await this.#reconcileWrite(norm, full, options);
-			}
+			let changed = false;
+			const data = await this.#writeTurn(norm, async () => {
+				const before = await fs.promises.readFile(full, "utf8");
+				const after = fn(before);
+				changed = after !== before;
+				if (changed) await fs.promises.writeFile(full, after, "utf8");
+				return after;
+			});
+			if (changed) await this.#reconcileWrite(norm, full, options);
 			return data;
 		});
 	}
@@ -323,7 +383,7 @@ export class FileSystemAdapter {
 			const norm = this.#respell(key(normalizedPath));
 			const full = this.getFullPath(norm);
 			await fs.promises.mkdir(nodePath.dirname(full), { recursive: true });
-			await write(full);
+			await this.#writeTurn(norm, () => write(full));
 			await this.#reconcileWrite(norm, full, options);
 		});
 	}
@@ -1038,9 +1098,11 @@ export class Vault extends Events {
 		return text;
 	}
 
+	// While a write is putting the file on disk, the text comes from disk once
+	// it is done.
 	async cachedRead(file: TFile) {
 		const hit = this.#contents.get(file.path);
-		if (hit && hit.mtime === file.stat.mtime && hit.size === file.stat.size) return hit.text;
+		if (hit && hit.mtime === file.stat.mtime && hit.size === file.stat.size && !this.adapter.isWriting(file.path)) return hit.text;
 		return this.read(file);
 	}
 

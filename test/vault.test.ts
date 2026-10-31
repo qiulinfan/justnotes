@@ -300,13 +300,6 @@ describe("Vault files", () => {
 		expect(await vault.cachedRead(file)).toBe("two!");
 	});
 
-	test("process runs after earlier writes to the file, so concurrent edits are kept", async () => {
-		const { vault } = await makeVault({ "n.md": "" });
-		const file = vault.getFileByPath("n.md")!;
-		await Promise.all([vault.process(file, (d) => `${d}a`), vault.process(file, (d) => `${d}b`), vault.append(file, "c")]);
-		expect(await vault.read(file)).toBe("abc");
-	});
-
 	test("a write with an mtime option sets the file's modification time and stat", async () => {
 		const { vault, full } = await makeVault();
 		const mtime = Date.UTC(2020, 0, 2);

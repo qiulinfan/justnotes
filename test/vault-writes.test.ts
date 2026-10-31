@@ -55,3 +55,66 @@ describe("Vault and outside changes", () => {
 		expect(await vault.cachedRead(file)).toBe("b");
 	});
 });
+
+describe("Vault write order", () => {
+	test("modify, process, append and binary writes of one file run in call order", async () => {
+		const { vault } = await makeVault({ "n.md": "" });
+		const file = vault.getFileByPath("n.md")!;
+		const bytes = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
+		const seen: string[] = [];
+		const add = (c: string) => (d: string) => {
+			seen.push(d);
+			return `${d}${c}`;
+		};
+		await Promise.all([
+			vault.modify(file, "a"),
+			vault.process(file, add("b")),
+			vault.append(file, "c"),
+			vault.appendBinary(file, bytes("d")),
+			vault.process(file, add("e")),
+			vault.modifyBinary(file, bytes("f")),
+			vault.append(file, "g"),
+		]);
+		expect(seen).toEqual(["a", "abcd"]);
+		expect(await vault.read(file)).toBe("fg");
+	});
+
+	// A view saving through process cannot lose a plugin's modify that comes
+	// while it holds the file: that write runs after it.
+	test("a read or write started while process holds the file waits for its result", async () => {
+		const { vault } = await makeVault({ "n.md": "old" });
+		const file = vault.getFileByPath("n.md")!;
+		expect(await vault.cachedRead(file)).toBe("old");
+		let during: Promise<string>[] = [];
+		let plugin: Promise<void> = Promise.resolve();
+		await vault.process(file, (text) => {
+			during = [vault.cachedRead(file), vault.read(file), vault.adapter.read("n.md")];
+			plugin = vault.modify(file, `${text} plugin`);
+			return `${text} view`;
+		});
+		expect(await Promise.all(during)).toEqual(["old view", "old view", "old view"]);
+		await plugin;
+		expect(await vault.read(file)).toBe("old plugin");
+	});
+
+	// Writing a note truncates it first; a reader must never get the empty or
+	// cut-off file of a save under way, whether it started before or during it.
+	test("a read during writes sees one whole text", async () => {
+		const texts = ["a", "b", "c"].map((c) => c.repeat(8 << 20));
+		const { vault } = await makeVault({ "big.md": texts[0] });
+		const file = vault.getFileByPath("big.md")!;
+		// The length of each read that got none of the texts.
+		const reads: Promise<number | null>[] = [];
+		const writes: Promise<void>[] = [];
+		for (let i = 0; i < 30; i++) {
+			if (i === 5) writes.push(vault.modify(file, texts[1]));
+			if (i === 15) writes.push(vault.adapter.write("big.md", texts[2]));
+			const read = i % 2 ? vault.read(file) : vault.adapter.read("big.md");
+			reads.push(read.then((t) => (texts.includes(t) ? null : t.length)));
+			await Bun.sleep(1);
+		}
+		await Promise.all(writes);
+		expect((await Promise.all(reads)).filter((n) => n !== null)).toEqual([]);
+		expect(await vault.read(file)).toBe(texts[2]);
+	});
+});
