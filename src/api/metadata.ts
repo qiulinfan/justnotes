@@ -119,12 +119,17 @@ const STANDALONE_ID = /^ {0,3}\^([A-Za-z0-9-]+)[ \t]*$/;
 const WIKILINK = /(!?)\[\[([^[\]]+?)\]\]/g;
 // [text](dest "title"), dest possibly in <...>, one level of nesting in both.
 const MDLINK = /(!?)\[((?:[^[\]\n]|\[[^[\]\n]*\])*)\]\(\s*(<[^<>\n]*>|(?:[^\s()]|\([^\s()]*\))*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)/g;
+const MDLINK_ONE = new RegExp(MDLINK.source);
 const TAG = /(?<=^|\s)#([\p{L}\p{N}\p{M}\p{Extended_Pictographic}_\-/‍️]+)/gu;
 const FOOTNOTE_REF = /\[\^([^\]\s]+)\](?!:)/g;
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
 const blank = (s: string) => !s.trim();
-const leading = (s: string) => /^[ \t]*/.exec(s)![0];
+const leading = (s: string) => {
+	let n = 0;
+	while (s[n] === " " || s[n] === "\t") n++;
+	return s.slice(0, n);
+};
 // The columns `s` spans, a tab advancing to the next multiple of 4, as
 // CommonMark measures indentation; Obsidian indents with tabs by default.
 const columns = (s: string) => {
@@ -134,6 +139,10 @@ const columns = (s: string) => {
 };
 const widthOf = (s: string) => columns(leading(s));
 const blankOut = (s: string) => " ".repeat(s.length);
+// Where maskInline has something to do: an escape, a code span, a comment
+// or math. The text between two of these is kept as it is.
+const INLINE_MARK = /[\\`%<$]/g;
+const MATH = /\$\$[^$]+\$\$|\$(?=[^\s$])[^$]*?[^\s$\\]\$(?!\d)|\$[^\s$]\$(?!\d)/y;
 
 // Follows fenced code through the lines of a list or quote: "open" for the
 // line that opens a fence, "code" for the lines inside it and its closing
@@ -176,6 +185,13 @@ function maskInline(line: string, state: { comment: string | null }) {
 			i = end;
 			continue;
 		}
+		INLINE_MARK.lastIndex = i;
+		const mark = INLINE_MARK.exec(line)?.index ?? line.length;
+		if (mark > i) {
+			out += line.slice(i, mark);
+			i = mark;
+			continue;
+		}
 		const c = line[i];
 		if (c === "\\" && i + 1 < line.length) {
 			// The escaped character keeps no special meaning; a tag after '\' is
@@ -204,7 +220,8 @@ function maskInline(line: string, state: { comment: string | null }) {
 			out += "    ";
 			i += 4;
 		} else if (c === "$") {
-			const m = /^\$\$[^$]+\$\$|^\$(?=[^\s$])[^$]*?[^\s$\\]\$(?!\d)|^\$[^\s$]\$(?!\d)/.exec(line.slice(i));
+			MATH.lastIndex = i;
+			const m = MATH.exec(line);
 			if (m) {
 				out += blankOut(m[0]);
 				i += m[0].length;
@@ -319,23 +336,24 @@ export function parseMetadata(text: string): CachedMetadata {
 		first = position.end.line + 1;
 	}
 
-	// Links, tags and footnote references in one line of inline content.
+	// Links, tags and footnote references in one line of inline content. Each
+	// kind is looked for only when the line holds its opening characters.
 	const scanInline = (i: number, masked: string) => {
 		const base = lines[i].start;
 		const raw = lines[i].text;
 		let tagText = masked;
-		for (const m of masked.matchAll(WIKILINK)) {
+		if (masked.includes("[[")) for (const m of masked.matchAll(WIKILINK)) {
 			const s = base + m.index!;
 			const original = raw.slice(m.index!, m.index! + m[0].length);
 			const { link, alias } = splitWikilink(original.slice(m[1].length + 2, -2));
 			(m[1] ? embeds : links).push({ link, original, displayText: alias ?? wikiDisplay(link), position: pos(s, s + m[0].length) });
 			tagText = tagText.slice(0, m.index!) + blankOut(m[0]) + tagText.slice(m.index! + m[0].length);
 		}
-		for (const hit of masked.matchAll(MDLINK)) {
+		if (masked.includes("](")) for (const hit of masked.matchAll(MDLINK)) {
 			const s = base + hit.index!;
 			const original = raw.slice(hit.index!, hit.index! + hit[0].length);
 			// The groups come from the unmasked text, so '$' or '`' in a path survive.
-			const unmasked = new RegExp(MDLINK.source).exec(original);
+			const unmasked = MDLINK_ONE.exec(original);
 			const m = unmasked && unmasked.index === 0 && unmasked[0].length === original.length ? unmasked : hit;
 			const dest = m[3].startsWith("<") ? m[3].slice(1, -1) : m[3];
 			if (!dest || SCHEME.test(dest)) continue;
@@ -343,12 +361,12 @@ export function parseMetadata(text: string): CachedMetadata {
 			const destAt = hit.index! + hit[0].indexOf("](") + 1;
 			tagText = tagText.slice(0, destAt) + blankOut(hit[0].slice(destAt - hit.index!)) + tagText.slice(hit.index! + hit[0].length);
 		}
-		for (const m of tagText.matchAll(TAG)) {
+		if (tagText.includes("#")) for (const m of tagText.matchAll(TAG)) {
 			if (/^[\d/]+$/.test(m[1])) continue;
 			const s = base + m.index!;
 			tags.push({ tag: `#${m[1]}`, position: pos(s, s + m[0].length) });
 		}
-		for (const m of masked.matchAll(FOOTNOTE_REF)) {
+		if (masked.includes("[^")) for (const m of masked.matchAll(FOOTNOTE_REF)) {
 			const s = base + m.index!;
 			footnoteRefs.push({ id: m[1], position: pos(s, s + m[0].length) });
 		}
@@ -949,10 +967,16 @@ export class MetadataCache extends Events {
 	// shortest first. Names match without regard to case, and a linkpath is
 	// also tried with '.md' appended, whatever dots it already has.
 	getFirstLinkpathDest(linkpath: string, sourcePath: string): TFile | null {
-		return this.getLinkpathDest(linkpath, sourcePath)[0] ?? null;
+		return this.#dests(linkpath, sourcePath, true)[0] ?? null;
 	}
 
 	getLinkpathDest(linkpath: string, sourcePath: string): TFile[] {
+		return this.#dests(linkpath, sourcePath, false);
+	}
+
+	// With `first`, only the first destination: resolving a vault's links asks
+	// for it once per link, and many notes can share a name.
+	#dests(linkpath: string, sourcePath: string, first: boolean): TFile[] {
 		if (!linkpath) {
 			const self = this.vault.getFileByPath(sourcePath);
 			return self ? [self] : [];
@@ -964,23 +988,30 @@ export class MetadataCache extends Events {
 		const add = (f: TAbstractFile | null) => {
 			if (f instanceof TFile && !out.includes(f)) out.push(f);
 		};
+		const at = (p: string) => this.vault.getAbstractFileByPathInsensitive(p);
 		const dir = nodePath.posix.dirname(sourcePath);
-		if (!absolute && dir !== ".") for (const n of names) add(this.#fileAt(nodePath.posix.join(dir, n)));
-		for (const n of names) add(this.#fileAt(nodePath.posix.normalize(n)));
-		if (absolute) return out;
-		const suffixes = names.map((n) => `/${n.toLowerCase()}`);
-		const matches = names
-			.flatMap((n) => this.#names().get(nameKey(n)) ?? [])
-			.filter((f) => suffixes.some((s) => `/${f.path.toLowerCase()}`.endsWith(s)));
-		const near = (f: TFile) => (nodePath.posix.dirname(f.path) === dir ? 0 : 1);
-		matches.sort((a, b) => near(a) - near(b) || a.path.length - b.path.length || a.path.localeCompare(b.path));
-		for (const f of matches) add(f);
+		if (!absolute && dir !== ".") for (const n of names) add(at(nodePath.posix.join(dir, n)));
+		for (const n of names) add(at(nodePath.posix.normalize(n)));
+		if (absolute || (first && out.length)) return out;
+		let matches = names.flatMap((n) => this.#names().get(nameKey(n)) ?? []);
+		// Every file listed under a name ends with that name; a linkpath with
+		// folders must also match the folders above it.
+		if (path.includes("/")) {
+			const suffixes = names.map((n) => `/${n.toLowerCase()}`);
+			matches = matches.filter((f) => suffixes.some((s) => `/${f.path.toLowerCase()}`.endsWith(s)));
+		}
+		const near: TFile[] = [];
+		const far: TFile[] = [];
+		for (const f of matches) (nodePath.posix.dirname(f.path) === dir ? near : far).push(f);
+		const order = (a: TFile, b: TFile) => a.path.length - b.path.length || a.path.localeCompare(b.path);
+		if (first) {
+			const group = near.length ? near : far;
+			let best = group[0];
+			for (const f of group) if (order(f, best) < 0) best = f;
+			return best ? [best] : [];
+		}
+		for (const f of [...near.sort(order), ...far.sort(order)]) add(f);
 		return out;
-	}
-
-	#fileAt(path: string) {
-		const file = this.vault.getFileByPath(path);
-		return file ?? this.vault.getAbstractFileByPathInsensitive(path);
 	}
 
 	// newLinkFormat 'shortest' (the default) gives the bare name when no other
