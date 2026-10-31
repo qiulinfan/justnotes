@@ -27,6 +27,14 @@ function safeDecode(text: string) {
 	}
 }
 
+// Whether the editor is in Live Preview; false in source mode, where all
+// syntax shows and nothing renders. The view that owns the editor sets it
+// with editorLivePreviewField.init().
+export const editorLivePreviewField = StateField.define<boolean>({
+	create: () => true,
+	update: (v) => v,
+});
+
 // livePreviewState: whether the left button is held in the editor. While
 // it is (a drag-select), Live Preview keeps its decorations, so syntax does
 // not reveal under the pointer; it catches up on release.
@@ -539,13 +547,15 @@ interface BuildContext {
 
 // Syntax stays visible wherever the selection touches; elsewhere it is hidden
 // or rendered, as in Obsidian's Live Preview. Line classes follow Obsidian's
-// HyperMD names, which themes and plugin CSS target.
+// HyperMD names, which themes and plugin CSS target. In source mode every
+// element counts as touched, so only the classes remain.
 function build(state: EditorState, cx: BuildContext): DecorationSet {
 	const { host } = cx;
 	const doc = state.doc;
 	const decos: Range<Decoration>[] = [];
 	const ranges = state.selection.ranges;
-	const touches = (from: number, to: number) => ranges.some((r) => r.from <= to && r.to >= from);
+	const live = state.field(editorLivePreviewField, false) !== false;
+	const touches = (from: number, to: number) => !live || ranges.some((r) => r.from <= to && r.to >= from);
 	const touchesLines = (from: number, to: number) => touches(doc.lineAt(from).from, doc.lineAt(to).to);
 	const lineClasses = new Map<number, string[]>();
 	const lineAttrs = new Map<number, Record<string, string>>();
@@ -583,7 +593,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (!closed) return false;
 					addLine(to, "HyperMD-frontmatter-end");
 					const mode = host.app.vault.getConfig("propertiesInDocument") ?? "visible";
-					if (mode === "source" || touchesLines(from, to)) return false;
+					if (!live || mode === "source" || touchesLines(from, to)) return false;
 					const yaml = doc.sliceString(doc.line(1).to + 1, doc.lineAt(to).from);
 					decos.push(Decoration.replace({ block: true, widget: mode === "hidden" ? undefined : new PropertiesWidget(yaml) }).range(from, to));
 					return false;
@@ -840,6 +850,7 @@ export function livePreview(host: LivePreviewHost): Extension {
 		create: (state) => build(state, cx),
 		update(decos, tr) {
 			if (tr.docChanged || syntaxTree(tr.state) !== syntaxTree(tr.startState) || tr.effects.some((e) => e.is(refresh))) return build(tr.state, cx);
+			if (tr.state.field(editorLivePreviewField, false) !== tr.startState.field(editorLivePreviewField, false)) return build(tr.state, cx);
 			if (tr.effects.some((e) => e.is(setMousedown) && !e.value)) return build(tr.state, cx);
 			if (tr.selection && !tr.state.field(mousedownField, false)) return build(tr.state, cx);
 			return decos;

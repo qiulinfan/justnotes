@@ -24,22 +24,22 @@
 	padding-top: 0.4em;
 }
 
-/* Quotes: one bar per level. */
-.markdown-source-view.mod-cm6 .HyperMD-quote {
+/* Quotes: one bar per level, in Live Preview where the > marks are hidden. */
+.markdown-source-view.mod-cm6.is-live-preview .HyperMD-quote {
 	--quote-bar: linear-gradient(var(--blockquote-border-color, var(--interactive-accent)), var(--blockquote-border-color, var(--interactive-accent)));
 	background: var(--quote-bar) 6px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat;
 	padding-left: 18px !important;
 	color: var(--blockquote-color, var(--text-muted));
 }
 
-.markdown-source-view.mod-cm6 .HyperMD-quote-2 {
+.markdown-source-view.mod-cm6.is-live-preview .HyperMD-quote-2 {
 	background:
 		var(--quote-bar) 6px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat,
 		var(--quote-bar) 20px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat;
 	padding-left: 32px !important;
 }
 
-.markdown-source-view.mod-cm6 .HyperMD-quote-3 {
+.markdown-source-view.mod-cm6.is-live-preview .HyperMD-quote-3 {
 	background:
 		var(--quote-bar) 6px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat,
 		var(--quote-bar) 20px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat,

@@ -5,7 +5,7 @@ import { EditorView } from "@codemirror/view";
 import { offsetToPos, posToOffset, selectedLines, transactionSpec } from "./editor-commands";
 import { type ClickableToken, clickableTokenAt } from "./live-preview";
 
-export { livePreviewState } from "./live-preview";
+export { editorLivePreviewField, livePreviewState } from "./live-preview";
 
 export interface EditorPosition {
 	line: number;
@@ -74,11 +74,6 @@ export const editorViewField = editorInfoField;
 export const editorEditorField = StateField.define<EditorView>({
 	create: () => null as unknown as EditorView,
 	update: (v, tr) => tr.effects.find((e) => e.is(setView))?.value ?? v,
-});
-// justnotes has only Live Preview, so this never turns false.
-export const editorLivePreviewField = StateField.define<boolean>({
-	create: () => true,
-	update: (v) => v,
 });
 
 export function bindEditorFields(view: EditorView, info: any) {

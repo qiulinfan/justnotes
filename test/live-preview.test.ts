@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { type Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 import { obsidianMarkdown } from "../src/api/editor-extensions";
-import { type LivePreviewHost, livePreview, tableCellOffset } from "../src/api/live-preview";
+import { editorLivePreviewField, type LivePreviewHost, livePreview, tableCellOffset } from "../src/api/live-preview";
 
 const host = {
 	app: {
@@ -24,16 +24,21 @@ interface Deco {
 	block?: boolean;
 }
 
-// Every decoration Live Preview produces, with the cursor at `cursor`.
-function decorate(doc: string, cursor: number): Deco[] {
-	const state = EditorState.create({
+function stateOf(doc: string, cursor: number, ...extensions: Extension[]) {
+	return EditorState.create({
 		doc,
 		selection: { anchor: cursor },
-		extensions: [markdown({ base: markdownLanguage, extensions: obsidianMarkdown }), livePreview(host)],
+		extensions: [...extensions, markdown({ base: markdownLanguage, extensions: obsidianMarkdown }), livePreview(host)],
 	});
+}
+
+// Every decoration Live Preview produces, with the cursor at `cursor`.
+const decorate = (doc: string, cursor: number) => decorations(stateOf(doc, cursor));
+
+function decorations(state: EditorState): Deco[] {
 	const out: Deco[] = [];
 	for (const set of state.facet(EditorView.decorations) as DecorationSet[]) {
-		set.between(0, doc.length, (from, to, value: Decoration) => {
+		set.between(0, state.doc.length, (from, to, value: Decoration) => {
 			const spec = value.spec;
 			if (spec.class && from === to && !spec.widget) out.push({ from, to, line: spec.class, attrs: spec.attributes });
 			else if (spec.class) out.push({ from, to, mark: spec.class, attrs: spec.attributes });
@@ -109,6 +114,26 @@ describe("block widgets", () => {
 	test("a selection inside shows the source", () => {
 		expect(blocks(doc.indexOf("title"))).toEqual([["RenderedBlockWidget", "| a | b |\n| - | - |\n| 1 | 2 |"]]);
 		expect(blocks(doc.indexOf("| 1"))).toEqual([["PropertiesWidget", "---\ntitle: x\n---"]]);
+	});
+});
+
+// The view turns editorLivePreviewField off for source mode: every mark then
+// shows and nothing renders, while line classes stay for themes.
+describe("source mode", () => {
+	const doc = "# Head **bold** $x$\n\nend";
+	const rendered = (state: EditorState) => decorations(state).filter((d) => d.widget).map((d) => d.widget);
+
+	test("hides and renders nothing but keeps line classes", () => {
+		const state = stateOf(doc, doc.length, editorLivePreviewField.init(() => false));
+		expect(rendered(state)).toEqual([]);
+		expect(lineClass(decorations(state), doc, 0)).toBe("HyperMD-header HyperMD-header-1");
+	});
+
+	test("switching the mode rebuilds the decorations", () => {
+		const mode = new Compartment();
+		const live = stateOf(doc, doc.length, mode.of(editorLivePreviewField.init(() => true)));
+		expect(rendered(live)).toEqual(["hidden", "hidden", "hidden", "MathWidget"]);
+		expect(rendered(live.update({ effects: mode.reconfigure(editorLivePreviewField.init(() => false)) }).state)).toEqual([]);
 	});
 });
 
