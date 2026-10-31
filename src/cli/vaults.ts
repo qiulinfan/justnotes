@@ -46,6 +46,15 @@ export function vaultOf(target: string, vaults: string[]) {
 	return found;
 }
 
+// The one of `vaults` whose folder is called `name`, for an obsidian: URL's
+// vault=<name> naming another vault, as Obsidian names vaults; null when none
+// or several are. Never a path: a link must not open a folder the user did not
+// choose.
+export function vaultNamed(name: string, vaults: string[]) {
+	const named = [...new Set(vaults)].filter((vault) => path.basename(vault) === name);
+	return named.length === 1 ? named[0] : null;
+}
+
 // The nearest folder at or above `dir` holding an Obsidian config folder,
 // the mark of a vault nobody opened in justnotes yet.
 export function enclosingVault(dir: string): string | null {

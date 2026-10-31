@@ -317,8 +317,10 @@ plain style. Development notes belong in this file.
   system, as in Obsidian. An external link's menu (reading view and Live
   Preview: Open link, Copy URL) fires the workspace's `url-menu`
   (`addUrlMenuItems` in `markdown.ts`).
-- `obsidian://open?path=` into another vault opens (or focuses) that vault's
-  window, but only for vaults opened before with `--vault` or the folder
+- `obsidian://open?path=` into another vault, and a URL whose `vault=` is
+  another vault's folder name (`vaultNamed`: exactly one, never a path),
+  opens (or focuses) that vault's window, which takes the URL, but only for
+  vaults opened before with `--vault` or the folder
   picker (recorded in the profile's `vaults.json`): a link must never load an
   unknown folder's plugins. The built-in `open` and `new` refuse a `file=` or
   `name=` with a `..` or hidden (`.obsidian`, `.git`) segment

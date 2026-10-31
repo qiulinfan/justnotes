@@ -402,11 +402,13 @@ export class App {
 	async handleObsidianUrl(url: string) {
 		const params = parseObsidianUrl(url);
 		if (!params) return false;
-		// Obsidian runs a URL in the vault it names; only this one is open here.
-		// The path of open and new overrides vault and finds its own vault below.
+		// Obsidian runs a URL in the vault it names: another vault justnotes has
+		// opened takes it in its own window (main.ts). The path of open and new
+		// overrides vault and finds its own vault below.
 		const byPath = Boolean(params.path) && (params.action === "open" || params.action === "new");
 		if (params.vault && !byPath && params.vault !== this.vault.getName() && params.vault !== this.appId) {
-			new Notice(`The vault "${params.vault}" is not open in justnotes`);
+			if (await getElectron().ipcRenderer.invoke("justnotes:open-vault-named", url, params.vault)) return true;
+			new Notice(`The vault "${params.vault}" is not one justnotes has opened`);
 			return false;
 		}
 		try {

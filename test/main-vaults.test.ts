@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { vaultOf } from "../src/main/ipc";
+import { vaultNamed, vaultOf } from "../src/main/ipc";
 
 // The vault whose window an obsidian://open?path= (or new?path=) URL for a
 // file outside the current vault goes to: one of the vaults the user opened
@@ -81,5 +81,23 @@ describe("vault paths in another case, in main", () => {
 		const electron = path.join(import.meta.dir, "../node_modules/.bin/electron");
 		const run = Bun.spawnSync([electron, "-e", script], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
 		expect(JSON.parse(run.stdout.toString())).toEqual([{ vault, open: true, argv: ["x"] }, vault]);
+	});
+});
+
+// obsidian://open?vault=<name> for another vault opens the vault of that name
+// among those the user opened on purpose; it once only said that vault was
+// not open, even with its window open beside.
+describe("vaultNamed", () => {
+	const known = ["/v/notes", "/v/work", "/w/work"];
+
+	test("names one known vault by its folder name", () => {
+		expect(vaultNamed("notes", known)).toBe("/v/notes");
+	});
+
+	test("an ambiguous name, an unknown one or a path names none", () => {
+		expect(vaultNamed("work", known)).toBeNull();
+		expect(vaultNamed("other", known)).toBeNull();
+		expect(vaultNamed("/v/notes", known)).toBeNull();
+		expect(vaultNamed("../v/notes", known)).toBeNull();
 	});
 });

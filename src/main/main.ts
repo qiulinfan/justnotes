@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import * as path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell, type WebContents } from "electron";
 import { startCli, trackCliWindow } from "./cli";
-import { knownVaults, realPathOf, registerIpc, rememberVault, vaultOf } from "./ipc";
+import { knownVaults, realPathOf, registerIpc, rememberVault, vaultNamed, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
 import { droppedSchemes, sameAppPage } from "./link-policy";
 import { microphoneRequest, systemMicrophoneAccess } from "./media";
@@ -88,6 +88,17 @@ ipcMain.handle("justnotes:obsidian-urls", (evt) => {
 // a notice.
 ipcMain.handle("justnotes:open-in-vault", (evt, url: string, target: string) => {
 	const vault = vaultOf(target, knownVaults());
+	if (!vault || vaultWindows.get(vault)?.webContents === evt.sender) return false;
+	sendObsidianUrl(url, openVault(vault).webContents);
+	return true;
+});
+
+// An obsidian: URL whose vault= names another vault (QuickAdd writes
+// obsidian://open?vault=<name>&file=..., and macOS hands URLs to the focused
+// window) goes to that vault's window, opening it if needed, as in Obsidian:
+// the one known vault of that folder name, never a path.
+ipcMain.handle("justnotes:open-vault-named", (evt, url: string, name: string) => {
+	const vault = vaultNamed(name, knownVaults());
 	if (!vault || vaultWindows.get(vault)?.webContents === evt.sender) return false;
 	sendObsidianUrl(url, openVault(vault).webContents);
 	return true;
