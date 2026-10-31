@@ -744,8 +744,11 @@ plain style. Development notes belong in this file.
   (`foldless`), HTML in notes and in `html`/`xhtml` fences (elements, script
   and style contents, `style` and event-handler attribute values), and
   `markdown` fences (CommonMark without lang-markdown's folds, so their
-  headings are no sections). Vue, Angular, PHP, Liquid and Jinja fences still
-  fold the code nested in them.
+  headings are no sections). Vue, Angular, PHP, Liquid and Jinja fences nest
+  HTML, CSS and JavaScript through private parsers that share the exported
+  languages' node types, so `deeplyFoldless` wraps their parser: each parsed
+  tree's mounted trees are copied with fold-free node types
+  (`foldlessMounts`); those inner trees are parsed again on each change.
 - Scripts and styles in a note's HTML parse by their type or lang exactly as
   lang-html decides, at once: `editor-extensions.ts` copies lang-html's
   nesting rules with fold-free parsers, including its private list of event

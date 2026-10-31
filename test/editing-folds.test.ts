@@ -58,7 +58,7 @@ describe("folding", () => {
 	// are loaded, as in an editor that has shown them, so their own syntax
 	// folds would be offered if they were kept.
 	beforeAll(async () => {
-		for (const name of ["js", "css", "html", "markdown"]) await LanguageDescription.matchLanguageName(languages, name, true)?.load();
+		for (const name of ["js", "css", "html", "markdown", "vue", "angular", "php", "liquid", "jinja"]) await LanguageDescription.matchLanguageName(languages, name, true)?.load();
 	});
 
 	// A list item's own text wrapping onto more lines folds no more than a
@@ -90,5 +90,21 @@ describe("folding", () => {
 	test("HTML and Markdown fences, with what is nested in them, do not fold", () => {
 		const fences = ["```html", "<style>", ".a {", "  color: red;", "}", "</style>", "<script>", "function a() {", "  return 1;", "}", "</script>", "```", "", "```markdown", "# Inside", "text", "<div>", "<p>text</p>", "</div>", "```"].join("\n");
 		expect(folds(fences, true, true)).toEqual([]);
+	});
+
+	// Template languages nest HTML (with its CSS and JavaScript) and, in Vue
+	// and Angular, JavaScript expressions in interpolations and bound
+	// attributes; none of it folds, as in any other fence.
+	test("Vue, Angular, PHP, Liquid and Jinja fences, with what is nested in them, do not fold", () => {
+		const html = ["<div>", "<p>text</p>", "</div>", "<style>", ".a {", "  color: red;", "}", "</style>", "<script>", "function a() {", "  return 1;", "}", "</script>"];
+		const fence = (lang: string, ...lines: string[]) => ["```" + lang, ...html, ...lines, "```"].join("\n");
+		const fences = [
+			fence("vue", '<p :class="{', '  a: true,', '  b: false', '}">{{ [', '  1,', '  2', '] }}</p>'),
+			fence("angular", '<p [class]="{', '  a: true', '}">{{ [', '  1', '] }}</p>'),
+			fence("php", "<?php", "function f() {", "  return [", "    1,", "  ];", "}", "?>"),
+			fence("liquid", "{% if a %}", "<b>x</b>", "{% endif %}", "{% comment %}", "c", "{% endcomment %}"),
+			fence("jinja", "{% if a %}", "<b>x</b>", "{% endif %}", "{% for x in y %}", "z", "{% endfor %}"),
+		];
+		for (const doc of fences) expect(folds(doc, true, true)).toEqual([]);
 	});
 });
