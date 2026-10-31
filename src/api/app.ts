@@ -349,7 +349,7 @@ export class App {
 		if (!params) return false;
 		// Obsidian runs a URL in the vault it names; only this one is open here.
 		// The path of open and new overrides vault and finds its own vault below.
-		const byPath = params.path !== undefined && (params.action === "open" || params.action === "new");
+		const byPath = Boolean(params.path) && (params.action === "open" || params.action === "new");
 		if (params.vault && !byPath && params.vault !== this.vault.getName() && params.vault !== this.appId) {
 			new Notice(`The vault "${params.vault}" is not open in justnotes`);
 			return false;
