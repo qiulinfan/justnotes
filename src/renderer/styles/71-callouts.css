@@ -1,0 +1,171 @@
+/* Callouts. Colours are RGB triplets and icons Lucide ids, set per type
+   through --callout-color and --callout-icon as in Obsidian, so theme and
+   snippet rules for .callout[data-callout="..."] apply. */
+body {
+	--callout-default: var(--color-blue-rgb, 8, 109, 221);
+	--callout-info: var(--color-blue-rgb, 8, 109, 221);
+	--callout-summary: var(--color-cyan-rgb, 0, 191, 188);
+	--callout-todo: var(--color-blue-rgb, 8, 109, 221);
+	--callout-tip: var(--color-cyan-rgb, 0, 191, 188);
+	--callout-success: var(--color-green-rgb, 8, 185, 78);
+	--callout-question: var(--color-orange-rgb, 236, 117, 0);
+	--callout-warning: var(--color-orange-rgb, 236, 117, 0);
+	--callout-fail: var(--color-red-rgb, 233, 49, 71);
+	--callout-error: var(--color-red-rgb, 233, 49, 71);
+	--callout-bug: var(--color-red-rgb, 233, 49, 71);
+	--callout-example: var(--color-purple-rgb, 120, 82, 238);
+	--callout-quote: 158, 158, 158;
+}
+
+body.theme-dark {
+	--callout-default: var(--color-blue-rgb, 2, 122, 255);
+	--callout-info: var(--color-blue-rgb, 2, 122, 255);
+	--callout-summary: var(--color-cyan-rgb, 83, 223, 221);
+	--callout-todo: var(--color-blue-rgb, 2, 122, 255);
+	--callout-tip: var(--color-cyan-rgb, 83, 223, 221);
+	--callout-success: var(--color-green-rgb, 68, 207, 110);
+	--callout-question: var(--color-orange-rgb, 233, 151, 63);
+	--callout-warning: var(--color-orange-rgb, 233, 151, 63);
+	--callout-fail: var(--color-red-rgb, 251, 70, 76);
+	--callout-error: var(--color-red-rgb, 251, 70, 76);
+	--callout-bug: var(--color-red-rgb, 251, 70, 76);
+	--callout-example: var(--color-purple-rgb, 168, 130, 255);
+}
+
+.callout {
+	--callout-color: var(--callout-default);
+	--callout-icon: lucide-pencil;
+	overflow: hidden;
+	margin: 1em 0;
+	padding: 12px 12px 12px 24px;
+	border-radius: var(--radius-s);
+	background-color: rgba(var(--callout-color), 0.1);
+}
+
+.callout[data-callout="abstract"],
+.callout[data-callout="summary"],
+.callout[data-callout="tldr"] {
+	--callout-color: var(--callout-summary);
+	--callout-icon: lucide-clipboard-list;
+}
+
+.callout[data-callout="info"] {
+	--callout-color: var(--callout-info);
+	--callout-icon: lucide-info;
+}
+
+.callout[data-callout="todo"] {
+	--callout-color: var(--callout-todo);
+	--callout-icon: lucide-check-circle-2;
+}
+
+.callout[data-callout="tip"],
+.callout[data-callout="hint"],
+.callout[data-callout="important"] {
+	--callout-color: var(--callout-tip);
+	--callout-icon: lucide-flame;
+}
+
+.callout[data-callout="success"],
+.callout[data-callout="check"],
+.callout[data-callout="done"] {
+	--callout-color: var(--callout-success);
+	--callout-icon: lucide-check;
+}
+
+.callout[data-callout="question"],
+.callout[data-callout="help"],
+.callout[data-callout="faq"] {
+	--callout-color: var(--callout-question);
+	--callout-icon: lucide-help-circle;
+}
+
+.callout[data-callout="warning"],
+.callout[data-callout="caution"],
+.callout[data-callout="attention"] {
+	--callout-color: var(--callout-warning);
+	--callout-icon: lucide-alert-triangle;
+}
+
+.callout[data-callout="failure"],
+.callout[data-callout="fail"],
+.callout[data-callout="missing"] {
+	--callout-color: var(--callout-fail);
+	--callout-icon: lucide-x;
+}
+
+.callout[data-callout="danger"],
+.callout[data-callout="error"] {
+	--callout-color: var(--callout-error);
+	--callout-icon: lucide-zap;
+}
+
+.callout[data-callout="bug"] {
+	--callout-color: var(--callout-bug);
+	--callout-icon: lucide-bug;
+}
+
+.callout[data-callout="example"] {
+	--callout-color: var(--callout-example);
+	--callout-icon: lucide-list;
+}
+
+.callout[data-callout="quote"],
+.callout[data-callout="cite"] {
+	--callout-color: var(--callout-quote);
+	--callout-icon: lucide-quote;
+}
+
+.callout-title {
+	display: flex;
+	align-items: flex-start;
+	gap: 4px;
+	color: rgb(var(--callout-color));
+	line-height: 1.3;
+}
+
+.callout.is-collapsible > .callout-title {
+	cursor: pointer;
+}
+
+.callout-icon,
+.callout-fold {
+	display: flex;
+	align-items: center;
+	flex: 0 0 auto;
+}
+
+.callout-icon .svg-icon {
+	width: 1em;
+	height: 1.3em;
+}
+
+.callout-title-inner {
+	font-weight: 600;
+}
+
+.callout-fold .svg-icon {
+	width: 1em;
+	height: 1.3em;
+	transition: transform 100ms ease-in-out;
+}
+
+.callout-fold.is-collapsed .svg-icon {
+	transform: rotate(-90deg);
+}
+
+.callout-content {
+	overflow-x: auto;
+}
+
+.callout.is-collapsed > .callout-content {
+	display: none;
+}
+
+.callout-content > :first-child {
+	margin-top: 0.5em;
+}
+
+.callout-content > :last-child {
+	margin-bottom: 0;
+}

@@ -10,6 +10,7 @@ export * from "./markdown-view";
 export * from "./metadata";
 export * from "./metadata-utils";
 export * from "./plugin";
+export * from "./sanitize";
 export * from "./secret-storage";
 export * from "./ui/menu";
 export * from "./ui/modal";
