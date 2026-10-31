@@ -1,7 +1,8 @@
+import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell, type WebContents } from "electron";
-import { registerIpc } from "./ipc";
+import { registerIpc, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
 import { handleSchemes, registerSchemes } from "./protocol";
 
@@ -32,15 +33,20 @@ const isWebUrl = (url: string) => /^(https?|mailto):/i.test(url);
 // own pages. justnotes registers no scheme of its own (protocol.ts); its page
 // is file:.
 const droppedSchemes = new Set(["file:", "javascript:", "data:", "blob:", "about:", "chrome:", "chrome-extension:", "devtools:", "view-source:"]);
-// Pages whose renderer listens for URLs; until then they wait in pendingUrls.
-// A page stops listening when a new document commits (a reload).
+// Pages whose renderer listens for URLs. Until then a page's URLs wait in
+// queuedUrls, and URLs that arrive before any window exists in earlyUrls,
+// which the first page takes. A page stops listening when a new document
+// commits (a reload).
 const listening = new WeakSet<WebContents>();
-const pendingUrls = process.argv.filter(isObsidianUrl);
+const queuedUrls = new WeakMap<WebContents, string[]>();
+const earlyUrls = process.argv.filter(isObsidianUrl);
 
+// Delivers an obsidian: URL to the window of `from`, or else to the focused one.
 function sendObsidianUrl(url: string, from?: WebContents) {
 	const win = (from && BrowserWindow.fromWebContents(from)) ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
-	if (win && listening.has(win.webContents)) win.webContents.send("justnotes:obsidian-url", url);
-	else pendingUrls.push(url);
+	if (!win) earlyUrls.push(url);
+	else if (listening.has(win.webContents)) win.webContents.send("justnotes:obsidian-url", url);
+	else queuedUrls.set(win.webContents, [...(queuedUrls.get(win.webContents) ?? []), url]);
 }
 
 // Where a link opened from the app page goes, whether it arrives as
@@ -69,7 +75,21 @@ shell.openExternal = async (url, options) => {
 
 ipcMain.handle("justnotes:obsidian-urls", (evt) => {
 	listening.add(evt.sender);
-	return pendingUrls.splice(0);
+	const urls = [...earlyUrls.splice(0), ...(queuedUrls.get(evt.sender) ?? [])];
+	queuedUrls.delete(evt.sender);
+	return urls;
+});
+
+// obsidian://open?path= (or new, or search) naming a file outside the sender's
+// vault, as kgdistiller opens a record of another base: the vault that holds
+// the file opens in its own window, or brings its open one to the front, and
+// takes the URL, as Obsidian does. Resolves false when no other vault holds
+// it, and the sender says it is not in this vault.
+ipcMain.handle("justnotes:open-in-vault", (evt, url: string, target: string) => {
+	const vault = vaultOf(target);
+	if (!vault || vaultWindows.get(realPath(vault))?.webContents === evt.sender) return false;
+	sendObsidianUrl(url, openVault(vault).webContents);
+	return true;
 });
 
 // A link to a scheme Chromium does not handle, when not caught as a main-frame
@@ -150,13 +170,26 @@ function samePage(target: string, current: string) {
 	}
 }
 
-// The vault comes from `--vault <path>`; without it the user picks a folder.
-async function createWindow() {
-	let vault = argValue("--vault");
-	if (!vault) {
-		const picked = await dialog.showOpenDialog({ properties: ["openDirectory"], title: "Open vault" });
-		if (picked.canceled || picked.filePaths.length === 0) return app.quit();
-		vault = picked.filePaths[0];
+// One window per vault, by the vault folder's real path. main creates every
+// window, each with its own ?vault=, in this one process and profile.
+const vaultWindows = new Map<string, BrowserWindow>();
+
+function realPath(file: string) {
+	try {
+		return fs.realpathSync(file);
+	} catch {
+		return file;
+	}
+}
+
+// Opens a vault's window, or brings its open window to the front.
+function openVault(vault: string) {
+	const key = realPath(vault);
+	const open = vaultWindows.get(key);
+	if (open) {
+		if (open.isMinimized()) open.restore();
+		open.focus();
+		return open;
 	}
 	const win = new BrowserWindow({
 		width: 1280,
@@ -172,6 +205,8 @@ async function createWindow() {
 			webviewTag: true,
 		},
 	});
+	vaultWindows.set(key, win);
+	win.on("closed", () => vaultWindows.delete(key));
 	const contents = win.webContents;
 	remoteMain.enable(contents);
 	setupWindowLifecycle(win);
@@ -188,7 +223,20 @@ async function createWindow() {
 		openUrl(evt.url, contents);
 	});
 	contents.on("did-navigate", () => listening.delete(contents));
-	await win.loadFile(path.join(__dirname, "index.html"), { query: { vault: path.resolve(vault) } });
+	win.loadFile(path.join(__dirname, "index.html"), { query: { vault } }).catch((err) => console.error("Could not load the window of", vault, err));
+	return win;
+}
+
+// The first vault comes from `--vault <path>`; without it the user picks a
+// folder.
+async function openFirstVault() {
+	let vault = argValue("--vault");
+	if (!vault) {
+		const picked = await dialog.showOpenDialog({ properties: ["openDirectory"], title: "Open vault" });
+		if (picked.canceled || picked.filePaths.length === 0) return app.quit();
+		vault = picked.filePaths[0];
+	}
+	openVault(path.resolve(vault));
 }
 
 remoteMain.initialize();
@@ -198,6 +246,6 @@ app.whenReady().then(() => {
 	handleSchemes();
 	routeExternalLinks(session.defaultSession);
 	setApplicationMenu();
-	return createWindow();
+	return openFirstVault();
 });
 app.on("window-all-closed", () => app.quit());

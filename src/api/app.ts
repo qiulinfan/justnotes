@@ -324,8 +324,9 @@ export class App {
 	}
 
 	// Dispatches an obsidian: URL inside this window: a plugin's protocol
-	// handler, or the built-in open, new and search actions for this vault.
-	// Returns whether the URL was handled.
+	// handler, or the built-in open, new and search actions for this vault. A
+	// path in another vault goes to that vault's window. Returns whether the URL
+	// was handled.
 	async handleObsidianUrl(url: string) {
 		const params = parseObsidianUrl(url);
 		if (!params) return false;
@@ -346,6 +347,8 @@ export class App {
 			if (params.path) {
 				const file = this.#vaultPathOf(params.path);
 				if (file === null) {
+					// Another vault that holds the path opens in its own window.
+					if (await getElectron().ipcRenderer.invoke("justnotes:open-in-vault", url, params.path)) return true;
 					new Notice(`${params.path} is not in this vault`);
 					return false;
 				}

@@ -227,3 +227,16 @@ async function setSecret(vaultId: string, id: string, secret: string) {
 		return err instanceof Error ? err.message : String(err);
 	}
 }
+
+// The vault that holds an absolute path, for obsidian:// URLs that name a file
+// by path: the nearest folder, from the path upwards, with a .obsidian folder
+// in it. null for a relative path, or when no folder has one.
+export function vaultOf(target: string) {
+	if (!path.isAbsolute(target)) return null;
+	for (let dir = path.resolve(target); ; dir = path.dirname(dir)) {
+		try {
+			if (fs.statSync(path.join(dir, ".obsidian")).isDirectory()) return dir;
+		} catch {}
+		if (dir === path.dirname(dir)) return null;
+	}
+}
