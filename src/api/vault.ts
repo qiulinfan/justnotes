@@ -344,6 +344,9 @@ export class FileSystemAdapter {
 			const dst = this.getFullPath(to);
 			await this.#assertFree(dst, src);
 			await fs.promises.mkdir(nodePath.dirname(dst), { recursive: true });
+			// A new parent is registered while still empty; listing it after the
+			// move would report the moved file as a second, new one.
+			if (!isHidden(to)) await this.#ensureParent(to);
 			await fs.promises.rename(src, dst);
 			await this.#reconcileMove(from, to);
 		});
@@ -865,6 +868,8 @@ export class Vault extends Events {
 		this.#unlink(file);
 		for (const [f, old] of moved) this.#unindex(f, old);
 		this.#setPath(file, path);
+		const stale = this.fileMap[path];
+		if (stale && stale !== file) this.#onRemoved(path);
 		const parent = this.#folderAt(parentOf(path));
 		file.parent = parent;
 		parent.children.push(file);

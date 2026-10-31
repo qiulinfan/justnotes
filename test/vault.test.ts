@@ -74,6 +74,15 @@ describe("Vault folder operations", () => {
 		expect(vault.getAbstractFileByPath("a/x.md")).toBeNull();
 	});
 
+	test("moving a file into a folder that does not exist yet keeps one file and fires one rename", async () => {
+		const { vault, events } = await makeVault({ "n.md": "n" });
+		const file = vault.getFileByPath("n.md")!;
+		await vault.rename(file, "new/dir/n.md");
+		expect(events).toEqual(["create new", "create new/dir", "rename new/dir/n.md <- n.md"]);
+		expect(vault.getFolderByPath("new/dir")!.children).toEqual([file]);
+		expect(vault.getFiles()).toEqual([file]);
+	});
+
 	test("deleting a folder fires 'delete' for every descendant before the folder", async () => {
 		const { vault, events, full } = await makeVault({ "a/b/n.md": "n", "a/x.md": "x" });
 		await vault.delete(vault.getAbstractFileByPath("a")!, true);
