@@ -240,6 +240,13 @@ plain style. Development notes belong in this file.
   Declarative tabs are emptied by their own renderer.
 - The desktop adapter exposes `fs`, `fsPromises`, `path` and `url`, as
   Obsidian's does (terminal reads `adapter.fs`).
+- Explorer items drag through `app.dragManager` (`drag-manager.ts`), Obsidian's
+  private drag API: `draggable` holds `{ type: "file" | "folder" | "files",
+  file | files, title, icon, source }` until `dragend`, and drop targets name
+  their action with `setAction` on the ghost that follows the pointer.
+  Terminal 3.29 reads it to type the dragged paths; the editor accepts the drag
+  in `dragover` on its whole DOM (the drag carries no data, so the browser would
+  not drop it) and inserts links where it lands.
 - Never write Obsidian's own config files (`workspace.json`,
   `community-plugins.json`, `app.json`, `appearance.json`, `hotkeys.json`,
   `core-plugins.json`, `types.json`). justnotes state lives in localStorage through
@@ -423,10 +430,12 @@ plain style. Development notes belong in this file.
 All of the owner's plugins load and their features were tested live on vault
 copies: copy-location, quick-latex, obsidian-completr, yolo (live completion,
 paid: only within the owner's small test budget), background, kgdistiller
-(0.1.5 and 3.0.2), latex-live (0.2.0; 0.1.7 loads), obsidian-git, omp-sidebar,
-quickadd, terminal and obsidian-tinymist (0.1.0, its YOLO bridge against a
-local mock provider). QuickAdd's capture into the active canvas and into a configured card
-were tested on a synthetic vault. Known gaps: popout windows, tab drag and drop.
+(0.1.5 and 3.0.2), latex-live (0.1.0, 0.1.7 and 0.2.0), obsidian-git (2.41.1
+and 2.42.0), omp-sidebar, quickadd (2.24.2 and 2.33.1), terminal (3.27.2 and
+3.29.0) and obsidian-tinymist (0.1.0, its YOLO bridge against a local mock
+provider). QuickAdd's capture into the active canvas and into a configured
+card were tested on a synthetic vault. Known gaps: popout windows, tab drag
+and drop.
 
 ## Verify
 
@@ -464,10 +473,16 @@ were tested on a synthetic vault. Known gaps: popout windows, tab drag and drop.
   `OMP_GUI_RUNTIME_DIR` to a temp folder and adds `--port 0`, or it attaches to
   the owner's running omp server; obsidian-git gets `git init`, a local bare
   remote, `GIT_CONFIG_GLOBAL` pointing at an empty file and
-  `GIT_CONFIG_NOSYSTEM=1`; quickadd keeps online features off; terminal shells
+  `GIT_CONFIG_NOSYSTEM=1`; obsidian-git 2.42.0 answers Git's credential
+  prompts through its own askpass script and a loopback HTTP server, so test
+  them with a local Git server that asks for Basic auth (`git http-backend`
+  behind a small Bun server); quickadd keeps online features off; terminal shells
   are the owner's login shell, so launch with `fish_private_mode=1` and type
   nothing that should not run; latex-live keeps shell escape off and builds in
-  the system temp folder; obsidian-tinymist runs two `tinymist lsp` processes
+  the system temp folder, but copies hold no `.tex`: copy a project's whole TeX
+  tree in (notes' projects `\input` sibling projects and `../toolchain`), and
+  stub `dialog.showSaveDialog` in main before Export to HTML, which opens a
+  native save dialog CDP cannot see; obsidian-tinymist runs two `tinymist lsp` processes
   (the editor's and the formula renderer) and a preview server on 127.0.0.1,
   rooted at the copy, but downloads a `@preview` package missing from Typst's
   package cache into that cache, so use fixtures whose packages are cached

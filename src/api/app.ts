@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { getElectron } from "./dom";
+import { DragManager } from "./drag-manager";
 import { FileManager } from "./file-manager";
 import { InternalPlugins } from "./internal-plugins";
 import { Commands, HotkeyManager, Keymap, Scope } from "./keymap";
@@ -293,6 +294,7 @@ export class App {
 	renderContext = new RenderContext();
 	customCss: CustomCss;
 	secretStorage: SecretStorage;
+	dragManager: DragManager;
 	isMobile = false;
 	lastEvent: UIEvent | null = null;
 	dom: AppDom;
@@ -316,6 +318,7 @@ export class App {
 		this.internalPlugins = new InternalPlugins(this);
 		this.setting = new SettingModal(this);
 		this.secretStorage = new SecretStorage(ipcSecretBackend(this.appId));
+		this.dragManager = new DragManager(this);
 		// Read straight from the config folder, so it can start before the vault
 		// is scanned.
 		this.customCss = new CustomCss(this);

@@ -13,13 +13,14 @@ import { IterMode, NodeProp, type NodePropSource, type Parser, type SyntaxNode }
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import { type BlockContext, type Element, type LeafBlock, type LeafBlockParser, type Line, type MarkdownConfig, parseCode, parser as commonmark } from "@lezer/markdown";
 import type { App } from "./app";
+import { DragManager } from "./drag-manager";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
 import { setIcon } from "./icons";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
 import { inlineMathEnd, mathBlockClose } from "./markdown";
 import type { MarkdownView } from "./markdown-view";
 import { debounce, moment } from "./util";
-import type { TFile } from "./vault";
+import { TFile } from "./vault";
 
 // Obsidian syntax that lezer-markdown does not know. Nodes for Obsidian-only
 // syntax take Obsidian's lowercase token names (math, hashtag, comment...),
@@ -731,6 +732,40 @@ function pasteDefault(view: MarkdownView, evt: ClipboardEvent) {
 	return true;
 }
 
+// Notes and attachments dragged from the explorer are linked where they are
+// dropped, anywhere over the editor. Such a drag carries no data the browser
+// could drop, so the editor accepts it in dragover; a drop on the text has
+// been through the plugins' editor-drop and dropDefault first.
+function linkDraggedFiles(view: MarkdownView) {
+	const dragged = () => DragManager.files(view.app.dragManager.draggable).filter((f): f is TFile => f instanceof TFile);
+	return ViewPlugin.define((cm) => {
+		const onDragOver = (evt: DragEvent) => {
+			if (evt.defaultPrevented || !dragged().length) return;
+			evt.preventDefault();
+			if (evt.dataTransfer) evt.dataTransfer.dropEffect = "link";
+			view.app.dragManager.setAction("Insert link here");
+		};
+		const onDrop = (evt: DragEvent) => {
+			const files = dragged();
+			if (evt.defaultPrevented || !files.length) return;
+			evt.preventDefault();
+			const pos = cm.posAtCoords({ x: evt.clientX, y: evt.clientY }, false);
+			cm.dispatch({ selection: { anchor: pos } });
+			const sourcePath = view.file?.path ?? "";
+			view.editor.replaceSelection(files.map((f) => view.app.fileManager.generateMarkdownLink(f, sourcePath)).join("\n"), "input.drop");
+			cm.focus();
+		};
+		cm.dom.addEventListener("dragover", onDragOver);
+		cm.dom.addEventListener("drop", onDrop);
+		return {
+			destroy: () => {
+				cm.dom.removeEventListener("dragover", onDragOver);
+				cm.dom.removeEventListener("drop", onDrop);
+			},
+		};
+	});
+}
+
 function dropDefault(view: MarkdownView, evt: DragEvent) {
 	const files = [...(evt.dataTransfer?.files ?? [])];
 	if (!files.length) return false;
@@ -870,6 +905,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 			cm.dom.addEventListener("contextmenu", onContextMenu);
 			return { destroy: () => cm.dom.removeEventListener("contextmenu", onContextMenu) };
 		}),
+		linkDraggedFiles(view),
 	];
 	if (app.vault.getConfig("showLineNumber")) ext.push(lineNumbers());
 	ext.push(folding(fold));
