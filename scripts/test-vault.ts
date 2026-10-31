@@ -1,7 +1,8 @@
 // Make a disposable copy of a vault for testing:
 //   bun scripts/test-vault.ts <source-vault> <dest> [plugin-id ...]
 // Copies `.obsidian` (without Obsidian's workspace state and without bulky
-// plugin runtimes), Markdown files, and images up to 2 MB. When plugin ids are
+// plugin runtimes), Markdown files, Typst files with their bibliographies (for
+// obsidian-tinymist), and images up to 2 MB. When plugin ids are
 // given, the copy's community-plugins.json enables only those. No link in the
 // copy points outside it, so nothing tested in the copy can write the source.
 import * as fs from "node:fs/promises";
@@ -18,7 +19,7 @@ await fs.rm(dest, { recursive: true, force: true });
 await fs.mkdir(dest, { recursive: true });
 const src = path.resolve(source);
 await $`rsync -a --safe-links --exclude workspace.json --exclude workspace-mobile.json --exclude 'plugins/*/node_modules' --exclude 'plugins/yolo/runtime' --exclude 'plugins/yolo/modules' --exclude 'plugins/yolo/chatgpt-oauth' ${`${src}/.obsidian`} ${dest}/`.quiet();
-await $`rsync -a --safe-links --prune-empty-dirs --max-size=2m --exclude '.*/' --include '*/' --include '*.md' --include '*.png' --include '*.jpg' --include '*.jpeg' --include '*.gif' --include '*.svg' --include '*.webp' --exclude '*' ${`${src}/`} ${dest}/`.quiet();
+await $`rsync -a --safe-links --prune-empty-dirs --max-size=2m --exclude '.*/' --include '*/' --include '*.md' --include '*.typ' --include '*.bib' --include '*.png' --include '*.jpg' --include '*.jpeg' --include '*.gif' --include '*.svg' --include '*.webp' --exclude '*' ${`${src}/`} ${dest}/`.quiet();
 
 // --safe-links drops links that leave the copy. A plugin folder can be such a
 // link to the plugin's development checkout (the owner's latex-live is one);

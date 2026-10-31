@@ -10,6 +10,14 @@
 	isolation: isolate;
 }
 
+/* A tooltip can reach past its editor's pane (a plugin's completion docs or
+   formula hover beside its preview pane), where the panes after it in the
+   layout would paint over it. The leaf showing one goes above the other
+   leaves, still under the host's layers. */
+.workspace-leaf:has(.cm-tooltip) {
+	z-index: 1;
+}
+
 .markdown-source-view .cm-editor {
 	height: 100%;
 	font-family: var(--font-text);
