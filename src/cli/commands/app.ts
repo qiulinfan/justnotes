@@ -13,6 +13,7 @@ import { moment, normalizePath } from "../../api/util";
 import { TFile, TFolder } from "../../api/vault";
 import { WorkspaceTabs, type PaneType, type WorkspaceLeaf } from "../../api/workspace";
 import { dailyNote } from "../../renderer/daily-notes";
+import { bookmarkUrl } from "../../renderer/bookmarks-data";
 import { consoleEntries, errorEntries } from "../../renderer/dev-capture";
 import { fileRecoveryOf, lineDiff, openFileRecovery, type Snapshot } from "../../renderer/file-recovery";
 import { insertTemplate } from "../../renderer/templates";
@@ -316,7 +317,13 @@ const bookmark: Handler = async (ctx, params) => {
 		if (!folder) throw new CliError(`No folder "${params.folder}".`);
 		item = { type: "folder", path: folder.path };
 	} else if (params.search !== undefined) item = { type: "search", query: params.search };
-	else item = { type: "url", url: params.url };
+	else {
+		// As the Bookmark a URL dialog takes it: example.com gets https://, and
+		// a URL the external-link policy drops (file:, javascript:) is refused.
+		const url = bookmarkUrl(params.url);
+		if (!url) throw usage(`Not a URL justnotes can open: "${params.url}".`);
+		item = { type: "url", url };
+	}
 	if (title) item.title = title;
 	await instance.addItem(item);
 	return done(item, item.path ?? item.query ?? item.url ?? "");

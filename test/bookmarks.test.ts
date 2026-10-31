@@ -3,7 +3,9 @@ import { installLanguageExtensions } from "../src/api/dom";
 import { BookmarksInstance } from "../src/renderer/bookmarks";
 import {
 	type BookmarksData,
+	bookmarkUrl,
 	cloneBookmarks,
+	droppedUrls,
 	mergeBookmarks,
 	moveBookmark,
 	newBookmark,
@@ -11,7 +13,13 @@ import {
 	removeDeletedFromBookmarks,
 	renameInBookmarks,
 	serializeBookmarks,
+	urlTitle,
 } from "../src/renderer/bookmarks-data";
+import { APP_COMMANDS } from "../src/cli/commands/app";
+import type { Ctx } from "../src/cli/commands/context";
+import { EXIT_USAGE } from "../src/cli/protocol";
+import { runBuiltin } from "../src/cli/run";
+import { BUILTINS } from "../src/cli/spec";
 
 installLanguageExtensions();
 
@@ -73,6 +81,34 @@ describe("bookmarks.json format", () => {
 		expect(parseBookmarks('{"items": [')).toBeNull();
 		expect(parseBookmarks('{"items": {}}')).toBeNull();
 		expect(parseBookmarks("{}")?.items).toEqual([]);
+	});
+});
+
+// What the Bookmark a URL dialog, URL drops, the link menu and the CLI save:
+// a bookmark that opens, since main hands its URL to the system.
+describe("URL bookmarks", () => {
+	test("a URL typed without a scheme gets https; text that is no openable URL is refused", () => {
+		expect(bookmarkUrl(" example.com/docs?q=1 ")).toBe("https://example.com/docs?q=1");
+		expect(bookmarkUrl("localhost:3000")).toBe("https://localhost:3000");
+		expect(bookmarkUrl("mailto:me@example.com")).toBe("mailto:me@example.com");
+		expect(bookmarkUrl("zotero://select/items/1")).toBe("zotero://select/items/1");
+		for (const bad of ["", "not a url", "file:///etc/passwd", "javascript:alert(1)", "data:text/html,x", "https://", "notes"]) expect(bookmarkUrl(bad)).toBeNull();
+		// Dropped or linked text needs its scheme: a word with a dot is no link.
+		expect(bookmarkUrl("node.js", false)).toBeNull();
+	});
+
+	test("the default title is the host and path, decoded", () => {
+		expect(urlTitle("https://www.example.com/docs/page/")).toBe("www.example.com/docs/page");
+		expect(urlTitle("https://example.com/")).toBe("example.com");
+		expect(urlTitle("https://zh.wikipedia.org/wiki/%E7%AC%94%E8%AE%B0")).toBe("zh.wikipedia.org/wiki/笔记");
+		expect(urlTitle("mailto:me@example.com")).toBe("me@example.com");
+	});
+
+	test("a drop bookmarks the uri-list's URLs, or plain text only when every line is a URL", () => {
+		expect(droppedUrls("# comment\r\nhttps://a.example/\r\nhttps://b.example/\r\nhttps://a.example/", "ignored")).toEqual(["https://a.example/", "https://b.example/"]);
+		expect(droppedUrls("", "https://a.example/\nhttps://b.example/")).toEqual(["https://a.example/", "https://b.example/"]);
+		expect(droppedUrls("", "see https://a.example/")).toEqual([]);
+		expect(droppedUrls("file:///Users/me/x.md", "")).toEqual([]);
 	});
 });
 
@@ -229,5 +265,25 @@ describe("the bookmarks instance and bookmarks.json", () => {
 		await instance.saveData();
 		expect(instance.items).toHaveLength(3);
 		expect(writes).toEqual([]);
+	});
+});
+
+// Obsidian's CLI syntax, `bookmark url=... title=...`, through the instance.
+describe("the bookmark command", () => {
+	test("url= saves a URL bookmark in Obsidian's format; a URL that cannot open is refused and nothing is written", async () => {
+		const { app, writes, files } = fakeVault({});
+		const instance = new BookmarksInstance(app);
+		app.internalPlugins = { getEnabledPluginById: (id: string) => (id === "bookmarks" ? instance : null) };
+		await instance.load();
+		const ctx = { app, live: true, version: "0.0.0", cwd: "/" } as Ctx;
+		const run = (...words: string[]) => runBuiltin(BUILTINS.get("bookmark")!, APP_COMMANDS.bookmark, ctx, words);
+		expect((await run("url=javascript:alert(1)")).code).toBe(EXIT_USAGE);
+		await instance.saveData();
+		expect(writes).toEqual([]);
+		expect((await run("url=example.com/docs", "title=Docs")).code).toBe(0);
+		await instance.saveData();
+		const saved = parseBookmarks(files[".obsidian/bookmarks.json"])!.items;
+		expect(saved).toMatchObject([{ type: "url", url: "https://example.com/docs", title: "Docs" }]);
+		expect(Object.keys(saved[0])).toEqual(["type", "ctime", "url", "title"]);
 	});
 });

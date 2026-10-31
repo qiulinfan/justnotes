@@ -6,6 +6,7 @@ import type { Component } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import { locateFrontmatter } from "./frontmatter-edit";
 import { Keymap, Scope } from "./keymap";
+import { addUrlMenuItems } from "./markdown";
 import { MarkdownEditView, MarkdownPreviewView, type MarkdownSubView, subpathLine } from "./markdown-preview";
 import { editorMetadataHost, metadataEditorOf } from "./metadata-editor";
 import { Menu } from "./ui/menu";
@@ -223,23 +224,8 @@ export class MarkdownView extends TextFileView {
 		// A link under the pointer: a note link gets the workspace's link menu,
 		// a URL its own items and the 'url-menu' event.
 		const href = (evt.target as Element | null)?.closest?.("[data-href]")?.getAttribute("data-href");
-		if (href && SCHEME.test(href)) {
-			menu.addItem((i) =>
-				i
-					.setTitle("Open link")
-					.setIcon("external-link")
-					.setSection("selection-link")
-					.onClick(() => window.open(href, "_blank")),
-			);
-			menu.addItem((i) =>
-				i
-					.setTitle("Copy URL")
-					.setIcon("copy")
-					.setSection("selection-link")
-					.onClick(() => navigator.clipboard.writeText(href)),
-			);
-			this.app.workspace.trigger("url-menu", menu, href);
-		} else if (href) this.app.workspace.handleLinkContextMenu(menu, safeDecode(href), this.file?.path ?? "", this.leaf);
+		if (href && SCHEME.test(href)) addUrlMenuItems(this.app, menu, href);
+		else if (href) this.app.workspace.handleLinkContextMenu(menu, safeDecode(href), this.file?.path ?? "", this.leaf);
 		menu.addItem((i) =>
 			i
 				.setTitle("Cut")

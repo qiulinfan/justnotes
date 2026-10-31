@@ -21,8 +21,9 @@ plain style. Development notes belong in this file.
 
 - `src/main/`: the Electron main process. `main.ts` opens one window per vault
   (Node integration on, context isolation off, `webviewTag`,
-  `@electron/remote`), owns the external-link policy and routes `obsidian://`
-  URLs to the vault window. The only `window.open` it lets through as a window
+  `@electron/remote`), owns the external-link policy (`link-policy.ts` has
+  the schemes it drops) and routes `obsidian://` URLs to the vault window.
+  The only `window.open` it lets through as a window
   is a popout's (`popout.ts`: `about:blank` under the `justnotes-popout`
   frame name). `lifecycle.ts` runs the quit flush
   (`justnotes:before-close` / `justnotes:close-ready`), `ipc.ts` the
@@ -178,13 +179,27 @@ plain style. Development notes belong in this file.
   `bookmark-current-search`, `bookmark-current-heading`,
   `bookmark-current-section` (the block under the cursor, given a `^id` when
   it has none), `bookmark-all-tabs` (a new group) and
-  `unbookmark-current-view`. Menus: file (Bookmark.../Edit bookmark...),
-  files (several), editor (on a heading line), tab (`leaf-menu`, graph and
-  search). The view drags rows through `app.dragManager` (`type:
-  "bookmarks"`, `items: [{item}]`, `files`), before/after a row or into a
-  group, and takes files dragged from the explorer. Not there yet: the tab
-  group's "Bookmark N tabs" menu, adding URL bookmarks (no Web viewer), a
-  heading bookmark does not follow a renamed heading.
+  `unbookmark-current-view`, and justnotes' own `bookmarks:bookmark-url`.
+  Menus: file (Bookmark.../Edit bookmark...), files (several), editor (on a
+  heading line), tab (`leaf-menu`, graph and search), and `url-menu`
+  (Bookmark link.../Edit bookmark... on an external link). The view drags
+  rows through `app.dragManager` (`type: "bookmarks"`, `items: [{item}]`,
+  `files`), before/after a row or into a group, and takes files dragged from
+  the explorer. URL bookmarks, which Obsidian makes from its Web viewer
+  (justnotes has none), come from the Bookmark a URL dialog (the view's
+  globe button, its background menu, a group's menu, the command; URL first,
+  title following the URL's host and path until typed, a group), from the
+  link menu, and from drops: an external link through the drag manager
+  (`type: "link"` with a URL as `linktext`, its title kept), or a drop from
+  outside (`text/uri-list`, else plain text whose every line is a URL with a
+  scheme; a page link's anchor text is the title). `bookmarkUrl` checks every
+  URL saved (dialog, drops, menu, CLI): a bare host gets `https://`, and a
+  scheme main's external-link policy drops (`droppedSchemes` in
+  `main/link-policy.ts`, shared with main) is refused. Edit... changes a URL
+  bookmark's URL and title; opening it is `window.open`, so main's policy
+  decides. `addItem` puts an item without a `ctime` (from the CLI or a
+  plugin) in Obsidian's key order. Not there yet: the tab group's "Bookmark
+  N tabs" menu, a heading bookmark does not follow a renamed heading.
 - Graph view (`graph-data.ts` for options, queries and nodes, tested;
   `graph-renderer.ts` for the canvas; `graph-view.ts` for the views): a
   d3-force simulation drawn with Canvas 2D, frames only while the layout moves
@@ -275,7 +290,9 @@ plain style. Development notes belong in this file.
   (`<webview>` partitions included): `obsidian:` goes to the vault window (a
   guest's to its embedder's); `file:`, `javascript:`, `data:`, `blob:`,
   `about:` and browser schemes are dropped; every other scheme goes to the
-  system, as in Obsidian.
+  system, as in Obsidian. An external link's menu (reading view and Live
+  Preview: Open link, Copy URL) fires the workspace's `url-menu`
+  (`addUrlMenuItems` in `markdown.ts`).
 - `obsidian://open?path=` into another vault opens (or focuses) that vault's
   window, but only for vaults opened before with `--vault` or the folder
   picker (recorded in the profile's `vaults.json`): a link must never load an
@@ -386,7 +403,8 @@ plain style. Development notes belong in this file.
   `alwaysUpdateLinks`), trash per `trashOption` for `delete` and the
   uninstall commands. Core plugins cannot be toggled (core-plugins.json is
   Obsidian's); `bookmark` goes through the Bookmarks instance's `addItem`
-  when that core plugin exists; history commands read File recovery's
+  when that core plugin exists (`url=` checked as the dialog checks it, a
+  bad URL is status 2); history commands read File recovery's
   snapshots (`fileRecoveryOf`), only while it is enabled; `workspace:load`
   applies a layout from workspaces.json. `dev:console` and `dev:errors` read
   buffers `dev-capture.ts` fills from boot (console methods wrapped, window
@@ -637,7 +655,9 @@ from a file under `~/Desktop/apis`), and the core plugin panes, a popout and
 the CLI worked; the vault's git state was unchanged afterwards. Loading
 rewrites `plugins/terminal/data.json` and obsidian-git's
 `obsidian_askpass.sh`, as in Obsidian. Bookmarks (every item type, groups, drags, renames and
-deletions, a bookmarks.json changed outside while justnotes saved) and the
+deletions, a bookmarks.json changed outside while justnotes saved; URL
+bookmarks from the dialog, the link menus, outside and in-app drops and the
+CLI) and the
 Core plugins toggles were tested live on a synthetic vault and on a copy of
 blogs with five of its plugins.
 
