@@ -621,73 +621,260 @@ export function parseMetadata(text: string): CachedMetadata {
 	return cache;
 }
 
+// Obsidian's private multi-map: lowercased file name to the files with that name.
+class CustomArrayDict<T> {
+	data = new Map<string, T[]>();
+
+	get(key: string) {
+		return this.data.get(key) ?? null;
+	}
+
+	add(key: string, value: T) {
+		const list = this.data.get(key);
+		if (!list) this.data.set(key, [value]);
+		else if (!list.includes(value)) list.push(value);
+	}
+
+	remove(key: string, value: T) {
+		const list = this.data.get(key);
+		if (!list) return;
+		const i = list.indexOf(value);
+		if (i >= 0) list.splice(i, 1);
+		if (!list.length) this.data.delete(key);
+	}
+
+	contains(key: string, value: T) {
+		return !!this.data.get(key)?.includes(value);
+	}
+
+	keys() {
+		return [...this.data.keys()];
+	}
+
+	count() {
+		let n = 0;
+		for (const list of this.data.values()) n += list.length;
+		return n;
+	}
+
+	clear(key: string) {
+		this.data.delete(key);
+	}
+
+	clearAll() {
+		this.data.clear();
+	}
+}
+
+const nameKey = (path: string) => nodePath.posix.basename(path).toLowerCase();
+
+// Everything is derived in memory: initialize() parses every note once at
+// startup, then vault events keep the cache, the link maps and their reverse
+// indexes current. Resolution is incremental: a create, delete or rename
+// re-resolves only the notes whose links it can change, each firing 'resolve',
+// and one 'resolved' follows once the batch is done.
 export class MetadataCache extends Events {
 	vault: Vault;
 	resolvedLinks: Record<string, Record<string, number>> = {};
 	unresolvedLinks: Record<string, Record<string, number>> = {};
-	#cache = new Map<string, CachedMetadata>();
 	resolved = false;
+	uniqueFileLookup = new CustomArrayDict<TFile>();
+	#namesReady = false;
+	#cache = new Map<string, CachedMetadata>();
+	// Destination path to the notes that resolve a link to it.
+	#backlinks = new Map<string, Set<string>>();
+	// Lowercased name of an unresolved linkpath to the notes that hold it.
+	#unresolvedBy = new Map<string, Set<string>>();
+	#generation = new WeakMap<TFile, number>();
+	#pending = new Set<TFile>();
+	#flushQueued = false;
+	#dirty = false;
+	#inflight = 0;
+	#initializing: Promise<void> | null = null;
+	#onClean: (() => void)[] = [];
 
 	constructor(vault: Vault) {
 		super();
 		this.vault = vault;
-		vault.on("create", (f: TAbstractFile) => f instanceof TFile && this.#index(f));
-		vault.on("modify", (f: TAbstractFile) => f instanceof TFile && this.#index(f));
-		vault.on("delete", (f: TAbstractFile) => {
-			const prev = this.#cache.get(f.path);
-			this.#cache.delete(f.path);
-			delete this.resolvedLinks[f.path];
-			delete this.unresolvedLinks[f.path];
-			if (f instanceof TFile) this.trigger("deleted", f, prev ?? null);
-		});
-		vault.on("rename", (f: TAbstractFile, oldPath: string) => {
-			const prev = this.#cache.get(oldPath);
-			this.#cache.delete(oldPath);
-			if (prev) this.#cache.set(f.path, prev);
-			this.resolvedLinks[f.path] = this.resolvedLinks[oldPath] ?? {};
-			delete this.resolvedLinks[oldPath];
-		});
+		// Registered before any plugin, so 'deleted' runs before plugins' vault 'delete' handlers.
+		vault.on("create", (f: TAbstractFile) => f instanceof TFile && this.#onCreate(f));
+		vault.on("modify", (f: TAbstractFile) => f instanceof TFile && f.extension === "md" && this.#index(f));
+		vault.on("delete", (f: TAbstractFile) => f instanceof TFile && this.#onDelete(f));
+		vault.on("rename", (f: TAbstractFile, oldPath: string) => f instanceof TFile && this.#onRename(f, oldPath));
 	}
 
-	// Index every Markdown file in the background, then announce "resolved".
-	async initialize() {
+	// Parses every note, resolves every link, then fires 'resolved'. Awaitable,
+	// so the host can have the cache ready before plugins load.
+	initialize() {
+		this.#initializing ??= this.#initialIndex();
+		return this.#initializing;
+	}
+
+	async #initialIndex() {
+		this.#buildNames();
 		const files = this.vault.getMarkdownFiles();
-		for (let i = 0; i < files.length; i += 50) {
-			await Promise.all(files.slice(i, i + 50).map((f) => this.#index(f, true)));
-		}
+		for (let i = 0; i < files.length; i += 50) await Promise.all(files.slice(i, i + 50).map((f) => this.#index(f)));
+		this.#flush();
 		this.resolved = true;
 		this.trigger("resolved");
+		for (const cb of this.#onClean.splice(0)) cb();
 	}
 
-	async #index(file: TFile, initial = false) {
-		if (file.extension !== "md") return;
-		let text: string;
+	#buildNames() {
+		this.uniqueFileLookup.clearAll();
+		for (const f of this.vault.getFiles()) this.uniqueFileLookup.add(f.name.toLowerCase(), f);
+		this.#namesReady = true;
+	}
+
+	#names() {
+		if (!this.#namesReady) this.#buildNames();
+		return this.uniqueFileLookup;
+	}
+
+	// While notes are being read, resolution waits, so one change gives one 'resolved'.
+	async #index(file: TFile) {
+		const generation = (this.#generation.get(file) ?? 0) + 1;
+		this.#generation.set(file, generation);
+		this.#inflight++;
 		try {
-			text = await this.vault.cachedRead(file);
+			const text = await this.vault.cachedRead(file);
+			if (this.#generation.get(file) !== generation || this.vault.getAbstractFileByPath(file.path) !== file) return;
+			const cache = parseMetadata(text);
+			this.#cache.set(file.path, cache);
+			this.trigger("changed", file, text, cache);
+			this.#queue(file);
 		} catch {
-			return;
-		}
-		const cache = parseMetadata(text);
-		this.#cache.set(file.path, cache);
-		this.#resolve(file, cache);
-		this.trigger("changed", file, text, cache);
-		if (!initial) {
-			this.trigger("resolve", file);
-			if (this.resolved) this.trigger("resolved");
+		} finally {
+			this.#inflight--;
+			if (!this.#inflight && this.#dirty) this.#scheduleFlush();
 		}
 	}
 
-	#resolve(file: TFile, cache: CachedMetadata) {
+	#onCreate(file: TFile) {
+		this.#names().add(file.name.toLowerCase(), file);
+		this.#appeared(file);
+		if (file.extension === "md") this.#index(file);
+		this.#scheduleFlush();
+	}
+
+	// Notes whose links can now resolve to this file: unresolved links naming
+	// it, and links that resolved to another file of the same name.
+	#appeared(file: TFile) {
+		const keys = [file.name.toLowerCase()];
+		if (file.extension === "md") keys.push(file.basename.toLowerCase());
+		for (const k of keys) for (const src of this.#unresolvedBy.get(k) ?? []) this.#queuePath(src);
+		for (const other of this.#names().get(file.name.toLowerCase()) ?? []) {
+			if (other !== file) for (const src of this.#backlinks.get(other.path) ?? []) this.#queuePath(src);
+		}
+	}
+
+	#onDelete(file: TFile) {
+		this.#names().remove(file.name.toLowerCase(), file);
+		const prev = this.#cache.get(file.path) ?? null;
+		this.#cache.delete(file.path);
+		this.#setLinks(file.path, null, null);
+		for (const src of this.#backlinks.get(file.path) ?? []) this.#queuePath(src);
+		if (file.extension === "md") this.trigger("deleted", file, prev);
+		this.#scheduleFlush();
+	}
+
+	#onRename(file: TFile, oldPath: string) {
+		this.#names().remove(nameKey(oldPath), file);
+		this.#names().add(file.name.toLowerCase(), file);
+		const cache = this.#cache.get(oldPath);
+		this.#cache.delete(oldPath);
+		if (cache) this.#cache.set(file.path, cache);
+		// Its own links move with it; links to it follow it at once and are re-resolved.
+		const resolved = this.resolvedLinks[oldPath] ?? null;
+		const unresolved = this.unresolvedLinks[oldPath] ?? null;
+		this.#setLinks(oldPath, null, null);
+		if (resolved || unresolved) this.#setLinks(file.path, resolved ?? {}, unresolved ?? {});
+		for (const src of [...(this.#backlinks.get(oldPath) ?? [])]) {
+			const counts = this.resolvedLinks[src];
+			if (!counts || !(oldPath in counts)) continue;
+			const moved = { ...counts, [file.path]: (counts[file.path] ?? 0) + counts[oldPath] };
+			delete moved[oldPath];
+			this.#setLinks(src, moved, this.unresolvedLinks[src] ?? {});
+			this.#queuePath(src);
+		}
+		if (file.extension === "md") this.#queue(file);
+		this.#appeared(file);
+		this.#scheduleFlush();
+	}
+
+	#queuePath(path: string) {
+		const file = this.vault.getFileByPath(path);
+		if (file) this.#queue(file);
+	}
+
+	#queue(file: TFile) {
+		this.#pending.add(file);
+		this.#scheduleFlush();
+	}
+
+	#scheduleFlush() {
+		this.#dirty = true;
+		if (this.#flushQueued) return;
+		this.#flushQueued = true;
+		queueMicrotask(() => this.#flush());
+	}
+
+	#flush() {
+		this.#flushQueued = false;
+		if (!this.#dirty || this.#inflight) return;
+		this.#dirty = false;
+		const files = [...this.#pending];
+		this.#pending.clear();
+		for (const file of files) {
+			if (this.vault.getAbstractFileByPath(file.path) !== file || !this.#cache.has(file.path)) continue;
+			this.#resolve(file);
+			this.trigger("resolve", file);
+		}
+		if (this.resolved) this.trigger("resolved");
+	}
+
+	#resolve(file: TFile) {
 		const resolved: Record<string, number> = {};
 		const unresolved: Record<string, number> = {};
-		for (const ref of [...(cache.links ?? []), ...(cache.embeds ?? [])]) {
-			const dest = this.getFirstLinkpathDest(getLinkpath(ref.link), file.path);
-			const bucket = dest ? resolved : unresolved;
-			const key = dest ? dest.path : getLinkpath(ref.link);
-			bucket[key] = (bucket[key] ?? 0) + 1;
+		for (const ref of this.#refs(this.#cache.get(file.path))) {
+			const linkpath = getLinkpath(ref.link);
+			const dest = this.getFirstLinkpathDest(linkpath, file.path);
+			if (dest) resolved[dest.path] = (resolved[dest.path] ?? 0) + 1;
+			else if (linkpath) unresolved[linkpath] = (unresolved[linkpath] ?? 0) + 1;
 		}
-		this.resolvedLinks[file.path] = resolved;
-		this.unresolvedLinks[file.path] = unresolved;
+		this.#setLinks(file.path, resolved, unresolved);
+	}
+
+	#refs(cache: CachedMetadata | undefined): Reference[] {
+		return [...(cache?.links ?? []), ...(cache?.embeds ?? []), ...(cache?.frontmatterLinks ?? [])];
+	}
+
+	// Replaces one note's link maps and keeps the reverse indexes in step.
+	#setLinks(src: string, resolved: Record<string, number> | null, unresolved: Record<string, number> | null) {
+		for (const dest of Object.keys(this.resolvedLinks[src] ?? {})) this.#unlinkFrom(this.#backlinks, dest, src);
+		for (const link of Object.keys(this.unresolvedLinks[src] ?? {})) this.#unlinkFrom(this.#unresolvedBy, nameKey(link), src);
+		if (!resolved || !unresolved) {
+			delete this.resolvedLinks[src];
+			delete this.unresolvedLinks[src];
+			return;
+		}
+		this.resolvedLinks[src] = resolved;
+		this.unresolvedLinks[src] = unresolved;
+		for (const dest of Object.keys(resolved)) this.#linkTo(this.#backlinks, dest, src);
+		for (const link of Object.keys(unresolved)) this.#linkTo(this.#unresolvedBy, nameKey(link), src);
+	}
+
+	#linkTo(index: Map<string, Set<string>>, key: string, src: string) {
+		let set = index.get(key);
+		if (!set) index.set(key, (set = new Set()));
+		set.add(src);
+	}
+
+	#unlinkFrom(index: Map<string, Set<string>>, key: string, src: string) {
+		const set = index.get(key);
+		if (!set) return;
+		set.delete(src);
+		if (!set.size) index.delete(key);
 	}
 
 	getFileCache(file: TFile) {
@@ -698,45 +885,129 @@ export class MetadataCache extends Events {
 		return this.#cache.get(path) ?? null;
 	}
 
-	// Resolve a link the way Obsidian does: exact path, then relative to the
-	// source, then the shortest path whose name matches.
+	getCachedFiles() {
+		return [...this.#cache.keys()];
+	}
+
+	// Obsidian's order: relative to the source's folder, then the vault-absolute
+	// path, then any file whose path ends with the linkpath, nearest and
+	// shortest first. Names match without regard to case, and a linkpath is
+	// also tried with '.md' appended, whatever dots it already has.
 	getFirstLinkpathDest(linkpath: string, sourcePath: string): TFile | null {
-		if (!linkpath) return this.vault.getFileByPath(sourcePath);
-		const candidates = /\.[^/]+$/.test(linkpath) ? [linkpath] : [linkpath, `${linkpath}.md`];
-		for (const c of candidates) {
-			const exact = this.vault.getFileByPath(c);
-			if (exact) return exact;
-			const rel = this.vault.getFileByPath(nodePath.posix.join(nodePath.posix.dirname(sourcePath), c));
-			if (rel) return rel;
-		}
-		const names = candidates.map((c) => nodePath.posix.basename(c).toLowerCase());
-		const suffixes = candidates.map((c) => `/${c.toLowerCase()}`);
-		let best: TFile | null = null;
-		for (const f of this.vault.getFiles()) {
-			const lower = f.path.toLowerCase();
-			if (!names.includes(f.name.toLowerCase())) continue;
-			if (candidates.some((c) => c.includes("/")) && !suffixes.some((s) => `/${lower}`.endsWith(s))) continue;
-			if (!best || f.path.length < best.path.length) best = f;
-		}
-		return best;
+		return this.getLinkpathDest(linkpath, sourcePath)[0] ?? null;
 	}
 
-	// The shortest unambiguous link: the bare name when it is unique.
-	fileToLinktext(file: TFile, _sourcePath: string, omitMdExtension = true) {
+	getLinkpathDest(linkpath: string, sourcePath: string): TFile[] {
+		if (!linkpath) {
+			const self = this.vault.getFileByPath(sourcePath);
+			return self ? [self] : [];
+		}
+		const absolute = linkpath.startsWith("/");
+		const path = linkpath.replace(/^\/+/, "");
+		const names = /\.md$/i.test(path) ? [path] : [path, `${path}.md`];
+		const out: TFile[] = [];
+		const add = (f: TAbstractFile | null) => {
+			if (f instanceof TFile && !out.includes(f)) out.push(f);
+		};
+		const dir = nodePath.posix.dirname(sourcePath);
+		if (!absolute && dir !== ".") for (const n of names) add(this.#fileAt(nodePath.posix.join(dir, n)));
+		for (const n of names) add(this.#fileAt(nodePath.posix.normalize(n)));
+		if (absolute) return out;
+		const suffixes = names.map((n) => `/${n.toLowerCase()}`);
+		const matches = names
+			.flatMap((n) => this.#names().get(nameKey(n)) ?? [])
+			.filter((f) => suffixes.some((s) => `/${f.path.toLowerCase()}`.endsWith(s)));
+		const near = (f: TFile) => (nodePath.posix.dirname(f.path) === dir ? 0 : 1);
+		matches.sort((a, b) => near(a) - near(b) || a.path.length - b.path.length || a.path.localeCompare(b.path));
+		for (const f of matches) add(f);
+		return out;
+	}
+
+	#fileAt(path: string) {
+		const file = this.vault.getFileByPath(path);
+		return file ?? this.vault.getAbstractFileByPathInsensitive(path);
+	}
+
+	// newLinkFormat 'shortest' (the default) gives the bare name when no other
+	// file has it, else the vault path; 'relative' and 'absolute' always give a path.
+	fileToLinktext(file: TFile, sourcePath: string, omitMdExtension = true) {
 		const strip = omitMdExtension && file.extension === "md";
-		const unique = this.vault.getFiles().filter((f) => f.name === file.name).length === 1;
-		if (unique) return strip ? file.basename : file.name;
-		return strip ? file.path.slice(0, -3) : file.path;
+		const full = strip ? file.path.slice(0, -3) : file.path;
+		const format = this.vault.getConfig("newLinkFormat");
+		if (format === "absolute") return full;
+		if (format === "relative") {
+			const dir = nodePath.posix.dirname(sourcePath);
+			return nodePath.posix.relative(`/${dir === "." ? "" : dir}`, `/${full}`);
+		}
+		const unique = (this.#names().get(file.name.toLowerCase())?.length ?? 0) <= 1;
+		return unique ? (strip ? file.basename : file.name) : full;
 	}
 
-	getLinkpathDest(linkpath: string, sourcePath: string) {
-		const f = this.getFirstLinkpathDest(linkpath, sourcePath);
-		return f ? [f] : [];
-	}
-
+	// Body and frontmatter tags of every note, counted per tag; spellings that
+	// differ only in case count as one, under the first one seen.
 	getTags() {
 		const counts: Record<string, number> = {};
-		for (const c of this.#cache.values()) for (const t of c.tags ?? []) counts[t.tag] = (counts[t.tag] ?? 0) + 1;
+		const spelling = new Map<string, string>();
+		for (const cache of this.#cache.values()) {
+			for (const tag of getAllTags(cache) ?? []) {
+				const lower = tag.toLowerCase();
+				let name = spelling.get(lower);
+				if (!name) spelling.set(lower, (name = tag));
+				counts[name] = (counts[name] ?? 0) + 1;
+			}
+		}
 		return counts;
+	}
+
+	// Notes linking to the file, with the references that resolve to it.
+	getBacklinksForFile(file: TFile) {
+		const result = new CustomArrayDict<Reference>();
+		for (const src of this.#backlinks.get(file.path) ?? []) {
+			for (const ref of this.#refs(this.#cache.get(src))) {
+				if (this.getFirstLinkpathDest(getLinkpath(ref.link), src) === file) result.add(src, ref);
+			}
+		}
+		return result;
+	}
+
+	getLinks() {
+		const out: Record<string, ReferenceCache[]> = {};
+		for (const [path, cache] of this.#cache) if (cache.links?.length) out[path] = [...cache.links];
+		return out;
+	}
+
+	// Every file, each alias of a note, and every unresolved link target.
+	getLinkSuggestions() {
+		const out: { file: TFile | null; path: string; alias?: string }[] = [];
+		for (const file of this.vault.getFiles()) {
+			out.push({ file, path: file.path });
+			for (const alias of parseFrontMatterAliases(this.#cache.get(file.path)?.frontmatter) ?? []) out.push({ file, path: file.path, alias });
+		}
+		const unresolved = new Set<string>();
+		for (const links of Object.values(this.unresolvedLinks)) for (const link of Object.keys(links)) unresolved.add(link);
+		for (const path of unresolved) out.push({ file: null, path });
+		return out;
+	}
+
+	// app.json userIgnoreFilters: a path prefix, or a /regex/.
+	isUserIgnored(path: string) {
+		const filters = this.vault.getConfig("userIgnoreFilters");
+		if (!Array.isArray(filters)) return false;
+		return filters.some((f) => {
+			if (typeof f !== "string" || !f) return false;
+			if (f.length > 2 && f.startsWith("/") && f.endsWith("/")) {
+				try {
+					return new RegExp(f.slice(1, -1)).test(path);
+				} catch {
+					return false;
+				}
+			}
+			return path.startsWith(f);
+		});
+	}
+
+	onCleanCache(cb: () => void) {
+		if (this.resolved) cb();
+		else this.#onClean.push(cb);
 	}
 }
