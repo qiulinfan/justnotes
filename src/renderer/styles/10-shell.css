@@ -37,16 +37,21 @@
 	flex-direction: column;
 	align-items: center;
 	justify-content: space-between;
-	padding: 8px 0;
-	background: var(--background-secondary);
-	border-right: 1px solid var(--background-modifier-border);
+	padding: var(--ribbon-padding);
+	background: var(--ribbon-background);
+	border-right: var(--border-width) solid var(--divider-color);
 }
 
 .side-dock-actions,
 .side-dock-settings {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: var(--size-2-2);
+}
+
+.side-dock-ribbon-action {
+	--icon-size: var(--icon-l);
+	--icon-stroke: var(--icon-l-stroke-width);
 }
 
 .workspace-split {
@@ -223,9 +228,9 @@ body.is-grabbing :is(webview, iframe) {
 	flex-shrink: 0;
 	display: flex;
 	align-items: flex-end;
-	background: var(--background-secondary);
-	border-bottom: 1px solid var(--background-modifier-border);
-	padding: 0 8px;
+	background: var(--tab-container-background);
+	border-bottom: var(--tab-outline-width) solid var(--tab-outline-color);
+	padding: 0 var(--size-4-2);
 }
 
 .workspace-tab-header-container-inner {
@@ -259,50 +264,66 @@ body.is-grabbing :is(webview, iframe) {
 }
 
 .workspace-tab-header {
-	max-width: 220px;
+	max-width: var(--tab-max-width);
 	min-width: 60px;
 	height: 32px;
-	padding: 0 8px;
-	border-radius: var(--radius-m) var(--radius-m) 0 0;
-	color: var(--text-muted);
+	padding: 0 var(--size-4-2);
+	border-radius: var(--tab-radius-active);
+	color: var(--tab-text-color-focused);
 	cursor: default;
-	font-size: var(--font-ui-small);
+	font-size: var(--tab-font-size);
+	font-weight: var(--tab-font-weight);
 }
 
 .workspace-tab-header.is-active {
-	background: var(--background-primary);
-	color: var(--text-normal);
+	background: var(--tab-background-active);
+	color: var(--tab-text-color-focused-active-current);
 }
 
+/* A sidebar's tabs are icon buttons, the size of the other clickable icons;
+   --sidebar-tab-text-display shows their titles. */
 .mod-sidedock .workspace-tab-header {
 	min-width: 0;
-	height: 28px;
-	border-radius: var(--radius-s);
+	height: auto;
+	padding: var(--size-2-2) var(--size-2-3);
+	border-radius: var(--tab-radius);
+	color: var(--icon-color);
 }
 
-.mod-sidedock .workspace-tab-header .workspace-tab-header-inner-title,
+.mod-sidedock .workspace-tab-header:hover {
+	background: var(--background-modifier-hover);
+	color: var(--icon-color-hover);
+}
+
+.mod-sidedock .workspace-tab-header .workspace-tab-header-inner-title {
+	display: var(--sidebar-tab-text-display);
+}
+
 .mod-sidedock .workspace-tab-header .workspace-tab-header-inner-close-button {
 	display: none;
 }
 
 .mod-sidedock .workspace-tab-header.is-active {
 	background: var(--background-modifier-hover);
+	color: var(--icon-color-hover);
+}
+
+.mod-sidedock .workspace-tab-header-inner-icon {
+	--icon-size: var(--icon-m);
+	--icon-stroke: var(--icon-m-stroke-width);
 }
 
 .workspace-tab-header-inner {
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: var(--size-2-3);
 	height: 100%;
 }
 
 .workspace-tab-header-inner-icon {
 	display: flex;
-}
-
-.workspace-tab-header-inner-icon .svg-icon {
-	width: var(--icon-s);
-	height: var(--icon-s);
+	--icon-size: var(--icon-s);
+	--icon-stroke: var(--icon-s-stroke-width);
 }
 
 .workspace-tab-header-inner-title {
