@@ -95,7 +95,11 @@ export interface FootnoteSubpathResult {
 	end: Loc | null;
 }
 
-const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+// A backtick fence's info string holds no backtick: '```a``` b' is inline code.
+const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)$/;
+// Inside a list a fence may follow the item's markers on its line ('2. ```c++').
+const OPEN_FENCE = /^([ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)*)(`{3,}(?=[^`]*$)|~{3,})/;
+const CLOSE_FENCE = /^[ \t]*(`{3,}|~{3,})[ \t]*$/;
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
 const SETEXT = /^ {0,3}(=+|-+)[ \t]*$/;
 const HR = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
@@ -120,8 +124,34 @@ const FOOTNOTE_REF = /\[\^([^\]\s]+)\](?!:)/g;
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
 const blank = (s: string) => !s.trim();
-const indentOf = (s: string) => s.length - s.trimStart().length;
+const leading = (s: string) => /^[ \t]*/.exec(s)![0];
+// The columns `s` spans, a tab advancing to the next multiple of 4, as
+// CommonMark measures indentation; Obsidian indents with tabs by default.
+const columns = (s: string) => {
+	let col = 0;
+	for (const c of s) col = c === "\t" ? col + 4 - (col % 4) : col + 1;
+	return col;
+};
+const widthOf = (s: string) => columns(leading(s));
 const blankOut = (s: string) => " ".repeat(s.length);
+
+// Follows fenced code through the lines of a list or quote: "open" for the
+// line that opens a fence, "code" for the lines inside it and its closing
+// fence. A line indented less than the fence ends the list item holding it,
+// and so the fence.
+function fences() {
+	let open: { mark: string; indent: number } | null = null;
+	return (body: string): "open" | "code" | null => {
+		if (open && (blank(body) || widthOf(body) >= open.indent)) {
+			const close = CLOSE_FENCE.exec(body);
+			if (close && close[1][0] === open.mark[0] && close[1].length >= open.mark.length) open = null;
+			return "code";
+		}
+		const m = OPEN_FENCE.exec(body);
+		open = m ? { mark: m[2], indent: columns(m[1]) } : null;
+		return m ? "open" : null;
+	};
+}
 
 function safeDecode(s: string) {
 	try {
@@ -257,7 +287,7 @@ export function parseMetadata(text: string): CachedMetadata {
 	const pos = (s: number, e: number): Pos => ({ start: loc(s), end: loc(e) });
 	const lineEnd = (i: number) => lines[i].start + lines[i].text.length;
 	// A block spans from the first non-blank character of its first line to the end of its last.
-	const span = (first: number, last: number, col = indentOf(lines[first].text)): Pos => pos(lines[first].start + col, lineEnd(last));
+	const span = (first: number, last: number, col = leading(lines[first].text).length): Pos => pos(lines[first].start + col, lineEnd(last));
 
 	const cache: CachedMetadata = {};
 	const sections: SectionCache[] = [];
@@ -328,19 +358,12 @@ export function parseMetadata(text: string): CachedMetadata {
 	// a footnote label) and skipping fenced code nested in the block.
 	const scanBlock = (from: number, to: number, prefix?: (i: number) => number) => {
 		const state = { comment: null as string | null };
-		let fence: string | null = null;
+		const fence = fences();
 		const masked: string[] = [];
 		for (let i = from; i <= to; i++) {
 			const cut = prefix ? prefix(i) : 0;
 			const body = lines[i].text.slice(cut);
-			const f = /^\s*(`{3,}|~{3,})/.exec(body);
-			if (fence) {
-				if (f && f[1][0] === fence[0] && f[1].length >= fence.length) fence = null;
-				masked.push(blankOut(lines[i].text));
-				continue;
-			}
-			if (f && i > from) {
-				fence = f[1];
+			if (fence(body)) {
 				masked.push(blankOut(lines[i].text));
 				continue;
 			}
@@ -360,8 +383,10 @@ export function parseMetadata(text: string): CachedMetadata {
 	const paragraphInterrupt = (s: string) => {
 		if (ATX.test(s) || FENCE.test(s) || QUOTE.test(s) || /^\s*\$\$/.test(s) || /^\s*%%/.test(s)) return true;
 		if (HR.test(s) && !SETEXT.test(s)) return true;
+		// A list interrupts a paragraph only with an item that has text, starts at
+		// 1 if numbered, and is indented less than four columns.
 		const li = LIST.exec(s);
-		return !!li && !blank(s.slice(li[0].length)) && (!/\d/.test(li[2]) || /^1[.)]$/.test(li[2]));
+		return !!li && widthOf(li[1]) < 4 && !blank(s.slice(li[0].length)) && (!/\d/.test(li[2]) || /^1[.)]$/.test(li[2]));
 	};
 	// Lazy continuation: a non-blank line that does not open a block of its own.
 	const lazy = (s: string) => !blank(s) && !ATX.test(s) && !FENCE.test(s) && !HR.test(s) && !QUOTE.test(s) && !LIST.test(s);
@@ -381,22 +406,22 @@ export function parseMetadata(text: string): CachedMetadata {
 				addBlock(id, current.position);
 			}
 		};
-		let fence: string | null = null;
+		const fence = fences();
 		let afterBlank = false;
 		for (let i = from; i <= to; i++) {
 			const c = cut(i);
 			const body = lines[i].text.slice(c);
-			const f = /^\s*(`{3,}|~{3,})/.exec(body);
-			if (fence) {
-				if (f && f[1][0] === fence[0] && f[1].length >= fence.length) fence = null;
+			if (fence(body) === "code") {
 				lastLine = i;
 				continue;
 			}
-			const li = f ? null : LIST.exec(body);
-			if (f) fence = f[1];
-			if (!li || HR.test(body)) {
+			const li = LIST.exec(body);
+			const indent = li ? widthOf(li[1]) : 0;
+			// Four columns into the item that would hold it, a marker is only text.
+			const container = li ? (stack.findLast((s) => s.content <= indent)?.content ?? 0) : 0;
+			if (!li || HR.test(body) || indent - container >= 4) {
 				if (blank(body)) afterBlank = true;
-				else if (afterBlank && indentOf(body) < 2) {
+				else if (afterBlank && widthOf(body) < 2) {
 					// A paragraph after a blank line ends the list (inside a quote).
 					finish();
 					current = null;
@@ -409,10 +434,13 @@ export function parseMetadata(text: string): CachedMetadata {
 			afterBlank = false;
 			finish();
 			if (listStart < 0) listStart = i;
-			const indent = li[1].replace(/\t/g, "    ").length;
 			while (stack.length && indent < stack[stack.length - 1].content) stack.pop();
 			const parent = stack.length ? stack[stack.length - 1].line : -listStart;
-			const content = indent + li[2].length + Math.max(1, Math.min(li[3].length, 4));
+			// The text starts after one to four columns of space; with more, the
+			// first one counts and the rest belongs to the text.
+			const markerEnd = indent + li[2].length;
+			const gap = columns(li[0]) - markerEnd;
+			const content = markerEnd + (gap >= 1 && gap <= 4 ? gap : 1);
 			stack.push({ content, line: i });
 			const start = lines[i].start + c + li[1].length;
 			current = { parent, position: pos(start, lineEnd(i)) };
@@ -432,11 +460,11 @@ export function parseMetadata(text: string): CachedMetadata {
 			continue;
 		}
 		let end = i;
-		if (/^(?: {4}| {0,3}\t)/.test(line)) {
+		if (widthOf(line) >= 4) {
 			// An indented code block runs while lines stay indented or blank.
 			for (let k = i + 1; k < lines.length; k++) {
 				if (blank(lines[k].text)) continue;
-				if (!/^(?: {4}| {0,3}\t)/.test(lines[k].text)) break;
+				if (widthOf(lines[k].text) < 4) break;
 				end = k;
 			}
 			sections.push({ type: "code", position: span(i, end) });
@@ -507,16 +535,27 @@ export function parseMetadata(text: string): CachedMetadata {
 		if (item) {
 			// A root item with another kind of marker starts a new list.
 			const kind = (m: RegExpExecArray) => (/\d/.test(m[2]) ? m[2].slice(-1) : m[2]);
-			const rootIndent = item[1].length + item[2].length + 1;
+			const rootIndent = widthOf(item[1]) + item[2].length + 1;
 			const sameList = (s: string) => {
 				const m = LIST.exec(s);
-				return !!m && (m[1].length >= rootIndent || kind(m) === kind(item));
+				return !!m && (widthOf(m[1]) >= rootIndent || kind(m) === kind(item));
 			};
+			const fence = fences();
+			fence(line);
 			for (let k = i + 1; k < lines.length; k++) {
 				const next = lines[k].text;
+				if (fence(next) === "code") {
+					end = k;
+					continue;
+				}
 				if (!blank(next)) {
+					// Indented code cannot interrupt an item's text, so such a line continues it.
+					if (k === end + 1 && widthOf(next) >= 4) {
+						end = k;
+						continue;
+					}
 					if (HR.test(next) || (LIST.test(next) && !sameList(next))) break;
-					if (LIST.test(next) || indentOf(next) >= 2 || /^\t/.test(next) || (k === end + 1 && lazy(next))) {
+					if (LIST.test(next) || widthOf(next) >= 2 || (k === end + 1 && lazy(next))) {
 						end = k;
 						continue;
 					}
@@ -525,7 +564,7 @@ export function parseMetadata(text: string): CachedMetadata {
 				let a = k + 1;
 				while (a < lines.length && blank(lines[a].text)) a++;
 				const after = lines[a]?.text;
-				if (after === undefined || !(sameList(after) || indentOf(after) >= 2 || /^\t/.test(after))) break;
+				if (after === undefined || !(sameList(after) || widthOf(after) >= 2)) break;
 				k = a - 1;
 			}
 			scanBlock(i, end);
@@ -536,7 +575,7 @@ export function parseMetadata(text: string): CachedMetadata {
 		}
 		const footnote = FOOTNOTE_DEF.exec(line);
 		if (footnote) {
-			const continues = (s: string) => !blank(s) && !FOOTNOTE_DEF.test(s) && !REF_DEF.test(s) && (indentOf(s) > 0 || lazy(s));
+			const continues = (s: string) => !blank(s) && !FOOTNOTE_DEF.test(s) && !REF_DEF.test(s) && (widthOf(s) > 0 || lazy(s));
 			while (end + 1 < lines.length && continues(lines[end + 1].text)) end++;
 			const position = span(i, end);
 			scanBlock(i, end, (k) => (k === i ? footnote[0].length : 0));

@@ -52,6 +52,48 @@ describe("parseMetadata list items", () => {
 		const c = parseMetadata("> [!todo]\n> - [ ] task\n\n- - -\n* * *");
 		expect(c.listItems!.map((l) => [l.position.start.line, l.task])).toEqual([[1, " "]]);
 	});
+
+	// Obsidian indents with tabs by default; a tab reaches the next multiple of
+	// four columns, so tab-indented items nest, whatever their marker.
+	test("tab-indented children with another marker stay in the list with their links and tags", () => {
+		const c = parseMetadata("- steps [[a]]\n\t1. first [[b]] #t1\n\t2. second ![[img.png]]\n- next\n\n1. one\n\t- sub #t2");
+		expect(c.sections!.map((s) => [s.type, ...lines(s.position)])).toEqual([
+			["list", 0, 3],
+			["list", 5, 6],
+		]);
+		expect(c.listItems!.map((l) => [l.position.start.line, l.parent])).toEqual([
+			[0, -0],
+			[1, 0],
+			[2, 0],
+			[3, -0],
+			[5, -5],
+			[6, 5],
+		]);
+		expect(c.links!.map((l) => l.link)).toEqual(["a", "b"]);
+		expect(c.embeds!.map((l) => l.link)).toEqual(["img.png"]);
+		expect(c.tags!.map((t) => t.tag)).toEqual(["#t1", "#t2"]);
+		const loose = parseMetadata("- a\n\n\tpara of a\n- b");
+		expect(loose.listItems!.map((l) => [l.position.start.line, l.position.end.line, l.parent])).toEqual([
+			[0, 2, -0],
+			[3, 3, -0],
+		]);
+	});
+
+	test("a fence after an item's marker is code until its closing fence or a less indented line", () => {
+		const c = parseMetadata("1. first [[a]]\n2. ```c++\n   int x; // [[no]] #no\n   ```\n3. third [[c]] #t3\n\n- ```\n  [[in fence]]\n- after [[d]]");
+		expect(c.links!.map((l) => l.link)).toEqual(["a", "c", "d"]);
+		expect(c.tags!.map((t) => t.tag)).toEqual(["#t3"]);
+		expect(c.listItems!.map((l) => l.position.start.line)).toEqual([0, 1, 4, 6, 8]);
+		// Backticks in the info string make it inline code, not a fence.
+		expect(parseMetadata("```a``` [[x]]").links!.map((l) => l.link)).toEqual(["x"]);
+	});
+
+	test("a marker indented four columns continues a paragraph instead of starting a list", () => {
+		const c = parseMetadata("text\n\t- more [[x]]\n4. not a list");
+		expect(c.listItems).toBeUndefined();
+		expect(c.sections!.map((s) => [s.type, ...lines(s.position)])).toEqual([["paragraph", 0, 2]]);
+		expect(c.links!.map((l) => l.link)).toEqual(["x"]);
+	});
 });
 
 describe("parseMetadata blocks and headings", () => {
