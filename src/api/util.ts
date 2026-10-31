@@ -1,6 +1,7 @@
 import moment from "moment";
 import TurndownService from "turndown";
 import * as YAML from "yaml";
+import type { RequestParams } from "../main/ipc";
 
 export { moment };
 
@@ -149,18 +150,6 @@ export interface RequestUrlResponsePromise extends Promise<RequestUrlResponse> {
 // names lower-cased, or why it could not be made.
 export type RawResponse = { status: number; headers: Record<string, string>; body: ArrayBuffer } | { error: string };
 
-// The request headers to send: `contentType` replaces any Content-Type the
-// caller also put in `headers`.
-export function requestHeaders(req: RequestUrlParam) {
-	const headers: Record<string, string> = {};
-	for (const [name, value] of Object.entries(req.headers ?? {})) {
-		if (req.contentType && name.toLowerCase() === "content-type") continue;
-		headers[name] = value;
-	}
-	if (req.contentType) headers["Content-Type"] = req.contentType;
-	return headers;
-}
-
 function responseOf(raw: { status: number; headers: Record<string, string>; body: ArrayBuffer }): RequestUrlResponse {
 	let text: string | undefined;
 	let json: { value: any } | undefined;
@@ -195,18 +184,20 @@ export function settleRequest(req: RequestUrlParam, raw: RawResponse): RequestUr
 }
 
 // Like Obsidian, requests leave the browser: the main process makes them with
-// Node's fetch, so headers such as User-Agent or Origin go out as given and no
-// CORS rules apply.
+// Node's http and https (main/ipc.ts), so headers such as User-Agent or Cookie
+// go out as given and no CORS rules apply.
 export function requestUrl(request: RequestUrlParam | string): RequestUrlResponsePromise {
 	const req = typeof request === "string" ? { url: request } : request;
 	const promise = (async () => {
 		const { ipcRenderer } = require("electron");
-		const raw: RawResponse = await ipcRenderer.invoke("justnotes:request-url", {
+		const params: RequestParams = {
 			url: req.url,
 			method: req.method ?? "GET",
-			headers: requestHeaders(req),
+			headers: req.headers ?? {},
+			contentType: req.contentType,
 			body: req.body,
-		});
+		};
+		const raw: RawResponse = await ipcRenderer.invoke("justnotes:request-url", params);
 		return settleRequest(req, raw);
 	})();
 	// The shortcuts are made on first access, so a failed request the caller
