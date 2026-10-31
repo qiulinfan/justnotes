@@ -41,6 +41,14 @@ function openUrl(url: string, from: WebContents) {
 	else void shell.openExternal(url);
 }
 
+// Plugins also reach this process's shell through remote; obsidian: URLs given
+// to it go to the vault window too, never to the OS.
+const openExternal = shell.openExternal.bind(shell);
+shell.openExternal = async (url, options) => {
+	if (isObsidianUrl(url)) sendObsidianUrl(url);
+	else await openExternal(url, options);
+};
+
 ipcMain.handle("justnotes:obsidian-urls", (evt) => {
 	listening.add(evt.sender);
 	return pendingUrls.splice(0);

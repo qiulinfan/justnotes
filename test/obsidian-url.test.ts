@@ -12,8 +12,9 @@ describe("parseObsidianUrl", () => {
 		});
 	});
 
-	test("a key without a value is 'true'", () => {
-		expect(parseObsidianUrl("obsidian://new?name=Inbox&silent&append=")).toEqual({ action: "new", name: "Inbox", silent: "true", append: "true" });
+	test("a key without '=' is 'true', and an empty value stays empty", () => {
+		// obsidian://new?content=&overwrite once wrote the word "true" into the note.
+		expect(parseObsidianUrl("obsidian://new?name=Inbox&silent&content=")).toEqual({ action: "new", name: "Inbox", silent: "true", content: "" });
 	});
 
 	test("the vault shorthand opens a file in a named vault", () => {
@@ -26,6 +27,10 @@ describe("parseObsidianUrl", () => {
 
 	test("a query parameter cannot replace the action", () => {
 		expect(parseObsidianUrl("obsidian://quickadd?action=run&choice=Inbox")?.action).toBe("quickadd");
+	});
+
+	test("an obsidian: URL without the slashes is still one, so it never reaches the OS", () => {
+		expect(parseObsidianUrl("obsidian:open?vault=Work")).toEqual({ action: "open", vault: "Work" });
 	});
 
 	test("other URLs are not obsidian URLs", () => {
