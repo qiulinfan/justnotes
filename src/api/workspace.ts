@@ -1661,22 +1661,9 @@ export class Workspace extends Events {
 	// Leaves of a type that is not registered (yet) are placeholders; they come
 	// alive when the type is registered and go back when it is unregistered.
 	#watchViewRegistry() {
-		const registry = this.app.viewRegistry as object as Partial<Events> & Pick<App["viewRegistry"], "registerView" | "unregisterView">;
-		if (registry instanceof Events) {
-			registry.on("view-registered", (type: string) => this.#onViewRegistered(type));
-			registry.on("view-unregistered", (type: string) => this.#onViewUnregistered(type));
-			return;
-		}
-		// Until ViewRegistry emits those events (views package), watch the calls.
-		const { registerView, unregisterView } = registry;
-		registry.registerView = (type, creator) => {
-			registerView.call(registry, type, creator);
-			this.#onViewRegistered(type);
-		};
-		registry.unregisterView = (type) => {
-			unregisterView.call(registry, type);
-			this.#onViewUnregistered(type);
-		};
+		const registry = this.app.viewRegistry;
+		registry.on("view-registered", (type: string) => this.#onViewRegistered(type));
+		registry.on("view-unregistered", (type: string) => this.#onViewUnregistered(type));
 	}
 
 	#onViewRegistered(type: string) {
