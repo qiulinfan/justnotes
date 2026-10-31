@@ -24,6 +24,10 @@ export interface ViewStateResult {
 // Open views by their containerEl, for focus tracking and resize events.
 const viewByEl = new WeakMap<Element, View>();
 
+// File views between taking a new file and showing its contents: their view
+// data still belongs to no file, so nothing may save it or merge into it.
+const loadingFile = new WeakSet<FileView>();
+
 function viewOf(node: EventTarget | null): View | null {
 	for (let el = node instanceof Element ? node : node instanceof Node ? node.parentElement : null; el; el = el.parentElement) {
 		const view = viewByEl.get(el);
@@ -272,7 +276,12 @@ export abstract class FileView extends ItemView {
 		this.file = file;
 		this.#path = file.path;
 		this.titleEl.setText(this.getDisplayText());
-		await this.onLoadFile(file);
+		loadingFile.add(this);
+		try {
+			await this.onLoadFile(file);
+		} finally {
+			loadingFile.delete(this);
+		}
 		this.leaf.updateHeader();
 	}
 
@@ -342,7 +351,6 @@ export abstract class TextFileView extends EditableFileView {
 	dirty = false;
 	requestSave: Debouncer<[], Promise<void> | void>;
 	#disk: { file: TFile; text: string } | null = null;
-	#loading = false;
 	// Texts this view is writing (or wrote within the last second): their
 	// modify events are its own.
 	#writes = new Map<string, number>();
@@ -387,21 +395,13 @@ export abstract class TextFileView extends EditableFileView {
 		);
 	}
 
-	async loadFile(file: TFile) {
-		this.#loading = true;
-		try {
-			await super.loadFile(file);
-		} finally {
-			this.#loading = false;
-		}
-	}
-
 	async onLoadFile(file: TFile) {
 		const text = await this.app.vault.read(file);
 		this.data = text;
 		this.#disk = { file, text };
 		this.dirty = false;
 		this.setViewData(text, true);
+		loadingFile.delete(this);
 	}
 
 	// Saves any unsaved changes first; save(true) then clears the view.
@@ -415,7 +415,7 @@ export abstract class TextFileView extends EditableFileView {
 	async save(clear?: boolean) {
 		this.requestSave.cancel();
 		const file = this.file;
-		if (file && this.app.vault.getAbstractFileByPath(file.path) === file) {
+		if (file && !loadingFile.has(this) && this.app.vault.getAbstractFileByPath(file.path) === file) {
 			const data = this.getViewData();
 			if (this.dirty || data !== this.data) {
 				this.dirty = false;
@@ -429,7 +429,7 @@ export abstract class TextFileView extends EditableFileView {
 
 	#saveNow() {
 		const file = this.file;
-		if (!file || this.app.vault.getAbstractFileByPath(file.path) !== file) return;
+		if (!file || loadingFile.has(this) || this.app.vault.getAbstractFileByPath(file.path) !== file) return;
 		const data = this.getViewData();
 		if (!this.dirty && data === this.data) return;
 		this.requestSave.cancel();
@@ -469,9 +469,9 @@ export abstract class TextFileView extends EditableFileView {
 	// edits are merged into it line by line, so neither side is lost; lines
 	// both sides changed differently keep the file's version, then the view's.
 	async #onModify(file: TFile) {
-		if (this.#loading) return;
+		if (loadingFile.has(this)) return;
 		const text = await this.app.vault.read(file);
-		if (this.#loading || file !== this.file || this.#writes.has(text)) return;
+		if (loadingFile.has(this) || file !== this.file || this.#writes.has(text)) return;
 		const base = this.#disk?.file === file ? this.#disk.text : this.data;
 		if (text === base) return;
 		this.#disk = { file, text };
