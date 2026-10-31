@@ -445,11 +445,15 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 	}
 
 	// A link to a heading or block of this note (#Heading, #^block) moves
-	// within the view, which resolves it as openLinkText's subpath.
+	// within the view, which resolves it as openLinkText's subpath; with Mod
+	// held it opens in a new tab, split or window, as in Live Preview. A bare
+	// "#" (a plugin's button) is left to the base, which ignores it.
 	onInternalLinkClick(evt: MouseEvent, target: HTMLElement, linktext: string, sourcePath: string) {
-		if (!linktext.startsWith("#") || Keymap.isModEvent(evt)) return super.onInternalLinkClick(evt, target, linktext, sourcePath);
+		if (!linktext.startsWith("#") || linktext === "#") return super.onInternalLinkClick(evt, target, linktext, sourcePath);
 		evt.preventDefault();
-		this.view.setEphemeralState({ subpath: linktext });
+		const newLeaf = Keymap.isModEvent(evt);
+		if (newLeaf) this.app.workspace.openLinkText(linktext, sourcePath, newLeaf);
+		else this.view.setEphemeralState({ subpath: linktext });
 	}
 
 	// A task ticked here changes the note's text in the editor, which the view
