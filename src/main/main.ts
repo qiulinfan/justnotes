@@ -4,7 +4,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell
 import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
-import { droppedSchemes } from "./link-policy";
+import { droppedSchemes, sameAppPage } from "./link-policy";
 import { microphoneRequest, systemMicrophoneAccess } from "./media";
 import { isPopoutOpen } from "./popout";
 import { handleSchemes, registerSchemes } from "./protocol";
@@ -213,16 +213,6 @@ function setupPopout(child: BrowserWindow, opener: WebContents) {
 	});
 }
 
-function samePage(target: string, current: string) {
-	try {
-		const a = new URL(target);
-		const b = new URL(current);
-		return a.protocol === b.protocol && a.host === b.host && a.pathname === b.pathname;
-	} catch {
-		return false;
-	}
-}
-
 // One window per vault, by the vault folder's real path. main creates every
 // window, each with its own ?vault=, in this one process and profile.
 const vaultWindows = new Map<string, BrowserWindow>();
@@ -268,7 +258,7 @@ function openVault(vault: string) {
 	// it opens as from window.open instead. Chromium never asks about an about:
 	// URL; the page cancels those navigations itself (boot.ts).
 	contents.on("will-navigate", (evt) => {
-		if (!evt.isMainFrame || samePage(evt.url, contents.getURL())) return;
+		if (!evt.isMainFrame || sameAppPage(evt.url, contents.getURL())) return;
 		evt.preventDefault();
 		openUrl(evt.url, contents);
 	});
