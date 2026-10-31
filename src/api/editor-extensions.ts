@@ -2,14 +2,14 @@ import { autocompletion, closeBrackets, closeBracketsKeymap } from "@codemirror/
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
 import { cssLanguage } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
-import { javascriptLanguage } from "@codemirror/lang-javascript";
+import { javascriptLanguage, jsxLanguage, tsxLanguage, typescriptLanguage } from "@codemirror/lang-javascript";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { bracketMatching, codeFolding, foldGutter, foldNodeProp, foldService, HighlightStyle, indentOnInput, indentUnit, Language, languageDataProp, LanguageDescription, LanguageSupport, type LRLanguage, ParseContext, syntaxHighlighting, syntaxTree } from "@codemirror/language";
+import { bracketMatching, codeFolding, foldGutter, foldNodeProp, foldService, HighlightStyle, indentOnInput, indentUnit, Language, languageDataProp, LanguageDescription, LanguageSupport, type LRLanguage, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range, type StateCommand } from "@codemirror/state";
 import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { type Input, IterMode, NodeProp, type NodePropSource, Parser, type SyntaxNode, type TreeFragment } from "@lezer/common";
+import { IterMode, NodeProp, type NodePropSource, type Parser, type SyntaxNode } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import { type BlockContext, type Element, type LeafBlock, type LeafBlockParser, type Line, type MarkdownConfig, parseCode, parser as commonmark } from "@lezer/markdown";
 import type { App } from "./app";
@@ -529,36 +529,32 @@ function codeLanguage(info: string): Language | LanguageDescription | null {
 	return (lang && foldless(lang)) ?? found;
 }
 
-// The code in a note's HTML (a script's JavaScript, a style's CSS) parses as
-// in a fenced block of its language, skipped until that is loaded.
-class NestedCode extends Parser {
-	constructor(readonly info: string) {
-		super();
-	}
-
-	createParse(input: Input, fragments: readonly TreeFragment[], ranges: readonly { from: number; to: number }[]) {
-		const lang = codeLanguage(this.info)!;
-		const parser = lang instanceof Language ? lang.parser : (lang.support?.language.parser ?? ParseContext.getSkippingParser(lang.load()));
-		return parser.createParse(input, fragments, ranges);
-	}
-}
-
 // A parser lang-html nests, without its folds and starting at rule `top` when
 // given.
 const foldlessParser = (lang: LRLanguage, top?: string) => lang.parser.configure({ top, props: [foldNodeProp.add(() => noFold)] });
 
-// lang-html parses a style attribute's value as CSS and the value of an event
-// handler on its list (copied from lang-html 6.4.12) as JavaScript; html()
-// tries these, the same parsers without folds, first.
+// lang-html's rules for the code in a note's HTML, with the same parsers
+// without folds; html() tries them first. A script or a style parses by its
+// type or lang (lang-html's own rules, tried after these, test the same, so
+// one that none of them matches stays text). A style attribute's value parses
+// as CSS and the value of an event handler on lang-html's list (copied from
+// lang-html 6.4.12) as JavaScript.
+type Attrs = { [attr: string]: string };
+const javascriptCode = foldlessParser(javascriptLanguage);
+const nestedLanguages = [
+	{ tag: "script", attrs: (a: Attrs) => a.type === "text/typescript" || a.lang === "ts", parser: foldlessParser(typescriptLanguage) },
+	{ tag: "script", attrs: (a: Attrs) => a.type === "text/babel" || a.type === "text/jsx", parser: foldlessParser(jsxLanguage) },
+	{ tag: "script", attrs: (a: Attrs) => a.type === "text/typescript-jsx", parser: foldlessParser(tsxLanguage) },
+	{ tag: "script", attrs: (a: Attrs) => /^(importmap|speculationrules|application\/(.+\+)?json)$/i.test(a.type), parser: foldlessParser(javascriptLanguage, "SingleExpression") },
+	{ tag: "script", attrs: (a: Attrs) => !a.type || /^(?:text|application)\/(?:x-)?(?:java|ecma)script$|^module$|^$/i.test(a.type), parser: javascriptCode },
+	{ tag: "style", attrs: (a: Attrs) => (!a.lang || a.lang === "css") && (!a.type || /^(text\/)?(x-)?(stylesheet|css)$/i.test(a.type)), parser: foldlessParser(cssLanguage) },
+];
 const handlers = "beforeunload copy cut dragstart dragover dragleave dragenter dragend drag paste focus blur change click load mousedown mouseenter mouseleave mouseup keydown keyup resize scroll unload";
-const handlerCode = foldlessParser(javascriptLanguage);
-const nestedAttributes = [{ name: "style", parser: foldlessParser(cssLanguage, "Styles") }, ...handlers.split(" ").map((name) => ({ name: `on${name}`, parser: handlerCode }))];
+const nestedAttributes = [{ name: "style", parser: foldlessParser(cssLanguage, "Styles") }, ...handlers.split(" ").map((name) => ({ name: `on${name}`, parser: javascriptCode }))];
 
-// HTML with no folds of its own or of the code in it: every script's as
-// JavaScript, every style's as CSS, and its attributes' as lang-html parses
-// them.
+// HTML with no folds of its own or of the code in it.
 function foldlessHtml(matchClosingTags: boolean) {
-	const support = html({ matchClosingTags, nestedLanguages: [{ tag: "script", parser: new NestedCode("javascript") }, { tag: "style", parser: new NestedCode("css") }], nestedAttributes });
+	const support = html({ matchClosingTags, nestedLanguages, nestedAttributes });
 	return new LanguageSupport(foldless(support.language)!, support.support);
 }
 
