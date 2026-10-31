@@ -219,6 +219,23 @@ describe("TextFileView saves", () => {
 		});
 	}
 
+	// QuickAdd's inline insert writes inside a line of the text it read before
+	// the save; that write once undid the saved edit.
+	const inlineInserts: [string, string, string][] = [
+		["at the end of a line", "line1\nline2 inserted\nline3\n", "line1 edit\nline2 inserted\nline3\n"],
+		["in the middle of a line, with a line added", "line1\nli(new)ne2\nline3\n- added\n", "line1 edit\nli(new)ne2\nline3\n- added\n"],
+	];
+	for (const [name, captured, merged] of inlineInserts) {
+		test(`a write built on the text from before the view's save that inserts text ${name} keeps the saved edit`, async () => {
+			const { vault, view, file, full } = await editedNote("line1\nline2\nline3\n");
+			await view.save();
+			await vault.modify(file, captured);
+			await view.save();
+			expect(fs.readFileSync(full, "utf8")).toBe(merged);
+			expect(view.text).toBe(merged);
+		});
+	}
+
 	// After a save that only removed lines, a capture holds every line of the
 	// saved text, as a write built on it does: the removal stays.
 	const removals: [string, string, string, string, string][] = [

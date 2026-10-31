@@ -588,7 +588,8 @@ plain style. Development notes belong in this file.
   (`prior`), for QuickAdd's capture, which reads, computes and then writes:
   merged against the save, it would undo it. `mergeBase` merges a change
   against the replaced text only when the change is that text with lines
-  inserted (an inserted line may fill a blank one), merges with the save's
+  inserted (an inserted line may fill a blank one) or with text inserted
+  inside lines (QuickAdd's inline insert; `insertsText`), merges with the save's
   edits without a conflict, is no version the document has had (`seen`: every
   text it loaded, saved or took in) and was not made from the saved text
   (holding all its lines: QuickAdd reading after the autosave, a line appended
@@ -597,14 +598,16 @@ plain style. Development notes belong in this file.
   comment on `mergeBase` has the exact rules.
 - Limits of judging by content: a revert to a version from before the note was
   opened, landing within the second, passes for a capture when the replaced
-  text is that version with lines removed or emptied, and the save's edits
-  survive it. A rewrite of only lines the save inserted (a formatter tidying
+  text is that version with lines removed or emptied (or text removed inside
+  lines), and the save's edits survive it. A rewrite of only lines the save inserted (a formatter tidying
   the line just typed) is byte for byte a capture, so the typed line is kept
   beside its rewrite once; the write that saves it records no `prior`
   (`keptCapture`), so a writer that rewrites on every save does not grow the
   note. After a save that only removed the final newline, a line appended
-  within the second loses its own. QuickAdd's inline insert, which writes
-  inside a line, still loses a racing save.
+  within the second loses its own. QuickAdd's inline insert into the very
+  line the racing save changed conflicts with it line by line, so the insert's
+  version of that line wins and the save's change to it is lost (its other
+  edits stay).
 - Vault writes go in place, never to a temp file renamed over the note: a
   rename resets the birth time (Bases `file.ctime`), the inode, the mode and
   xattrs such as Finder tags. A read of a path waits for a write putting that
