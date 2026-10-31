@@ -194,6 +194,7 @@ export abstract class ItemView extends View {
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.#updateNavButtons()));
 		this.#updateNavButtons();
 		await super.open(parentEl);
+		this.titleEl.setText(this.getDisplayText());
 	}
 
 	// Actions are prepended, so the newest is leftmost and More options stays last.
