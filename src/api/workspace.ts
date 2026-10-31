@@ -67,14 +67,17 @@ function dragHandle(evt: PointerEvent, move: (e: PointerEvent) => void, end: () 
 	const handle = evt.currentTarget as HTMLElement;
 	handle.setPointerCapture(evt.pointerId);
 	document.body.addClass("is-resizing");
-	const done = () => {
+	// The capture ends at the handle, or at the document when the handle went
+	// away mid-drag (a plugin closed its split).
+	const done = (e: PointerEvent) => {
+		if (e.target !== handle && handle.isConnected) return;
 		handle.removeEventListener("pointermove", move);
-		handle.removeEventListener("lostpointercapture", done);
+		document.removeEventListener("lostpointercapture", done);
 		document.body.removeClass("is-resizing");
 		end();
 	};
 	handle.addEventListener("pointermove", move);
-	handle.addEventListener("lostpointercapture", done);
+	document.addEventListener("lostpointercapture", done);
 }
 
 // Leaves showing a recorded state again (going back or forward, a restored
