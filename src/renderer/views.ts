@@ -77,6 +77,8 @@ export class FileExplorerView extends ItemView {
 			if (evt.target === this.#treeEl) this.#showMenu(evt, this.app.vault.getRoot());
 		});
 		for (const name of ["create", "delete", "rename"]) this.registerEvent(this.app.vault.on(name, () => this.#refresh()));
+		this.registerEvent(this.app.vault.on("rename", (file: TAbstractFile, oldPath: string) => this.#retargetExpanded(oldPath, file.path)));
+		this.registerEvent(this.app.vault.on("delete", (file: TAbstractFile) => this.#retargetExpanded(file.path, null)));
 		this.registerEvent(this.app.workspace.on("file-open", () => this.#markActive()));
 		// The explorer's file actions also appear in a note's tab and More options
 		// menus and in file menus plugins open (obsidian-git's source control view),
@@ -101,6 +103,13 @@ export class FileExplorerView extends ItemView {
 		for (const el of this.#treeEl.findAll(".tree-item-self.is-active")) el.removeClass("is-active");
 		row.addClass("is-active");
 		row.scrollIntoView({ block: "nearest" });
+	}
+
+	#retargetExpanded(oldPath: string, newPath: string | null) {
+		const next = retargetFolders(this.#expanded, oldPath, newPath);
+		if (next.size === this.#expanded.size && [...next].every((p) => this.#expanded.has(p))) return;
+		this.#expanded = next;
+		this.app.saveLocalStorage("justnotes-expanded", [...next]);
 	}
 
 	#render() {
@@ -284,6 +293,19 @@ export class FileExplorerView extends ItemView {
 				.onClick(() => attempt(() => this.app.fileManager.promptForDeletion(file))),
 		);
 	}
+}
+
+// The explorer's open folders after a folder at `oldPath` moved to `newPath`
+// (or was deleted, null): it and the folders inside it stay open where they
+// went, or are forgotten.
+export function retargetFolders(expanded: Iterable<string>, oldPath: string, newPath: string | null) {
+	const next = new Set<string>();
+	for (const path of expanded) {
+		const inside = path === oldPath || path.startsWith(`${oldPath}/`);
+		if (!inside) next.add(path);
+		else if (newPath !== null) next.add(newPath + path.slice(oldPath.length));
+	}
+	return next;
 }
 
 // A file operation that fails (a name taken, a file in use) says why.
