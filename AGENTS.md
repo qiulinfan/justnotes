@@ -537,7 +537,8 @@ plain style. Development notes belong in this file.
     runs turndown (`htmlToMarkdown`) on pasted or dropped `text/html`, and
     Mod+Shift+V pastes plain text. Default view and editing mode apply to new
     tabs, as in Obsidian.
-  - Files and links: Show all file types (`showUnsupportedFiles`) hides from
+  - Files and links: Show all file types (`showUnsupportedFiles`, on by default
+    in justnotes unlike Obsidian, so .json or .yaml files are never missed) off hides from
     the explorer, the quick switcher and link suggestions what justnotes does
     not open (`isSupportedExtension`: Markdown, TeX and plain text, images,
     audio, video, PDFs, canvases and bases always show, as do extensions a

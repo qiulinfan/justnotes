@@ -8,9 +8,9 @@ const appWith = (showAll: boolean, registered: string[] = []) =>
 	}) as any;
 const shown = (app: any, name: string) => isFileShown(app, { extension: name.slice(name.lastIndexOf(".") + 1) } as any);
 
-// With "Detect all file extensions" off (the default) the explorer and the
-// quick switcher hid .txt and, without a plugin's view, .tex files, which
-// are first-class in justnotes.
+// With "Detect all file extensions" off the explorer and the quick switcher
+// hid .txt and, without a plugin's view, .tex files, which are first-class in
+// justnotes. (justnotes turns the setting on by default.)
 describe("which files the explorer and quick switcher show", () => {
 	test("notes, TeX, text and media files show with the setting off; other files only with it on or a view for them", () => {
 		const off = appWith(false, ["py"]);

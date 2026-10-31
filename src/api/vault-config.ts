@@ -27,7 +27,7 @@ export type ConfigFileName = "app.json" | "appearance.json";
 export const CONFIG_FILES: ConfigFileName[] = ["app.json", "appearance.json"];
 
 // Obsidian's defaults for the settings the files leave unset, as its
-// settings screens show them.
+// settings screens show them (one justnotes exception is marked).
 export const DEFAULT_CONFIG: Record<string, unknown> = {
 	accentColor: "",
 	alwaysUpdateLinks: false,
@@ -58,7 +58,9 @@ export const DEFAULT_CONFIG: Record<string, unknown> = {
 	showInlineTitle: true,
 	showLineNumber: false,
 	showRibbon: true,
-	showUnsupportedFiles: false,
+	// justnotes shows every file by default (Obsidian hides what it cannot
+	// open), so files like .json and .yaml are never missed.
+	showUnsupportedFiles: true,
 	showViewHeader: true,
 	smartIndentList: true,
 	spellcheck: true,
