@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
-import { pathToFileURL } from "node:url";
+import * as nodeUrl from "node:url";
 import { Events } from "./events";
 import { normalizePath } from "./util";
 
@@ -157,6 +157,7 @@ export class FileSystemAdapter {
 	fs = fs;
 	fsPromises = fs.promises;
 	path = nodePath;
+	url = nodeUrl;
 	#handler: AdapterChange | null = null;
 	#queue: Promise<unknown> = Promise.resolve();
 	// Per file, the write putting its bytes on disk and the reads under way:
@@ -197,7 +198,7 @@ export class FileSystemAdapter {
 	}
 
 	getFilePath(normalizedPath: string) {
-		return pathToFileURL(this.getFullPath(normalizedPath)).href;
+		return nodeUrl.pathToFileURL(this.getFullPath(normalizedPath)).href;
 	}
 
 	// Stable until the file changes, so the browser keeps its cached copy.
@@ -209,7 +210,7 @@ export class FileSystemAdapter {
 				mtime = fs.statSync(full).mtimeMs;
 			} catch {}
 		}
-		const url = pathToFileURL(full).href;
+		const url = nodeUrl.pathToFileURL(full).href;
 		return mtime === undefined ? url : `${url}?${Math.round(mtime)}`;
 	}
 
