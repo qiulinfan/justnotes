@@ -16,7 +16,14 @@ export function handleSchemes() {
 	const lib = path.join(__dirname, "lib");
 	session.defaultSession.webRequest.onBeforeRequest({ urls: ["file:///lib/*"] }, (details, callback) => {
 		const url = new URL(details.url);
-		const target = path.join(lib, decodeURIComponent(url.pathname).slice("/lib/".length));
+		let target: string;
+		try {
+			target = path.join(lib, decodeURIComponent(url.pathname).slice("/lib/".length));
+		} catch {
+			// A malformed %-escape (from a note or a plugin) names no file; thrown
+			// here it would stop the main process with an error dialog.
+			return callback({ cancel: true });
+		}
 		if (!target.startsWith(lib + path.sep)) return callback({ cancel: true });
 		callback({ redirectURL: pathToFileURL(target).href + url.search });
 	});
