@@ -3,7 +3,7 @@
 import { Modal } from "../ui/modal";
 import { type AbstractTextComponent, Setting } from "../ui/setting";
 import { parseYaml, stringifyYaml } from "../util";
-import { type BasesViewConfig, groupByOf, limitOf, viewData } from "./config";
+import { type BasesViewConfig, groupByOf, limitOf, sameConfig, viewData } from "./config";
 import type { QueryController } from "./controller";
 import { parseExpression } from "./expression";
 import { type BasesPropertyId, normalizePropertyId, parsePropertyId } from "./property";
@@ -214,7 +214,8 @@ class FilterModal extends Modal {
 							return;
 						}
 					}
-					controller.setBaseKey(["filters"], parsed[0]);
+					// Only what changed is written, so the other filters keep their comments.
+					if (!sameConfig(parsed[0], controller.document.config.filters)) controller.setBaseKey(["filters"], parsed[0]);
 					config.set("filters", parsed[1] ?? null);
 					controller.run();
 					this.close();

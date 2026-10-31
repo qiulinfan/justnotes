@@ -202,6 +202,12 @@ export function viewData(config: BasesViewConfig): BasesConfigFileView {
 	return raw.get(config) ?? { type: "table", name: "" };
 }
 
+// Whether writing `b` over `a` would change the configuration. Rewriting an
+// unchanged value would replace its YAML, comments and quoting included.
+export function sameConfig(a: unknown, b: unknown) {
+	return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
 function clone<T>(value: T): T {
 	try {
 		return structuredClone(value);
@@ -247,7 +253,7 @@ export class BasesViewConfig {
 	set(key: string, value: any | null) {
 		const view = viewData(this);
 		const next = value === null || value === undefined ? undefined : clone(value);
-		if (JSON.stringify(view[key]) === JSON.stringify(next)) return;
+		if (sameConfig(view[key], next)) return;
 		if (next === undefined) delete view[key];
 		else view[key] = next;
 		this.#hooks?.changed(this, key, next);
