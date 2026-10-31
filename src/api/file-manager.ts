@@ -237,7 +237,8 @@ export class FileManager {
 
 	// fn mutates the parsed frontmatter. Key order is kept, nothing is written
 	// when fn changes nothing, an emptied block is removed, and the note keeps
-	// its line endings. Invalid YAML throws before anything is written.
+	// its line endings. Invalid YAML, or YAML that is no map, throws before
+	// anything is written.
 	async processFrontMatter(file: TFile, fn: (frontmatter: any) => void, options?: DataWriteOptions) {
 		if (!(file instanceof TFile) || file.extension !== "md") throw new Error(`${file?.path ?? "File"} is not a Markdown file`);
 		await this.app.vault.process(
@@ -245,7 +246,10 @@ export class FileManager {
 			(text) => {
 				const fm = locateFrontMatter(text);
 				const parsed = fm ? YAML.parse(text.slice(fm.from, fm.to)) : null;
-				const data = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+				// A block that holds text or a list, not properties (a note opening
+				// with a paragraph between two rules), would be replaced.
+				if (parsed !== null && (typeof parsed !== "object" || Array.isArray(parsed))) throw new Error(`${file.path}'s frontmatter is not a map of properties`);
+				const data = parsed ?? {};
 				const before = JSON.stringify(data);
 				fn(data);
 				if (JSON.stringify(data) === before) return text;

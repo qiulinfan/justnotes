@@ -157,6 +157,18 @@ describe("FileManager.processFrontMatter", () => {
 		expect(modified).toEqual([]);
 	});
 
+	// A note may open with a paragraph between two rules, which reads as a
+	// frontmatter block holding a string; a plugin setting a property must not
+	// replace that text.
+	test("a block that is no map of properties throws and leaves the note unchanged", async () => {
+		const { vault, fm, read } = await setup({ "p.md": "---\nAn opening paragraph.\n---\nbody", "l.md": "---\n- a\n- b\n---\n" });
+		for (const name of ["p.md", "l.md"]) {
+			const before = read(name);
+			await expect(fm.processFrontMatter(vault.getFileByPath(name)!, (f) => (f.k = 1))).rejects.toThrow("not a map");
+			expect(read(name)).toBe(before);
+		}
+	});
+
 	test("invalid YAML throws and leaves the note unchanged", async () => {
 		const { vault, fm, read } = await setup({ "bad.md": "---\nk: [1\n---\nx" });
 		await expect(fm.processFrontMatter(vault.getFileByPath("bad.md")!, (f) => (f.k = 2))).rejects.toThrow();
