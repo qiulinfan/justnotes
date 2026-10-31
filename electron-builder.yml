@@ -1,0 +1,74 @@
+# Packaging of the built app (bun run build) with electron-builder: see
+# "Packaging and releases" in AGENTS.md. Version and name come from
+# package.json.
+appId: io.github.qiulinfan.justnotes
+productName: justnotes
+copyright: Copyright © 2026 qiulinfan
+
+directories:
+  output: release
+  buildResources: packaging
+
+# main.js and renderer.js bundle their libraries; at runtime the app loads
+# only dist/ and @electron/remote, which main and the page require from
+# node_modules. Every other dependency is build-time only.
+files:
+  - package.json
+  - dist/**/*
+  - "!dist/cli${/*}"
+  - "!dist/**/*.map"
+  - "!node_modules${/*}"
+  - node_modules/@electron/remote/**/*
+  - "!node_modules/@electron/remote/{README.md,docs,*.ts}"
+
+# The justnotes command runs outside the asar archive: the bundled command
+# and its launchers in Resources/cli (macOS) or resources\cli (Windows).
+extraResources:
+  - from: dist/cli/justnotes.mjs
+    to: cli/justnotes.mjs
+
+# No native modules to rebuild.
+npmRebuild: false
+publish: null
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  category: public.app-category.productivity
+  # No Developer ID certificate: an ad-hoc signature, which Apple silicon
+  # requires to run the app at all. Not notarized.
+  identity: "-"
+  hardenedRuntime: false
+  extraResources:
+    - from: packaging/justnotes
+      to: cli/justnotes
+  # Offered in Open With, not taken as the default Markdown app.
+  fileAssociations:
+    - ext: [md, markdown]
+      name: Markdown
+      role: Editor
+      rank: Alternate
+
+dmg:
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  extraResources:
+    - from: packaging/justnotes.cmd
+      to: cli/justnotes.cmd
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-${version}-win-${arch}-setup.${ext}
+
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
