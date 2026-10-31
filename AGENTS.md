@@ -62,12 +62,15 @@ plain style. Development notes belong in this file.
     Mermaid loaders), `live-preview.ts` and `editor-*.ts` (CodeMirror 6),
     `selection-scroll.ts` (drag-select scrolling), `image-menu.ts` (the
     image double-click menu), `editor-settings.ts`
-    (justnotes' own Editor tab), `attachments.ts` (pasted and dropped files),
-    `vault.ts`, `metadata*.ts` (the cache; `metadata-types.ts`, the
+    (justnotes' own editor options), `editor-options.ts` (the Editor
+    settings that shape CodeMirror), `attachments.ts` (pasted and dropped
+    files), `vault.ts`, `vault-config.ts` (app.json and appearance.json),
+    `file-visibility.ts` (unsupported and excluded files), `metadata*.ts` (the cache; `metadata-types.ts`, the
     `metadataTypeManager`; `metadata-editor.ts` and `metadata-widgets.ts`,
     the Properties block), `frontmatter-edit.ts`, `file-manager.ts`, `keymap.ts`,
     `internal-plugins.ts`, `secret-storage.ts`, `sanitize.ts` (DOMPurify),
-    `setting-modal.ts`, `ui/` (menus, modals, notices, settings, suggests,
+    `setting-modal.ts` and `setting-options.ts` (the settings window and its
+    Options pages), `ui/` (menus, modals, notices, settings, suggests,
     tooltips), `bases/` (Bases: formulas, queries, table/cards/list views).
 - `src/cli/`: the `justnotes` command (see Command line below):
   `justnotes.ts` (the command, run with `bun run cli -- ...` or as the
@@ -480,7 +483,9 @@ plain style. Development notes belong in this file.
   `justnotes-expanded` (explorer folders),
   `property-types` (property type changes made in justnotes, layered over
   `types.json`; an empty type unassigns one), `justnotes-editor` (the
-  Editor settings tab, `editor-settings.ts`). The language
+  justnotes section of the Editor page, `editor-settings.ts`). The zoom
+  level is the app's, in plain localStorage `zoom-factor` (Chromium shares
+  the zoom between the windows of the page's origin). The language
   is localStorage `language`, else `en`; never the OS locale.
 - Vault settings (`vault-config.ts`, tested; `Vault.getConfig`/`setConfig`):
   `app.json` under `appearance.json` is what `getConfig` reads, Obsidian's
@@ -498,7 +503,65 @@ plain style. Development notes belong in this file.
   `raw` event (debounced 100 ms); `config-changed` (without a key) fires only
   when the settings changed, never for justnotes' own write. A file that
   does not parse keeps its last good settings, is never written, and the
-  change waits (a Notice says so) until it parses.
+  change waits (a Notice says so) until it parses. The theme and snippets
+  are appearance.json's `cssTheme` and `enabledCssSnippets` (`CustomCss`
+  follows them on `config-changed`).
+- Settings window (`setting-modal.ts`): Options are General, Editor, Files
+  and links, Appearance (`setting-options.ts`, Obsidian 1.14's names, order,
+  tab ids `about`, `editor`, `file`, `appearance`, and keys), then Hotkeys,
+  Core plugins and Community plugins. The four are declarative tabs whose
+  control keys are vault settings (SettingTab's default
+  `getControlValue`/`setControlValue`); derived choices map onto Obsidian's
+  keys in the tab (`editingMode` is `livePreview`, `useWikilinks` the
+  inverse of `useMarkdownLinks`, the attachment location and folder are
+  encoded in `attachmentFolderPath`: `/`, `./`, `./name`, a path). Search
+  re-reads the built-in tabs' definitions, so it finds every option. An open
+  page redraws on a settings change from disk (a `config-changed` without a
+  key), never for its own change, which would take the focus from a field
+  being typed in. Other parts of justnotes add a group to the Editor page
+  through `editorSections`; the justnotes section (selection scroll speed,
+  pasted image format) is one. Every option shown changes behaviour live:
+  - Editor (`editor-options.ts`, a per-editor compartment reconfigured on
+    `config-changed`): line numbers, auto-pair brackets (CodeMirror's
+    closeBrackets), auto-pair Markdown syntax (`markdownPairs`: `*`, `_`,
+    `~`, `=`, `` ` ``, `$` or `%` typed over a selection wraps it), smart
+    lists (lang-markdown's Enter and Backspace keys; off, Enter only breaks
+    the line), spellcheck (the content's `spellcheck` attribute, default on;
+    a misspelled word's menu offers `webFrame` suggestions and Add to
+    dictionary), right-to-left (`dir` on the content and the reading view)
+    and indentation guides (`cm-indent` marks on list indentation, a CSS
+    border in the reading view's nested lists). Fold heading and Fold
+    indent reconfigure the language and fold gutter (`languageConf`).
+    Readable line length toggles `is-readable-line-width` on both views,
+    Strict line breaks re-renders the reading view, Convert pasted HTML
+    runs turndown (`htmlToMarkdown`) on pasted or dropped `text/html`, and
+    Mod+Shift+V pastes plain text. Default view and editing mode apply to new
+    tabs, as in Obsidian.
+  - Files and links: Show all file types (`showUnsupportedFiles`) hides from
+    the explorer, the quick switcher and link suggestions what Obsidian does
+    not open (`isSupportedExtension`: registered view extensions, images,
+    PDFs); excluded files (`userIgnoreFilters`, a path prefix or a
+    `/regex/`, managed on a sub-page) are left out of search, the graph and
+    unlinked mentions and put last in the quick switcher and link
+    suggestions (`excludedLast`).
+  - Appearance (`renderer/appearance.ts`): the fonts set Obsidian's
+    `--font-*-override` variables (00-base.css chains them before the
+    theme's), the font size `--font-text-size`; Quick font size adjustment
+    is Mod+wheel (or a pinch) by a pixel per 50 px of scroll, unless a view
+    that zooms itself took the wheel; Show ribbon and Show tab title bar
+    are body classes `show-ribbon` and `show-view-header`, as in Obsidian;
+    the zoom slider sets `webFrame`'s zoom factor, and a zoom from the View
+    menu is recorded on the next resize. Themes come from
+    `.obsidian/themes` (no downloading); the folder buttons open the
+    themes or snippets folder and never create it.
+  - Left out because justnotes cannot honour them: vim key bindings (no Vim
+    mode), spellcheck languages (Electron sets them only on Windows and
+    Linux; macOS's checker detects the language), Show editing mode in
+    status bar, Show inline title (justnotes has no inline title), Ribbon
+    menu configuration, Native menus, Window frame style, Custom app icon,
+    Translucent window, Hardware acceleration, Override config folder,
+    Allow URI callbacks, Rebuild vault cache, automatic updates and the
+    account.
 
 ## Command line
 
@@ -983,9 +1046,9 @@ plain style. Development notes belong in this file.
 
 ## Editor settings
 
-- The settings window's first tab, Editor, holds justnotes' own options
+- The Editor page's last section, justnotes, holds justnotes' own options
   (`editorSettings(app)` reads them live, so a change applies at once);
-  Obsidian's editor options stay in app.json and are set in Obsidian.
+  Obsidian's editor options above it are saved in app.json.
 - Selection scroll speed (1 to 10, default 5; `selection-scroll.ts`): while
   a drag-select is at or past the top or bottom edge of what scrolls
   (counting from 10 px inside it, so a note reaching the bottom of the screen
@@ -1096,7 +1159,10 @@ deletions, a bookmarks.json changed outside while justnotes saved; URL
 bookmarks from the dialog, the link menus, outside and in-app drops and the
 CLI) and the
 Core plugins toggles were tested live on a synthetic vault and on a copy of
-blogs with five of its plugins.
+blogs with five of its plugins. The settings pages (every Editor, Files and links and
+Appearance option applied live, app.json and appearance.json written,
+merged with outside writes, a broken file left alone) were tested live on a
+synthetic vault and on a copy of blogs with five of its plugins.
 
 ## Verify
 
