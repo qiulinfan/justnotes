@@ -5,8 +5,7 @@ import { Events } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import { Keymap } from "./keymap";
 import { MarkdownRenderer } from "./markdown";
-import type { CachedMetadata } from "./metadata";
-import { parseLinktext, stripHeading } from "./metadata-utils";
+import { parseLinktext } from "./metadata-utils";
 import { Menu } from "./ui/menu";
 import { type HoverParent, HoverPopover, PopoverState } from "./ui/popover";
 import type { EditorSuggest } from "./ui/suggest";
@@ -991,22 +990,6 @@ function withTimeout(promise: Promise<unknown>, ms: number) {
 	return Promise.race([promise, sleep(ms)]);
 }
 
-// The heading or block a subpath names, as a line range of the note.
-function subpathLines(cache: CachedMetadata | null, subpath: string): [number, number] | null {
-	if (!cache || !subpath) return null;
-	if (subpath.startsWith("#^")) {
-		const block = cache.blocks?.[subpath.slice(2).toLowerCase()];
-		return block ? [block.position.start.line, block.position.end.line] : null;
-	}
-	const wanted = stripHeading(subpath.split("#").filter(Boolean).last() ?? "").toLowerCase();
-	const headings = cache.headings ?? [];
-	const index = headings.findIndex((h) => stripHeading(h.heading).toLowerCase() === wanted);
-	if (index < 0) return null;
-	const level = headings[index].level;
-	const end = headings.slice(index + 1).find((h) => h.level <= level);
-	return [headings[index].position.start.line, end ? end.position.start.line - 1 : Number.MAX_SAFE_INTEGER];
-}
-
 export class Workspace extends Events {
 	app: App;
 	containerEl: HTMLElement;
@@ -1624,33 +1607,22 @@ export class Workspace extends Events {
 		return !!file;
 	}
 
-	// Page preview, Obsidian's core plugin: a rendered note in a popover for a
-	// hovered internal link, with Mod held when the source asks for it.
+	// Page preview, Obsidian's core plugin: a hovered internal link shows its
+	// note, heading or block in a popover, with Mod held when the source asks
+	// for it. The target renders as an embed (![[linktext]]), so what a post
+	// processor sees in a heading's part of a note reports no section lines:
+	// lines of the part are not lines of the file.
 	#onHoverLink(info: { event: MouseEvent; source: string; hoverParent: HoverParent; targetEl: HTMLElement | null; linktext: string; sourcePath?: string }) {
 		const { event, source, hoverParent, targetEl, linktext } = info ?? {};
 		if (!hoverParent || typeof linktext !== "string") return;
 		if ((this.hoverLinkSources[source]?.defaultMod ?? true) && !Keymap.isModEvent(event)) return;
 		const existing = hoverParent.hoverPopover;
 		if (existing && existing.targetEl === targetEl && existing.state !== PopoverState.Hidden) return;
-		const { path, subpath } = parseLinktext(linktext);
-		const file = this.app.metadataCache.getFirstLinkpathDest(path, info.sourcePath ?? "");
-		const image = file && /^(png|jpe?g|gif|svg|webp|bmp|avif)$/i.test(file.extension);
-		if (!file || (file.extension !== "md" && !image)) return;
+		const sourcePath = info.sourcePath ?? "";
+		const file = this.app.metadataCache.getFirstLinkpathDest(parseLinktext(linktext).path, sourcePath);
+		if (!file || (file.extension !== "md" && !/^(png|jpe?g|gif|svg|webp|bmp|avif)$/i.test(file.extension))) return;
 		const popover = new HoverPopover(hoverParent, targetEl);
-		const content = popover.hoverEl.createDiv("markdown-embed is-loaded").createDiv("markdown-embed-content");
-		if (image) {
-			content.createEl("img", { attr: { src: this.app.vault.getResourcePath(file) } });
-			return;
-		}
-		const preview = content.createDiv("markdown-preview-view");
-		this.app.vault.cachedRead(file).then(
-			(text) => {
-				const range = subpathLines(this.app.metadataCache.getFileCache(file), subpath);
-				const markdown = range ? text.split("\n").slice(range[0], range[1] + 1).join("\n") : text;
-				return MarkdownRenderer.render(this.app, markdown, preview, file.path, popover);
-			},
-			(err) => console.error(err),
-		);
+		MarkdownRenderer.render(this.app, `![[${linktext}]]`, popover.hoverEl, sourcePath, popover).catch((err) => console.error(err));
 	}
 
 	// Leaves of a type that is not registered (yet) are placeholders; they come

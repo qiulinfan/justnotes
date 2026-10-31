@@ -12,12 +12,22 @@
 	box-shadow: var(--shadow-s);
 }
 
-.hover-popover .markdown-embed {
-	padding: var(--size-4-2) var(--size-4-4);
+/* The previewed note is an embed, ![[link]]: the paragraph around it, the
+   embed's frame and its open-link button give way, so the note fills the
+   popover. Embeds inside the note keep theirs. */
+.hover-popover > p {
+	margin: 0;
 }
 
-.hover-popover .markdown-embed-content img {
-	max-width: 100%;
+.hover-popover > p > .internal-embed {
+	display: block;
+	margin: 0;
+	padding: var(--size-4-2) var(--size-4-4);
+	border: none;
+}
+
+.hover-popover > p > .internal-embed > .markdown-embed-link {
+	display: none;
 }
 
 .hover-popover .markdown-preview-view {
