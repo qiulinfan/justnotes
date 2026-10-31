@@ -78,6 +78,16 @@ describe("line classes", () => {
 		expect(decos.find((d) => d.line?.includes("HyperMD-task-line"))?.attrs).toEqual({ "data-task": "/" });
 	});
 
+	// Obsidian shows an ordered task's number before its box; the box once
+	// replaced the number, as it replaces a bullet. A done one is struck
+	// through by its line's data-task.
+	test("an ordered task keeps its number beside the box, a bullet task does not", () => {
+		const doc = "1. [ ] todo\n2. [x] done\n\n- [ ] bullet\n\nend";
+		const boxes = decorate(doc, doc.length).filter((d) => d.widget === "CheckboxWidget").sort((a, b) => a.from - b.from);
+		expect(boxes.map((d) => doc.slice(d.from, d.to))).toEqual(["[ ]", "[x]", "- [ ]"]);
+		expect(decorate(doc, doc.length).find((d) => d.from === doc.indexOf("2.") && d.line)?.attrs).toEqual({ "data-task": "x" });
+	});
+
 	test("quote lines carry their own depth only", () => {
 		const doc = "> outer\n> > inner\n\nend";
 		const decos = decorate(doc, doc.length);

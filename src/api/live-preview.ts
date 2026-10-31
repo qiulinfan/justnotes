@@ -845,8 +845,9 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 				}
 				case "TaskMarker": {
 					if (touchesLines(from, to)) return;
+					// A bullet gives way to the box; an ordered task keeps its number.
 					const mark = node.parent?.parent?.firstChild;
-					const start = mark?.name === "ListMark" ? mark.from : from;
+					const start = mark?.name === "ListMark" && node.parent?.parent?.parent?.name === "BulletList" ? mark.from : from;
 					decos.push(Decoration.replace({ widget: new CheckboxWidget(state.sliceDoc(from + 1, from + 2), from) }).range(start, to));
 					return;
 				}
