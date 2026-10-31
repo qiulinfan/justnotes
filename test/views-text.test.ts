@@ -47,6 +47,13 @@ describe("mergeText", () => {
 		const theirs = `${base}appended`;
 		expect(mergeText(base, ours, theirs)).toEqual({ text: `${base}appended\ntyped`, conflicts: 1 });
 	});
+
+	test("a note rewritten on both sides loses neither rewrite", () => {
+		const lines = (tag: string) => Array.from({ length: 3000 }, (_, i) => `${tag} ${i}`).join("\n");
+		const merged = mergeText(lines("base"), lines("mine"), lines("theirs"));
+		expect(merged.text).toBe(`${lines("theirs")}\n${lines("mine")}`);
+		expect(merged.conflicts).toBe(1);
+	});
 });
 
 // An external reload is applied as these edits so the cursor and the undo
