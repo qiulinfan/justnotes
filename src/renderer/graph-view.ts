@@ -6,6 +6,7 @@ import { setIcon } from "../api/icons";
 import { Keymap } from "../api/keymap";
 import { getAllTags } from "../api/metadata-utils";
 import { Menu } from "../api/ui/menu";
+import { type HoverPopover, PopoverState } from "../api/ui/popover";
 import { Setting } from "../api/ui/setting";
 import { debounce } from "../api/util";
 import { type TAbstractFile, TFile } from "../api/vault";
@@ -22,6 +23,7 @@ import {
 	type GraphOptions,
 	LIMITS,
 	localGraph,
+	nodeSubject,
 	type NodeType,
 	type Query,
 	readOptions,
@@ -37,6 +39,9 @@ abstract class BaseGraphView extends ItemView {
 	// Note texts for queries that look at contents, dropped when a note changes.
 	#texts = new Map<string, string>();
 	#generation = 0;
+	hoverPopover: HoverPopover | null = null;
+	// The node the page preview was last asked for.
+	#previewed: string | null = null;
 	#update = debounce(() => this.update(), 100, true);
 	#saveScale = debounce(() => this.app.workspace.requestSaveLayout(), 500, true);
 
@@ -52,6 +57,7 @@ abstract class BaseGraphView extends ItemView {
 		this.contentEl.addClass("graph-view-container");
 		this.renderer = new GraphRenderer(this.contentEl, this.options, {
 			click: (node, evt) => this.#open(node, evt),
+			hover: (node, evt) => this.#hover(node, evt),
 			menu: (node, evt) => this.#menu(node, evt),
 			zoom: (scale) => {
 				this.options.scale = scale;
@@ -131,8 +137,8 @@ abstract class BaseGraphView extends ItemView {
 		);
 		const data = this.graph(global);
 		this.renderer.setData(data, (id, type) => {
-			const subject = subjects.get(id);
-			const color = subject && (type === "file" || type === "attachment") ? (groups.find((g) => g.query?.test(subject))?.color ?? null) : null;
+			const subject = type === "tag" || type === "unresolved" ? nodeSubject(id, type) : subjects.get(id);
+			const color = subject ? (groups.find((g) => g.query?.test(subject))?.color ?? null) : null;
 			return { label: label(id, type), color, focused: this.focused(id) };
 		});
 		this.#showEmpty(!data.nodes.length);
@@ -166,6 +172,23 @@ abstract class BaseGraphView extends ItemView {
 		// only when asked for a new tab.
 		const leaf = where ? workspace.getLeaf(where) : this.#targetLeaf();
 		await leaf.openFile(file, { active: true });
+	}
+
+	// Page preview of a hovered note or image node, with Mod as for links in
+	// the editor (the `graph` hover source). The popover shows at the pointer
+	// and goes once the pointer is on neither the node nor the popover.
+	#hover(node: RenderNode | null, evt: MouseEvent) {
+		const popover = this.hoverPopover;
+		if (popover && popover.state !== PopoverState.Hidden && node?.id !== this.#previewed) {
+			if (node || popover.state === PopoverState.Showing) popover.hide();
+			else
+				window.setTimeout(() => {
+					if (this.renderer?.hovered?.id !== this.#previewed && !popover.hoverEl.matches(":hover")) popover.hide();
+				}, 300);
+		}
+		if (!node || (node.type !== "file" && node.type !== "attachment")) return;
+		this.#previewed = node.id;
+		this.app.workspace.trigger("hover-link", { event: evt, source: "graph", hoverParent: this, targetEl: null, linktext: node.id, sourcePath: "" });
 	}
 
 	#targetLeaf() {
@@ -513,6 +536,8 @@ export function registerGraphViews(app: App) {
 // opens once, in a tab of its own; the local graph opens beside the note.
 export function installGraph(app: App, host: CorePluginHost) {
 	const { workspace } = app;
+	workspace.hoverLinkSources.graph = { display: "Graph view", defaultMod: true };
+	host.register(() => delete workspace.hoverLinkSources.graph);
 	const openGraph = async () => {
 		const existing = workspace.getLeavesOfType("graph")[0];
 		if (existing) {

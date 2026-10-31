@@ -42,6 +42,10 @@
 	border-right: var(--border-width) solid var(--divider-color);
 }
 
+.workspace-ribbon.mod-left.is-collapsed {
+	background: var(--ribbon-background-collapsed);
+}
+
 .side-dock-actions,
 .side-dock-settings {
 	display: flex;

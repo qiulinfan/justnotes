@@ -43,6 +43,8 @@ export interface RendererCallbacks {
 	click(node: RenderNode, evt: MouseEvent): void;
 	menu(node: RenderNode, evt: MouseEvent): void;
 	zoom(scale: number): void;
+	// The pointer moved over a node, or off every node (null).
+	hover?(node: RenderNode | null, evt: MouseEvent): void;
 }
 
 // Colours read from the theme through Obsidian's probe classes.
@@ -535,7 +537,9 @@ export class GraphRenderer {
 				this.#wake();
 				return;
 			}
-			this.#hover(this.nodeAt(p.x, p.y));
+			const node = this.nodeAt(p.x, p.y);
+			this.#hover(node);
+			this.#callbacks.hover?.(node, evt);
 		});
 		const end = (evt: PointerEvent, cancelled: boolean) => {
 			const drag = this.#pointer;
@@ -552,8 +556,10 @@ export class GraphRenderer {
 		};
 		canvas.addEventListener("pointerup", (evt) => end(evt, false));
 		canvas.addEventListener("pointercancel", (evt) => end(evt, true));
-		canvas.addEventListener("pointerleave", () => {
-			if (!this.#pointer) this.#hover(null);
+		canvas.addEventListener("pointerleave", (evt) => {
+			if (this.#pointer) return;
+			this.#hover(null);
+			this.#callbacks.hover?.(null, evt);
 		});
 		canvas.addEventListener("contextmenu", (evt) => {
 			const p = local(evt);

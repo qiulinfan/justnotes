@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { installLanguageExtensions } from "../src/api/dom";
 import { Vault } from "../src/api/vault";
 import { mergeWith, TextFileView } from "../src/api/view";
-import { dropLayout, facingSides, fitSize, mergeCanvas, nearestSide, parseCanvas, parseColor, renameInCanvas, stringifyCanvas } from "../src/renderer/canvas-data";
+import { dropLayout, facingSides, fitSize, mergeCanvas, nearestSide, parseCanvas, parseColor, readViewport, renameInCanvas, snapEdge, snapMove, stringifyCanvas } from "../src/renderer/canvas-data";
 
 const text = (id: string, extra: Record<string, unknown> = {}) => ({ id, type: "text", text: id, x: 0, y: 0, width: 250, height: 60, ...extra });
 const file = (nodes: object[], edges: object[] = [], extra: Record<string, unknown> = {}) => stringifyCanvas({ nodes, edges, ...extra } as any);
@@ -226,5 +226,45 @@ describe("dropped cards", () => {
 		expect(fitSize({ width: 1920, height: 1080 }, card)).toEqual({ width: 400, height: 225 });
 		expect(fitSize({ width: 1000, height: 2000 }, card)).toEqual({ width: 200, height: 400 });
 		expect(fitSize(null, card)).toEqual(card);
+	});
+});
+
+// A canvas leaf restores its pan and zoom from the layout's viewState; a
+// malformed one must fall back to fitting rather than put the view at NaN.
+describe("readViewport", () => {
+	test("finite numbers are taken, the zoom clamped to the canvas's range", () => {
+		expect(readViewport({ x: -120.5, y: 40, zoom: -0.5 }, -3.3, 1)).toEqual({ x: -120.5, y: 40, zoom: -0.5 });
+		expect(readViewport({ x: 0, y: 0, zoom: 7 }, -3.3, 1)).toEqual({ x: 0, y: 0, zoom: 1 });
+	});
+
+	test("anything else is no viewport", () => {
+		expect(readViewport(undefined, -3.3, 1)).toBeNull();
+		expect(readViewport({ x: 1, y: "2", zoom: 0 }, -3.3, 1)).toBeNull();
+		expect(readViewport({ x: 1, y: 2, zoom: Number.NaN }, -3.3, 1)).toBeNull();
+	});
+});
+
+// Cards snap while they move or resize when Obsidian's canvas options say
+// so; a wrong snap puts cards off the grid or skews alignments.
+describe("snapping", () => {
+	const other = { x: 100, y: 200, width: 200, height: 100 };
+
+	test("a moving card lines up its left, centre or right with another card's; else its corner goes on the grid", () => {
+		const snap = { grid: 20, others: [other], threshold: 8 };
+		// Its centre (x 196 + 50) comes within 8 of the other's centre (200).
+		expect(snapMove({ x: 146, y: 13, width: 100, height: 40 }, snap)).toEqual({ x: 150, y: 20 });
+		// Its top meets the other's bottom (300); x is far from every line.
+		expect(snapMove({ x: 433, y: 305, width: 50, height: 50 }, snap)).toEqual({ x: 440, y: 300 });
+	});
+
+	test("with objects off only the grid applies, with the grid off only objects", () => {
+		expect(snapMove({ x: 146, y: 13, width: 100, height: 40 }, { grid: 20, others: null, threshold: 8 })).toEqual({ x: 140, y: 20 });
+		expect(snapMove({ x: 433, y: 13, width: 50, height: 50 }, { grid: null, others: [other], threshold: 8 })).toEqual({ x: 433, y: 13 });
+	});
+
+	test("a dragged edge snaps to another card's edge or centre, else to the grid", () => {
+		expect(snapEdge(296, "x", { grid: 20, others: [other], threshold: 8 })).toBe(300);
+		expect(snapEdge(253, "y", { grid: 20, others: [other], threshold: 8 })).toBe(250);
+		expect(snapEdge(333, "x", { grid: 20, others: [other], threshold: 8 })).toBe(340);
 	});
 });

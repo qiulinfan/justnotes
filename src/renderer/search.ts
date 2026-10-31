@@ -1,3 +1,4 @@
+import { setIcon, setTooltip } from "../api/icons";
 import type { CachedMetadata } from "../api/metadata";
 import { getAllTags, parseFrontMatterTags } from "../api/metadata-utils";
 import { debounce } from "../api/util";
@@ -29,10 +30,27 @@ export function compileSearch(query: string, caseSensitive?: boolean): RegExp | 
 	}
 }
 
-// The tag a `tag:#x` (or `tag:x`) query asks for, lowercased and without '#';
-// rendered tags and Bases search this way.
-export function tagQuery(query: string) {
-	return /^tag:#?([^\s#]+)$/i.exec(query)?.[1].toLowerCase() ?? null;
+// The tags a query of `tag:#x` (or `tag:x`) terms joined by spaces asks for,
+// lowercased and without '#', all of which a note must carry; null when any
+// term is something else. Rendered tags and Bases search with one term, the
+// Tags view's Mod-click adds more.
+export function tagTerms(query: string): string[] | null {
+	const terms = query.trim().split(/\s+/);
+	const tags = terms.map((term) => /^tag:#?([^\s#]+)$/i.exec(term)?.[1].toLowerCase());
+	if (!terms[0] || !tags.every((tag) => tag)) return null;
+	return [...new Set(tags as string[])];
+}
+
+// Whether a note carries every one of `tags` (see isTag), from its cache
+// alone, so only such notes are read.
+export function hasTags(cache: CachedMetadata | null, tags: string[]) {
+	const names = getAllTags(cache) ?? [];
+	return tags.every((tag) => names.some((name) => isTag(name, tag)));
+}
+
+// Where a note carries any of `tags`, in text order.
+export function tagsMatches(cache: CachedMetadata | null, text: string, tags: string[]): SearchMatch[] {
+	return tags.flatMap((tag) => tagMatches(cache, text, tag)).sort((a, b) => a.line - b.line || a.from - b.from);
 }
 
 // Whether `name` (with or without '#') is `tag` or a tag nested under it
@@ -84,7 +102,7 @@ export function textMatches(text: string, re: RegExp): SearchMatch[] {
 export function appendMatch(el: HTMLElement, content: string, match: { from: number; to: number }) {
 	const start = Math.max(0, match.from - 30);
 	el.appendText((start > 0 ? "…" : "") + content.slice(start, match.from));
-	el.createEl("mark", { text: content.slice(match.from, match.to) });
+	el.createEl("mark", { cls: "search-result-file-matched-text", text: content.slice(match.from, match.to) });
 	el.appendText(content.slice(match.to, match.to + 80));
 }
 
@@ -125,9 +143,9 @@ export class SearchView extends ItemView {
 		this.#resultsEl.empty();
 		this.#summaryEl.empty();
 		if (!query) return;
-		const tag = tagQuery(query);
-		const re = tag === null ? compileSearch(query) : null;
-		if (tag === null && !re) {
+		const tags = tagTerms(query);
+		const re = tags === null ? compileSearch(query) : null;
+		if (tags === null && !re) {
 			this.#summaryEl.setText("Invalid regular expression");
 			return;
 		}
@@ -136,14 +154,14 @@ export class SearchView extends ItemView {
 		let matches = 0;
 		const all = this.app.vault.getMarkdownFiles().sort((a, b) => b.stat.mtime - a.stat.mtime);
 		for (const file of all) {
-			const cache = tag === null ? null : this.app.metadataCache.getFileCache(file);
-			// Only a tagged note is worth reading for a tag.
-			if (tag !== null && !getAllTags(cache)?.some((name) => isTag(name, tag))) continue;
+			const cache = tags === null ? null : this.app.metadataCache.getFileCache(file);
+			// Only a note with the tags is worth reading for them.
+			if (tags !== null && !hasTags(cache, tags)) continue;
 			const text = await this.app.vault.cachedRead(file);
 			if (generation !== this.#generation) return;
-			const found = tag !== null ? tagMatches(cache, text, tag) : textMatches(text, re!);
+			const found = tags !== null ? tagsMatches(cache, text, tags) : textMatches(text, re!);
 			const nameHit = !!nameRe && file.basename.search(nameRe) >= 0;
-			if (!found.length && !nameHit && tag === null) continue;
+			if (!found.length && !nameHit && tags === null) continue;
 			this.#show(file, text, found.slice(0, MAX_MATCHES_PER_FILE));
 			files++;
 			matches += found.length || 1;
@@ -152,15 +170,30 @@ export class SearchView extends ItemView {
 		this.#summaryEl.setText(`${matches} matches in ${files} files${files >= MAX_FILES ? " (showing the first 200 files)" : ""}`);
 	}
 
+	// A file's row as in Obsidian: its name, a chevron that folds its matches
+	// and their count, with the matches nested below. The name opens the
+	// file, a match opens it at the match.
 	#show(file: TFile, text: string, found: SearchMatch[]) {
-		const group = this.#resultsEl.createDiv("search-result");
-		const title = group.createDiv({ cls: "search-result-file-title", text: file.path.replace(/\.md$/, "") });
+		const group = this.#resultsEl.createDiv("tree-item search-result");
+		const title = group.createDiv("tree-item-self search-result-file-title is-clickable mod-collapsible");
+		const icon = title.createDiv("tree-item-icon collapse-icon");
+		setIcon(icon, "right-triangle");
+		title.createDiv({ cls: "tree-item-inner", text: file.basename });
+		setTooltip(title, file.path, { placement: "right" });
+		if (found.length) title.createDiv("tree-item-flair-outer").createSpan({ cls: "tree-item-flair", text: String(found.length) });
 		title.addEventListener("click", () => this.#open(file, null));
+		const matchesEl = group.createDiv("search-result-file-matches");
+		icon.addEventListener("click", (evt) => {
+			evt.stopPropagation();
+			const collapsed = !group.hasClass("is-collapsed");
+			group.toggleClass("is-collapsed", collapsed);
+			icon.toggleClass("is-collapsed", collapsed);
+		});
 		const drag = this.app.dragManager;
 		drag.handleDrag(title, (evt) => drag.dragFile(evt, file, "search"));
 		const lines = text.split("\n");
 		for (const match of found) {
-			const el = group.createDiv("search-result-match");
+			const el = matchesEl.createDiv("search-result-match search-result-file-match");
 			appendMatch(el, lines[match.line] ?? "", match);
 			el.addEventListener("click", () => this.#open(file, match));
 			drag.handleDrag(el, (evt) => drag.dragFile(evt, file, "search"));

@@ -7,10 +7,11 @@ import { EditorView } from "@codemirror/view";
 import { embeddedMarkdownExtensions } from "../api/editor-extensions";
 import { Component } from "../api/events";
 import { setIcon } from "../api/icons";
-import { MarkdownRenderer } from "../api/markdown";
+import { MarkdownRenderer, renderPdfViewer } from "../api/markdown";
 import { resolveSubpath } from "../api/metadata-utils";
 import { TFile } from "../api/vault";
-import { textChanges } from "../api/view";
+import { debounce } from "../api/util";
+import { mergeText, textChanges } from "../api/view";
 import { type AllCanvasNodeData, type CanvasEdgeData, edgeGeometry, facingSides, type NodeSide, parseColor, type Point, type Rect, SIDES, sidePoint } from "./canvas-data";
 import type { Canvas } from "./canvas-view";
 
@@ -149,6 +150,46 @@ export abstract class CanvasNode {
 	}
 }
 
+// A Live Preview editor inside a card: its Markdown resolves from
+// `sourcePath`, a click on a link opens it beside the canvas, and leaving the
+// card ends the edit.
+function cardEditor(node: CanvasNode, host: HTMLElement, doc: string, onChange: (text: string) => void, onLeave: () => void) {
+	const app = node.app;
+	const cm: EditorView = new EditorView({
+		parent: host,
+		state: EditorState.create({
+			doc,
+			extensions: [
+				embeddedMarkdownExtensions({
+					app,
+					sourcePath: () => node.sourcePath,
+					resolveImage: (link) => {
+						const file = app.metadataCache.getFirstLinkpathDest(link, node.sourcePath);
+						return file ? app.vault.getResourcePath(file) : null;
+					},
+				}),
+				EditorView.updateListener.of((u) => {
+					if (u.docChanged && u.view === cm) onChange(u.state.doc.toString());
+				}),
+				EditorView.domEventHandlers({
+					blur: (evt) => {
+						if (!node.nodeEl.contains(evt.relatedTarget as Node | null)) onLeave();
+						return false;
+					},
+					mousedown: (evt) => {
+						const el = evt.button === 0 ? (evt.target as HTMLElement).closest("[data-href]") : null;
+						if (!el) return false;
+						evt.preventDefault();
+						node.canvas.openLink(el.getAttribute("data-href")!, node.sourcePath, evt);
+						return true;
+					},
+				}),
+			],
+		}),
+	});
+	return cm;
+}
+
 export class CanvasTextNode extends CanvasNode {
 	#text = "";
 	#editor: EditorView | null = null;
@@ -219,35 +260,18 @@ export class CanvasTextNode extends CanvasNode {
 		this.contentEl.empty();
 		this.nodeEl.addClass("is-editing", "is-focused");
 		const host = this.contentEl.createDiv("markdown-source-view cm-s-obsidian mod-cm6 is-live-preview node-insert-event");
-		const node = this;
-		const cm = new EditorView({
-			parent: host,
-			state: EditorState.create({
-				doc: this.#text,
-				extensions: [
-					embeddedMarkdownExtensions({
-						app: this.app,
-						sourcePath: () => node.sourcePath,
-						resolveImage: (link) => {
-							const file = node.app.metadataCache.getFirstLinkpathDest(link, node.sourcePath);
-							return file ? node.app.vault.getResourcePath(file) : null;
-						},
-					}),
-					EditorView.updateListener.of((u) => {
-						if (!u.docChanged || this.#editor !== u.view) return;
-						this.#text = u.state.doc.toString();
-						this.#fitHeight();
-						this.canvas.requestSave();
-					}),
-					EditorView.domEventHandlers({
-						blur: (evt) => {
-							if (!this.nodeEl.contains(evt.relatedTarget as Node | null)) this.stopEditing();
-							return false;
-						},
-					}),
-				],
-			}),
-		});
+		const cm = cardEditor(
+			this,
+			host,
+			this.#text,
+			(text) => {
+				if (this.#editor !== cm) return;
+				this.#text = text;
+				this.#fitHeight();
+				this.canvas.requestSave();
+			},
+			() => this.stopEditing(),
+		);
 		this.#editor = cm;
 		this.canvas.editing = this;
 		cm.focus();
@@ -255,9 +279,10 @@ export class CanvasTextNode extends CanvasNode {
 	}
 
 	// A card grows to show what is typed into it, as in Obsidian; it never
-	// shrinks on its own.
+	// shrinks on its own. The frame comes from the card's own window: a canvas
+	// in a popout keeps growing its cards while the vault window is minimized.
 	#fitHeight() {
-		requestAnimationFrame(() => {
+		this.nodeEl.win.requestAnimationFrame(() => {
 			const content = this.contentEl;
 			const extra = content.scrollHeight - content.clientHeight;
 			if (extra > 0 && this.#editor) this.resize({ width: this.width, height: this.height + extra });
@@ -292,6 +317,10 @@ export class CanvasFileNode extends CanvasNode {
 	labelEl: HTMLElement;
 	// The path the last render showed.
 	shownPath = "";
+	// The note's editor while it is edited in place, and the file text it
+	// last agreed with.
+	#editor: EditorView | null = null;
+	#base = "";
 
 	constructor(canvas: Canvas, data: AllCanvasNodeData) {
 		super(canvas, data);
@@ -306,6 +335,21 @@ export class CanvasFileNode extends CanvasNode {
 		return "file";
 	}
 
+	// A note card's links resolve from the note, not from the canvas.
+	get sourcePath() {
+		return this.file?.path ?? super.sourcePath;
+	}
+
+	get isEditing() {
+		return !!this.#editor;
+	}
+
+	// A whole note edits in place; a card showing a heading or block opens
+	// the note instead.
+	get canEditInPlace() {
+		return this.file?.extension === "md" && !this.subpath;
+	}
+
 	protected fields() {
 		return { file: this.file?.path ?? this.filePath, subpath: this.subpath || undefined };
 	}
@@ -317,6 +361,8 @@ export class CanvasFileNode extends CanvasNode {
 	}
 
 	render() {
+		// The note being edited takes in the change instead.
+		if (this.#editor) return void this.#takeIn().catch((err) => console.error(err));
 		const child = this.renderChild();
 		const file = this.file;
 		const content = this.contentEl;
@@ -344,6 +390,9 @@ export class CanvasFileNode extends CanvasNode {
 		} else if (AUDIO.has(ext)) {
 			content.addClass("media-embed");
 			content.createEl("audio", { attr: { src, controls: true } });
+		} else if (ext === "pdf") {
+			// The pages, as a PDF embed shows them, filling the card.
+			renderPdfViewer(child, content, file, this.subpath, this.app).catch((err) => child._loaded && console.error(err));
 		} else {
 			content.addClass("canvas-file-card");
 			setIcon(content.createDiv("canvas-file-card-icon"), "file");
@@ -361,6 +410,93 @@ export class CanvasFileNode extends CanvasNode {
 		// A newer render replaced this one meanwhile.
 		if (!child._loaded) return;
 		this.renderMarkdown(text, el, child);
+	}
+
+	// Edits the note in place in Live Preview, as Obsidian does on a
+	// double-click. Typing writes the note (debounced, merged line by line
+	// with changes made meanwhile elsewhere); leaving the card ends the edit.
+	async startEditing() {
+		const file = this.file;
+		if (!file || !this.canEditInPlace) return;
+		if (this.#editor) return this.#editor.focus();
+		this.canvas.editing?.stopEditing();
+		const text = await this.app.vault.read(file);
+		if (this.file !== file || this.#editor) return;
+		this.#base = text;
+		this.renderChild();
+		const content = this.contentEl;
+		content.empty();
+		content.className = "canvas-node-content markdown-embed";
+		this.nodeEl.addClass("is-editing", "is-focused");
+		const host = content.createDiv("markdown-source-view cm-s-obsidian mod-cm6 is-live-preview node-insert-event");
+		const cm = cardEditor(
+			this,
+			host,
+			text,
+			() => this.#save(),
+			() => this.stopEditing(),
+		);
+		this.#editor = cm;
+		this.canvas.editing = this;
+		cm.focus();
+	}
+
+	stopEditing() {
+		const cm = this.#editor;
+		if (!cm) return;
+		this.#save.cancel();
+		const text = cm.state.doc.toString();
+		this.#editor = null;
+		if (this.canvas.editing === this) this.canvas.editing = null;
+		cm.destroy();
+		this.nodeEl.removeClass("is-editing", "is-focused");
+		this.canvas.wrapperEl.focus({ preventScroll: true });
+		this.#write(text)
+			.catch((err) => console.error(err))
+			.finally(() => {
+				// Not after the card went (its canvas closed or it was removed).
+				if (this.nodeEl.isConnected) this.render();
+			});
+	}
+
+	#save = debounce(() => {
+		if (this.#editor) this.#write(this.#editor.state.doc.toString()).catch((err) => console.error(err));
+	}, 400, true);
+
+	// Writes the edited text, merged with what the file got meanwhile; the
+	// editor then shows the merge.
+	async #write(ours: string) {
+		const file = this.file;
+		if (!file || ours === this.#base) return;
+		const base = this.#base;
+		let merged = ours;
+		await this.app.vault.process(file, (current) => (merged = mergeText(base, ours, current).text));
+		this.#base = merged;
+		this.#sync(merged);
+	}
+
+	// The note changed while it is edited here: the change merges in.
+	async #takeIn() {
+		const file = this.file;
+		const cm = this.#editor;
+		if (!file || !cm) return;
+		const theirs = await this.app.vault.read(file);
+		if (this.#editor !== cm || theirs === this.#base) return;
+		const merged = mergeText(this.#base, cm.state.doc.toString(), theirs).text;
+		this.#base = theirs;
+		this.#sync(merged);
+	}
+
+	#sync(text: string) {
+		const cm = this.#editor;
+		if (!cm) return;
+		const changes = textChanges(cm.state.doc.toString(), text);
+		if (changes.length) cm.dispatch({ changes });
+	}
+
+	destroy() {
+		this.stopEditing();
+		super.destroy();
 	}
 
 	// Opens the file: a note in a tab, other files as the vault opens them.

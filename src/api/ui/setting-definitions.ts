@@ -447,6 +447,8 @@ function dragToReorder(handle: HTMLElement, rowEl: HTMLElement, listEl: HTMLElem
 	handle.addEventListener("pointerdown", (evt) => {
 		if (evt.button !== 0) return;
 		evt.preventDefault();
+		// The handle's own document: Settings may show in a popout window.
+		const doc = handle.doc;
 		rowEl.addClass("is-dragging");
 		// The row moves live; the plugin is told once, on release.
 		const move = (e: PointerEvent) => {
@@ -458,16 +460,16 @@ function dragToReorder(handle: HTMLElement, rowEl: HTMLElement, listEl: HTMLElem
 			listEl.insertBefore(rowEl, before ?? null);
 		};
 		const end = () => {
-			document.removeEventListener("pointermove", move);
-			document.removeEventListener("pointerup", end);
-			document.removeEventListener("pointercancel", end);
+			doc.removeEventListener("pointermove", move);
+			doc.removeEventListener("pointerup", end);
+			doc.removeEventListener("pointercancel", end);
 			rowEl.removeClass("is-dragging");
 			const to = rows().indexOf(rowEl);
 			if (to >= 0 && to !== from) onReorder(from, to);
 		};
-		document.addEventListener("pointermove", move);
-		document.addEventListener("pointerup", end);
-		document.addEventListener("pointercancel", end);
+		doc.addEventListener("pointermove", move);
+		doc.addEventListener("pointerup", end);
+		doc.addEventListener("pointercancel", end);
 	});
 }
 

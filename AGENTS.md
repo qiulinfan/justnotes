@@ -138,7 +138,9 @@ plain style. Development notes belong in this file.
   outline marks the heading the editor's cursor (the reading view's top line)
   is under and filters by its search box. The Tags view counts notes per tag
   (case-insensitive, nested tags count the notes of their subtree) and
-  searches `tag:#x` on click. Note composer reads note-composer.json
+  searches `tag:#x` on click; Mod-click adds the tag to a search of tags
+  (`queryWithTag`; the search view and the CLI's search read `tag:` terms
+  joined by spaces as AND, `tagTerms`) and replaces any other search. Note composer reads note-composer.json
   (`askBeforeMerging`, `replacementText` link/embed/none, `template` with
   `{{content}}`, `{{fromTitle}}`, `{{newTitle}}`, `{{date:...}}`): Enter adds
   at the end, Shift+Enter at the start (after the frontmatter), Mod+Enter (or
@@ -172,7 +174,9 @@ plain style. Development notes belong in this file.
   active note, or the note of a More options or tab menu, from its open
   view's text: slides are the text between top-level `---` rules
   (`slideSources`; not the frontmatter, a setext heading, or a rule in code,
-  math, a list or a quote; empty slides dropped), each rendered with
+  math, a list or a quote; empty slides dropped), starting at the slide
+  holding the cursor when started from the note's editor (`slideIndexAt`; a
+  rule line belongs to the next slide), each rendered with
   `MarkdownRenderer.render` into reveal.js's markup (`.slides-container` >
   `.reveal` > `.slides` > `section.slide`, `aside.controls` with
   `.navigate-left`/`-right`, `.slide-number`, `.progress`; the close button,
@@ -204,8 +208,7 @@ plain style. Development notes belong in this file.
   page's main frame (iframes, `<webview>` guests and the camera are
   refused), after `systemPreferences.askForMediaAccess` on macOS when the
   system has not decided yet; with `--use-fake-device-for-media-stream` it
-  skips the system check. Not there yet: the other core plugins,
-  the Tags view's Mod-click to add a tag to the search.
+  skips the system check. Not there yet: the other core plugins.
 - Bookmarks (`bookmarks-data.ts`: format, merge, rename/delete following,
   tested; `bookmarks.ts`: instance, view, dialog, commands, menus). The
   instance (`app.internalPlugins.plugins.bookmarks.instance`, created in
@@ -263,7 +266,10 @@ plain style. Development notes belong in this file.
   Nodes come from `resolvedLinks`/`unresolvedLinks` (unresolved nodes are
   keyed by link text, tags by `#tag`); the search filter and colour groups
   use one subset of Obsidian's search syntax (`compileQuery`), reading note
-  texts only for content terms. The global graph's options start from
+  texts only for content terms; a group also colours a tag node (a subject
+  carrying that tag) or an unresolved node (one at the link text) its query
+  matches (`nodeSubject`). Mod-hover on a note or image node shows page
+  preview at the pointer (hover-link source `graph`, `targetEl: null`). The global graph's options start from
   `graph.json` (read only) and changes live in the view state (`options`),
   as the local graph's do; `scale` is the zoom. Colours come from the
   `.graph-view.color-*` probe classes and `--graph-*` variables, re-read on
@@ -279,7 +285,10 @@ plain style. Development notes belong in this file.
   `edges` (Maps by id), `selection` (a Set), `getData`/`setData`,
   `requestSave`, `createTextNode({pos, size, text, focus})`, `selectOnly`,
   `deselectAll`, `zoomToFit`; a text node has `text` and `setText`, a file
-  node `file` (the TFile). QuickAdd's capture into the active canvas uses
+  node `file` (the TFile). The leaf's state keeps the viewport as Obsidian's
+  workspace.json does (`viewState: {x, y, zoom}`, the canvas point at the
+  middle and the zoom level), so the layout and history restore pan and
+  zoom; a canvas opened without one is fitted. QuickAdd's capture into the active canvas uses
   exactly those (one selected text or file card); its capture to a configured
   card reads and rewrites the file with `JSON.stringify(data, null, "\t")`.
   Files are written in Obsidian's layout (one node or edge per line), only
@@ -293,7 +302,8 @@ plain style. Development notes belong in this file.
   at the pointer, several next to each other (`dropLayout`: a row of up to
   four, then a grid, centred on the drop point); a folder adds the files
   directly in it. Images and videos keep their aspect ratio inside the
-  400x400 card (`fitSize`), audio gets a short card. A dragged link adds a
+  400x400 card (`fitSize`), audio gets a short card. A PDF card shows its
+  pages as a PDF embed does (`renderPdfViewer`), scrolling inside the card. A dragged link adds a
   card for its file and subpath, an unresolved one a text card holding the
   link. Files from the OS go through `importFile` (`attachments.ts`, shared
   with the editor's paste and drop) into the attachment folder for the
@@ -302,9 +312,25 @@ plain style. Development notes belong in this file.
   card menu's buttons also drag onto the canvas. A multi-card drop is one undo
   step. Selecting a card brings it to the front of its layer (groups stay
   under the other cards) and last in the node list, which the next save
-  writes; the click alone writes nothing. Not there yet: snapping, editing a
-  note card in place (double-click opens it in a tab), PDF cards (shown as a
-  file card), export.
+  writes; the click alone writes nothing. The element moves to the front
+  only once the click is over (or the drag starts): moving it under the
+  pointer cancels the click, and with it a double-click or a link's. A
+  double-click (or Enter, or Edit in its menu) on a whole-note card edits the
+  note in place in Live Preview (a heading or block card opens the note):
+  typing writes the note through `vault.process`, debounced, merged line by
+  line with what the file got meanwhile, and a change from elsewhere merges
+  into the editor; leaving the card ends the edit. A note card's links
+  resolve from the note. A link clicked in a card (rendered, on release of
+  the press; in a card's editor, on mousedown) opens as from Obsidian's
+  canvas, never in the canvas's leaf: in the most recently active leaf of
+  another tab group in the same root, else a new tab; Mod and a middle click
+  pick the place as elsewhere (`Canvas.openLink`, through
+  `workspace.openLinkTextIn`). Moving and resizing snap as canvas.json's
+  `snapToGrid` and `snapToObjects` say (both on when unset, as in
+  Obsidian; `snapMove`, `snapEdge`): a moved selection's left, centre or
+  right (top, middle, bottom) onto another card's within 8 screen pixels,
+  else its corner onto the 20-unit grid; a resized card's dragged edges
+  likewise. Not there yet: export.
 - Keyboard: a capture-phase `keydown` listener walks the keymap scope stack
   before CodeMirror sees the key; the active scope follows keyboard focus. The
   root scope has one catch-all handler that runs command hotkeys; plugins may
@@ -719,7 +745,10 @@ plain style. Development notes belong in this file.
   sidebar panes only above or below). `.workspace-drop-overlay` shows the
   target; `body.is-grabbing` keeps `<webview>`/`<iframe>` guests from taking
   the drag. A main-area tab dropped outside every app window moves to a new
-  popout there. Moves go through `removeChild`/`insertChild`, so
+  popout there. A tab drag ends on its drop, and in every window also on any
+  dragend, the start of another drag, a pointer press, or a dragover or drop
+  that carries no tab: the dragged header's dragend never comes once a drop
+  in another window has moved it there. Moves go through `removeChild`/`insertChild`, so
   `layout-change` fires and the layout saves the result.
 - Resize drags end on `lostpointercapture`, and `body.is-resizing` turns off
   pointer events in `<webview>` and `<iframe>` guests, which would otherwise
@@ -832,7 +861,13 @@ plain style. Development notes belong in this file.
   component variables without values; `00-base.css` holds the default
   theme's, as themes restate them. A row's collapse chevron sits in its left
   padding, over the children's indentation guide, so file and folder names
-  line up.
+  line up. State classes are Obsidian's, for themes: a collapsed explorer
+  folder has `is-collapsed` on its `.tree-item` and its `.collapse-icon` (one
+  down arrow the stylesheet turns aside), the left ribbon `is-collapsed`
+  (and `--ribbon-background-collapsed`) while the left sidebar is
+  collapsed. Search results are tree rows: `.tree-item.search-result` with a
+  title row (basename, chevron folding the matches, match count as flair;
+  the path is its tooltip) and `.search-result-file-matches` below.
 - Links take their colours from the `--link-*` variables, and a base `a` rule
   gives plain anchors in plugin views the link colour. Live Preview's link
   marks carry `.internal-link` and `.external-link`, so the reading view's link
