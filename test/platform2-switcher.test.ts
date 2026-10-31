@@ -11,12 +11,14 @@ function fileAt(path: string) {
 // Paths from a courses vault, in the order getItems lists them (recent first).
 const files = [
 	"Zelda/Assets/Resources/NES - The Legend of Zelda - Miscellaneous - HUD & Pause Screen.png",
+	"281notes/README.md",
 	"eecs595-nlp/project/final_report/grad.png",
 	"281notes/FinalReview.md",
 	"czech315-czech-cinema/13(Romance + Pupendo)/01_电影transcript/pupendo.cs",
 	"281notes/docs/notes-01-08.md",
 	"eecs542-advanced_cv/论文s/00-resnet.md",
 	"math526-stochastic_process/final.md",
+	"README.md",
 ].map(fileAt);
 
 // The modal's DOM is not needed to rank: getSuggestions reads only the items
@@ -33,8 +35,13 @@ describe("QuickSwitcher ranking", () => {
 		const resnet = suggest("resnet");
 		expect(resnet[0]).toEqual({ text: "eecs542-advanced_cv/论文s/00-resnet", highlighted: "resnet" });
 		const final = suggest("final").map((row) => row.text);
-		expect(final.slice(0, 2).sort()).toEqual(["281notes/FinalReview", "math526-stochastic_process/final"]);
 		expect(final.indexOf("eecs595-nlp/project/final_report/grad.png")).toBeGreaterThan(1);
+	});
+
+	test("an exact name leads, and files that share a name rank by their whole path", () => {
+		// getItems lists FinalReview and 281notes/README first, as more recent.
+		expect(suggest("final").slice(0, 2).map((row) => row.text)).toEqual(["math526-stochastic_process/final", "281notes/FinalReview"]);
+		expect(suggest("readme").map((row) => row.text)).toEqual(["README", "281notes/README"]);
 	});
 
 	test("a folder's name still finds the files in it first", () => {

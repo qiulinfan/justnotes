@@ -381,27 +381,34 @@ export class QuickSwitcher extends FuzzySuggestModal<TFile> {
 	// Files whose name holds the query (spaces aside) rank above the rest,
 	// which match by their whole path as before: "resnet" finds 00-resnet before
 	// a long path that happens to hold its letters, while a folder's name still
-	// finds the files in it rather than names with its letters scattered. The
-	// highlights stay on the whole path.
+	// finds the files in it rather than names with its letters scattered. Among
+	// the names an exact one leads, and names that score alike (every name that
+	// starts with the query does) rank by their whole path as before, so the
+	// vault's README comes before the nested ones. The highlights stay on the
+	// whole path.
 	getSuggestions(query: string) {
 		const search = prepareFuzzySearch(query.trim());
 		const typed = query.toLowerCase().replace(/\s+/g, "");
-		const byName: FuzzyMatch<TFile>[] = [];
+		const byName: (FuzzyMatch<TFile> & { exact: boolean; path: number })[] = [];
 		const byPath: FuzzyMatch<TFile>[] = [];
 		for (const file of this.getItems()) {
 			const text = this.getItemText(file);
+			// The name ends the path, so a file whose name matches matches here too.
+			const match = search(text);
+			if (!match) continue;
 			const name = file.extension === "md" ? file.basename : file.name;
-			const inName = name.toLowerCase().replace(/\s+/g, "").includes(typed) ? search(name) : null;
+			const flat = name.toLowerCase().replace(/\s+/g, "");
+			const inName = flat.includes(typed) ? search(name) : null;
 			if (inName) {
 				const start = text.length - name.length;
 				const matches = inName.matches.map(([from, to]): [number, number] => [from + start, to + start]);
-				byName.push({ item: file, match: { score: inName.score, matches } });
-			} else {
-				const match = search(text);
-				if (match) byPath.push({ item: file, match });
-			}
+				byName.push({ item: file, match: { score: inName.score, matches }, exact: flat === typed, path: match.score });
+			} else byPath.push({ item: file, match });
 		}
-		if (typed) for (const list of [byName, byPath]) list.sort((a, b) => b.match.score - a.match.score);
+		if (typed) {
+			byName.sort((a, b) => Number(b.exact) - Number(a.exact) || b.match.score - a.match.score || b.path - a.path);
+			byPath.sort((a, b) => b.match.score - a.match.score);
+		}
 		return [...byName, ...byPath];
 	}
 
