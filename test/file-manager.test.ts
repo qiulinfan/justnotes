@@ -6,7 +6,8 @@ import type { App } from "../src/api/app";
 import { importFile } from "../src/api/attachments";
 import { FileManager } from "../src/api/file-manager";
 import { MetadataCache } from "../src/api/metadata";
-import { TFile, Vault } from "../src/api/vault";
+import { type TAbstractFile, TFile, Vault } from "../src/api/vault";
+import { canvasLinkHolder, parseCanvas, renameInCanvas, stringifyCanvas } from "../src/renderer/canvas-data";
 
 const open: { vault: Vault; dir: string }[] = [];
 
@@ -96,6 +97,34 @@ describe("FileManager.renameFile", () => {
 		vault.on("rename", () => fs.writeFileSync(path.join(dir, "src.md"), "typed first\nx [[old]]"));
 		await fm.renameFile(vault.getFileByPath("old.md")!, "new.md");
 		expect(read("src.md")).toBe("typed first\nx [[new]]");
+	});
+
+	// Obsidian updates links in canvases too; the metadata cache does not
+	// index canvases, so the Canvas plugin's holder gives their text cards.
+	test("links in canvas text cards follow a rename, file cards too, other cards untouched", async () => {
+		const card = (id: string, text: string) => ({ id, type: "text", text, x: 0, y: 0, width: 250, height: 60 });
+		const canvas = stringifyCanvas({
+			nodes: [
+				card("t", "See [[old#H|it]] and [md](old.md) but `[[old]]`.\n\n![[old]]"),
+				card("u", "[[other]]"),
+				{ id: "f", type: "file", file: "old.md", x: 0, y: 300, width: 400, height: 400 },
+			],
+			edges: [],
+		} as any);
+		const { vault, fm, read } = await setup({ "old.md": "", "other.md": "", "boards/b.canvas": canvas });
+		fm.linkHolders.add(canvasLinkHolder(vault));
+		vault.on("rename", (f: TAbstractFile, old: string) => vault.process(vault.getFileByPath("boards/b.canvas")!, (t) => renameInCanvas(t, old, f.path) ?? t));
+		await fm.renameFile(vault.getFileByPath("old.md")!, "dir/new name.md");
+		const nodes = parseCanvas(read("boards/b.canvas")).nodes as any[];
+		expect(nodes.map((n) => n.text ?? n.file)).toEqual(["See [[new name#H|it]] and [md](new%20name.md) but `[[old]]`.\n\n![[new name]]", "[[other]]", "dir/new name.md"]);
+	});
+
+	test("a moved canvas's text cards keep their relative links reaching their files", async () => {
+		const canvas = stringifyCanvas({ nodes: [{ id: "t", type: "text", text: "[n](../n.md)", x: 0, y: 0, width: 250, height: 60 }], edges: [] } as any);
+		const { vault, fm, read } = await setup({ "n.md": "", "boards/b.canvas": canvas }, { alwaysUpdateLinks: true, useMarkdownLinks: true, newLinkFormat: "relative" });
+		fm.linkHolders.add(canvasLinkHolder(vault));
+		await fm.renameFile(vault.getFileByPath("boards/b.canvas")!, "boards/deep/b.canvas");
+		expect((parseCanvas(read("boards/deep/b.canvas")).nodes[0] as any).text).toBe("[n](../../n.md)");
 	});
 
 	test("renaming onto an existing note fails and rewrites nothing", async () => {

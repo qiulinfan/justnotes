@@ -263,7 +263,10 @@ plain style. Development notes belong in this file.
   Files are written in Obsidian's layout (one node or edge per line), only
   after a change, and keep unknown fields of nodes, edges and the file in
   place. Renaming a file or folder rewrites the canvases that show it, open
-  or not. Link cards show the URL, not the page. Drops onto the canvas: files
+  or not; a rename through `fileManager.renameFile` also rewrites the links
+  in text cards that no longer reach their file, as in notes (the plugin
+  adds `canvasLinkHolder` to `fileManager.linkHolders`, justnotes' own hook
+  for Markdown the metadata cache does not index). Link cards show the URL, not the page. Drops onto the canvas: files
   dragged from the explorer, search results or link panes become file cards
   at the pointer, several next to each other (`dropLayout`: a row of up to
   four, then a grid, centred on the drop point); a folder adds the files

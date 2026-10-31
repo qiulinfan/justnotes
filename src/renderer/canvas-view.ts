@@ -20,6 +20,7 @@ import {
 	type AllCanvasNodeData,
 	boundingBox,
 	type CanvasData,
+	canvasLinkHolder,
 	type CanvasEdgeData,
 	edgeGeometry,
 	facingSides,
@@ -1339,4 +1340,9 @@ export function installCanvas(app: App, host: CorePluginHost) {
 			followRename(app, file, oldPath).catch((err) => console.error(err));
 		}),
 	);
+	// Links in text cards follow a rename through the file manager, as links
+	// in notes do.
+	const holder = canvasLinkHolder(app.vault);
+	app.fileManager.linkHolders.add(holder);
+	host.register(() => app.fileManager.linkHolders.delete(holder));
 }
