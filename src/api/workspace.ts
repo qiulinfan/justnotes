@@ -1136,17 +1136,9 @@ export class Workspace extends Events {
 			this.trigger("active-leaf-change", leaf);
 		}
 		this.#updateActiveFile();
-		// Last, so the focusin it causes finds this leaf already active.
-		if (focus) this.#focus(leaf);
-	}
-
-	#focus(leaf: WorkspaceLeaf) {
-		const view = leaf.view as View & { editor?: { focus?: () => void } };
-		if (typeof view.editor?.focus === "function") view.editor.focus();
-		else if (!view.containerEl.contains(document.activeElement)) {
-			if (!view.containerEl.hasAttribute("tabindex")) view.containerEl.tabIndex = -1;
-			view.containerEl.focus({ preventScroll: true });
-		}
+		// Last, so the focusin it causes finds this leaf already active. The
+		// view decides where the keyboard goes (its editor, its own input).
+		if (focus) leaf.setEphemeralState({ focus: true });
 	}
 
 	// After a leaf's setViewState: swapping the active leaf's view or file
