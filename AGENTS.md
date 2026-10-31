@@ -306,9 +306,10 @@ plain style. Development notes belong in this file.
 All of the owner's plugins load and their features were tested live on vault
 copies: copy-location, quick-latex, obsidian-completr, yolo (live completion,
 paid: only within the owner's small test budget), background, kgdistiller
-(0.1.5 and 3.0.2), latex-live (0.2.0; 0.1.7 loads), obsidian-git, omp-sidebar,
-quickadd, terminal and obsidian-tinymist (0.1.0, its YOLO bridge against a
-local mock provider). Known gaps: popout windows, a canvas view (QuickAdd's
+(0.1.5 and 3.0.2), latex-live (0.1.0, 0.1.7 and 0.2.0), obsidian-git (2.41.1
+and 2.42.0), omp-sidebar, quickadd (2.24.2 and 2.33.1), terminal (3.27.2 and
+3.29.0) and obsidian-tinymist (0.1.0, its YOLO bridge against a local mock
+provider). Known gaps: popout windows, a canvas view (QuickAdd's
 capture into the active canvas), a CLI transport for `registerCliHandler`,
 `app.metadataTypeManager`, editable properties, tab drag and drop.
 
@@ -348,10 +349,16 @@ capture into the active canvas), a CLI transport for `registerCliHandler`,
   `OMP_GUI_RUNTIME_DIR` to a temp folder and adds `--port 0`, or it attaches to
   the owner's running omp server; obsidian-git gets `git init`, a local bare
   remote, `GIT_CONFIG_GLOBAL` pointing at an empty file and
-  `GIT_CONFIG_NOSYSTEM=1`; quickadd keeps online features off; terminal shells
+  `GIT_CONFIG_NOSYSTEM=1`; obsidian-git 2.42.0 answers Git's credential
+  prompts through its own askpass script and a loopback HTTP server, so test
+  them with a local Git server that asks for Basic auth (`git http-backend`
+  behind a small Bun server); quickadd keeps online features off; terminal shells
   are the owner's login shell, so launch with `fish_private_mode=1` and type
   nothing that should not run; latex-live keeps shell escape off and builds in
-  the system temp folder; obsidian-tinymist runs two `tinymist lsp` processes
+  the system temp folder, but copies hold no `.tex`: copy a project's whole TeX
+  tree in (notes' projects `\input` sibling projects and `../toolchain`), and
+  stub `dialog.showSaveDialog` in main before Export to HTML, which opens a
+  native save dialog CDP cannot see; obsidian-tinymist runs two `tinymist lsp` processes
   (the editor's and the formula renderer) and a preview server on 127.0.0.1,
   rooted at the copy, but downloads a `@preview` package missing from Typst's
   package cache into that cache, so use fixtures whose packages are cached
