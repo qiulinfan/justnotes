@@ -72,8 +72,11 @@ plain style. Development notes belong in this file.
   `electron-builder.yml` is the packaging configuration.
 - `src/renderer/`: host UI (boot, core commands, file explorer, search, view
   and workspace commands, bases view, the core plugins in `core-plugins.ts`
-  and the modules it installs) and `styles/NN-*.css`, which keep
-  Obsidian's CSS variable and class names so plugin stylesheets apply.
+  and the modules it installs, `plain-text-view.ts`) and `styles/NN-*.css`,
+  which keep Obsidian's CSS variable and class names so plugin stylesheets
+  apply (`93-latex.css` is latex-live's `styles.css`).
+- `src/latex/`: obsidian-latex-live built in, the `latex` core plugin (see
+  TeX and text notes below); its tests and fixtures are `test/latex/`.
 
 ## Compatibility rules
 
@@ -129,7 +132,8 @@ plain style. Development notes belong in this file.
   Enter with no match) creates a note named as typed; a merged note's
   frontmatter adds only missing properties, links to it are redirected
   (`FileManager.redirectLinks`) and it goes to the trash. File recovery keeps
-  whole-text snapshots of `.md` and `.canvas` files in the profile's IndexedDB
+  whole-text snapshots of notes (Markdown, TeX and text within the index
+  limit) and `.canvas` files in the profile's IndexedDB
   (`<appId>-file-recovery`), one when a file is opened and then at most one
   per `intervalMinutes` (default 5) after edits, pruned after `keepDays`
   (default 7); a restore snapshots the current text first. Templates insert a
@@ -372,7 +376,8 @@ plain style. Development notes belong in this file.
   `app.saveLocalStorage` (keys prefixed with the vault id): `justnotes-layout`
   (the layout, in `workspace.json`'s shape, with leaf ids), `enabled-plugins`
   (the Settings toggles, applied over `community-plugins.json`),
-  `enabled-core-plugins` (the Core plugins toggles, over `core-plugins.json`), `custom-css`
+  `enabled-core-plugins` (the Core plugins toggles, over `core-plugins.json`),
+  `latex-live-settings` (the LaTeX core plugin's settings), `custom-css`
   (theme and snippets), `justnotes-expanded` (explorer folders),
   `property-types` (property type changes made in justnotes, layered over
   `types.json`; an empty type unassigns one). The language
@@ -568,6 +573,116 @@ plain style. Development notes belong in this file.
   the tag. The workflow checks the tag matches package.json and creates a
   draft GitHub Release with the `.dmg`, `.zip` and `-setup.exe` files and
   generated notes; publish it by hand.
+
+## TeX and text notes
+
+- In Obsidian only Markdown is a note; in justnotes `.tex` and `.txt` are
+  notes too. `api/note-files.ts` is the one place that says so
+  (`NOTE_EXTENSIONS`, `isNoteFile`, `fileDisplayName`, `isIndexedNote`); use
+  it instead of `extension === "md"` wherever a feature means "a note".
+  Where plugins look, Markdown keeps Obsidian's meaning: `getMarkdownFiles`,
+  `MarkdownView`, `workspace.activeEditor`, frontmatter, tags and
+  properties are Markdown's only.
+- What "note" covers: the metadata cache (`metadata-text.ts`: a TeX file's
+  `\part`..`\subparagraph` are headings, the outermost command at level 1,
+  comments, verbatim environments and `\iffalse` blocks skipped; its
+  `\input`, `\include`, `\subfile` and `\import` are links, `.tex` added
+  to a name without an extension; a text file's wikilinks are its links), so
+  `[[main.tex]]` resolves and counts as a backlink, a root links to its
+  chapters and the outline pane lists a TeX file's sections (it follows the
+  cursor of any view with a CodeMirror `editorView`); search (pane and CLI;
+  a `tag:` query reads Markdown only); graph nodes; File recovery; the word
+  count (a TeX note counts `texText`, the text TeX typesets); the New note
+  menus (folder menu New TeX file / New text file, commands
+  `file-explorer:new-tex-file` / `file-explorer:new-text-file`, both making
+  `Untitled.<ext>` like New note); the explorer and link suggest show their
+  whole names with no badge; the CLI's `outline`, `wordcount`, `search`,
+  `deadends`, `random` (`note()` in `cli/commands/context.ts`; `read`,
+  `append`, `prepend` took any file already; `prepend` keeps a frontmatter on
+  top only in Markdown). TeX and text files over `TEXT_NOTE_INDEX_LIMIT`
+  (2 MB: courses holds hundreds of MB of `.txt` data) open as notes but are
+  never read for the cache, search, graph texts or snapshots.
+- Renames rewrite TeX `\input`-like paths as TeX reads them (`texRelink`
+  in `metadata-text.ts`): relative to the source's folder when the old path
+  resolved from there (the new folder then: a moved root), else to the
+  folder where the old target's path ends with it (TeX reads from the root
+  document's folder, so a chapter's root-relative `\input` stays
+  root-relative), keeping a missing `.tex` and quotes. The lenient link
+  resolution cannot tell whether a TeX path still works, so a TeX link is
+  rewritten exactly when this computation changes it. `\import` paths are
+  left alone.
+- `.txt` opens in `PlainTextView` (`plain-text-view.ts`, view type
+  `plain-text`): CodeMirror with no language, soft wrap, the readable line
+  width, history, search, multiple cursors; it saves through TextFileView.
+  Its `textEditor` is an `Editor`, deliberately not its `editor`, so it never
+  becomes `workspace.activeEditor` (plugins take that to be a MarkdownView);
+  core editor commands registered with `plainText: true` (swap line
+  up/down, delete paragraph, add cursor above/below) act on it through
+  `Commands.#editorFor`. `.tex` has no fallback view while the LaTeX core
+  plugin is off and the community latex-live is not loaded.
+- The LaTeX core plugin (`latex`, `src/latex/latex-live.ts`, class
+  `LatexLive`, installer `LatexLive.install`) is obsidian-latex-live built
+  in: the TeX editor and live preview, texlab completion and hover,
+  snippets, diagnostics, compiling, the PDF preview with SyncTeX both ways,
+  the project outline, HTML export, bibliography, prose and project tools,
+  template visualization, its commands and settings. It is justnotes' own
+  core plugin (`JUSTNOTES_OWN` in `internal-plugins.ts`): on unless turned off
+  on the Core plugins page, whatever core-plugins.json says. Its options page
+  is listed under Core plugins in the settings window
+  (`CorePluginHost.addSettingTab`, `SettingModal.coreTabs`; the Core plugins
+  row has an Options button). Settings live in localStorage
+  (`latex-live-settings`); the first load without them reads the vault's
+  `plugins/latex-live/data.json`, never written. Command ids and names stay
+  the community plugin's (`latex-live:compile`, "LaTeX Live: ..."), view
+  types too (`latex-live-editor`, `latex-live-preview`), so hotkeys.json and
+  saved layouts carry over. The `latex-live:api-ready` workspace event fires
+  once the layout is ready (community plugins have loaded) or at once on a
+  toggle, with the `LatexLive` instance: kgdistiller attaches its markers to
+  the TeX editors through `registerTexEditorExtension` on it. Builds go to
+  `$TMPDIR/justnotes-latex/<hash>`, apart from the Obsidian plugin's
+  `obsidian-latex-live`, so both apps can have the same project open.
+- While the LaTeX core plugin is on, the community plugin `latex-live` is
+  not loaded (`REPLACED_BY` in `plugins.ts`, `Plugins.replacedBy`): both
+  would register the same views, extensions and commands. The Community
+  plugins list says so on its row, with the toggle disabled; turning the
+  core plugin off loads the community plugin again when it is enabled, and
+  turning it on unloads it first. In Obsidian the plugin keeps working
+  unchanged. `smoke.ts` reports such plugins as `replacedPlugins`.
+- Pasting an image into a `.tex` editor (`src/latex/editor/imagePaste.ts`,
+  justnotes' own) saves it through `importFile` (attachment folder rules)
+  and opens a form: the path as `\includegraphics` takes it (relative to the
+  root document's folder), width as a fraction of `\linewidth` (presets 1,
+  0.75, 0.5, 0.33), caption, label (`fig:` and the file name), placement,
+  figure environment or bare. Enter inserts at the cursor; Escape (any close)
+  inserts the bare `\includegraphics` with the chosen width, since the image
+  is already saved. Pasted text stays plain.
+- `src/latex/` came from github.com/qiulinfan/obsidian-latex-live at
+  7cf29c7aa76f66afb2d8845ef987ad6e0fdd1537 (release 0.2.0), imported
+  unchanged and then adapted: imports of `obsidian` point at justnotes'
+  modules (`src/api/*`), `main.ts` became `latex-live.ts` registering through
+  the core plugin host, the missing-styles notice, the named New TeX file
+  dialog and the headless kgdistiller export bridge (`kgdistillerBridge.ts`,
+  `nodeHost.ts`) went. Everything else keeps latex-live's own conventions,
+  which its AGENTS.md at that commit states (`git -C
+  ~/Desktop/projects/obsidian-latex-live show 7cf29c7:AGENTS.md`): `tex/`
+  free of UI code and tested against real TeX, `keyArbiter` first and the
+  only owner of Tab/Enter/Escape/arrows, edits reaching saves, compiles and
+  texlab only through `editNotifier`, `runTex` for every TeX process, the
+  live preview's single StateField, `ProjectMath` never touching the global
+  MathJax's definitions, `src/editor/shared/` shared with obsidian-tinymist.
+  Bring later upstream changes in the same way: a commit naming the
+  upstream commit, applying `git diff 7cf29c7..<new> -- src tests styles.css`
+  to `src/latex`, `test/latex` and `93-latex.css`.
+- Tests: `test/latex/` is latex-live's suite under `bun test` (its
+  `node:test` tests run as they are). Many run real TeX, texlab and
+  MathJax, so `bun test test` takes about 4.5 minutes with TeX installed
+  (they skip without it); `bun test $(ls test/*.test.ts)` runs justnotes'
+  own in seconds. Bun's transpiler escapes non-ASCII characters inside
+  `String.raw` templates, so tests interpolate them (`${"第"}`); bun's
+  per-test timeout is 5 s, so slow tests pass node:test's `timeout`. Tests
+  that need dvisvgm skip without it (Homebrew's TeX Live has none; they fail
+  the same way upstream). Not ported: the tests of Obsidian glue written
+  against latex-live's Obsidian stand-in, the release and styles checks.
 
 ## Views, files and saving
 
@@ -796,7 +911,8 @@ plain style. Development notes belong in this file.
 All of the owner's plugins load and their features were tested live on vault
 copies: copy-location, quick-latex, obsidian-completr, yolo (live completion,
 paid: only within the owner's small test budget), background, kgdistiller
-(0.1.5 and 3.0.2), latex-live (0.1.0, 0.1.7 and 0.2.0), obsidian-git (2.41.1
+(0.1.5 and 3.0.2), latex-live (0.1.0, 0.1.7 and 0.2.0; now replaced by the
+LaTeX core plugin while that is on), obsidian-git (2.41.1
 and 2.42.0), omp-sidebar, quickadd (2.24.2 and 2.33.1), terminal (3.27.2 and
 3.29.0) and obsidian-tinymist (0.1.0, its YOLO bridge against a local mock
 provider). QuickAdd's capture into the active canvas and into a configured
@@ -867,9 +983,12 @@ blogs with five of its plugins.
   them with a local Git server that asks for Basic auth (`git http-backend`
   behind a small Bun server); quickadd keeps online features off; terminal shells
   are the owner's login shell, so launch with `fish_private_mode=1` and type
-  nothing that should not run; latex-live keeps shell escape off and builds in
-  the system temp folder, but copies hold no `.tex`: copy a project's whole TeX
-  tree in (notes' projects `\input` sibling projects and `../toolchain`), and
+  nothing that should not run; latex-live (the LaTeX core plugin too, which
+  reads the copy's `plugins/latex-live/data.json` on its first load: set
+  `yoloTabCompletion` and `shellEscape` false there before launching) keeps
+  shell escape off and builds in the system temp folder; copies hold the
+  vault's `.tex`, `.sty`, `.cls` and `.bst` files (notes' projects `\input`
+  sibling projects and `../toolchain`, both inside the vault), and
   stub `dialog.showSaveDialog` in main before Export to HTML, which opens a
   native save dialog CDP cannot see; obsidian-tinymist runs two `tinymist lsp` processes
   (the editor's and the formula renderer) and a preview server on 127.0.0.1,
