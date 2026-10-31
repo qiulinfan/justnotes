@@ -1,4 +1,5 @@
 import type { App } from "../api/app";
+import { registerAllPropertiesView } from "./all-properties";
 import { installDailyNotes } from "./daily-notes";
 import { registerLinkPanes } from "./link-panes";
 import { registerTemplateCommands } from "./templates";
@@ -10,12 +11,14 @@ const PANES = [
 	{ plugin: "backlink", type: "backlink", command: "backlink:open", name: "Backlinks: Show backlinks" },
 	{ plugin: "outgoing-link", type: "outgoing-link", command: "outgoing-links:open", name: "Outgoing links: Show outgoing links" },
 	{ plugin: "outline", type: "outline", command: "outline:open", name: "Outline: Show outline" },
+	{ plugin: "properties", type: "all-properties", command: "properties:open", name: "Properties view: Show all properties" },
 ];
 
 // Views register before the layout is restored, so a saved layout gets its
 // panes back whatever the vault enables.
 export function registerCorePluginViews(app: App) {
 	registerLinkPanes(app);
+	registerAllPropertiesView(app);
 }
 
 // The rest follows core-plugins.json, as in Obsidian: a disabled core plugin

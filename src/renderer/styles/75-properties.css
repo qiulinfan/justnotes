@@ -274,7 +274,35 @@ body.theme-dark .metadata-container {
 	color-scheme: dark;
 }
 
-body.theme-dark .metadata-container input::-webkit-calendar-picker-indicator {
-	filter: invert(1);
-	opacity: 0.6;
+/* The All properties pane. */
+.all-properties-view {
+	padding: 8px 4px;
+	font-size: var(--font-ui-small);
+}
+
+.all-properties-view .tree-item-icon {
+	display: inline-flex;
+	color: var(--text-faint);
+}
+
+.all-properties-view .tree-item-icon .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.all-properties-view .tree-item-inner {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.all-properties-view .tree-item-flair {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.all-properties-view .pane-empty {
+	padding: 8px;
+	color: var(--text-muted);
 }
