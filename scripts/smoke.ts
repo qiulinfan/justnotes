@@ -23,8 +23,11 @@ const shot = arg("--shot");
 const keep = process.argv.includes("--keep");
 const root = path.resolve(import.meta.dir, "..");
 
+// Test windows are usually hidden behind others, where Chromium throttles
+// timers and animation frames; pdf.js pages then take a minute to render.
+const unthrottled = ["--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"];
 const child = Bun.spawn(
-	[path.join(root, "node_modules/.bin/electron"), root, "--vault", path.resolve(vault), "--profile", profile, `--remote-debugging-port=${port}`],
+	[path.join(root, "node_modules/.bin/electron"), root, ...unthrottled, "--vault", path.resolve(vault), "--profile", profile, `--remote-debugging-port=${port}`],
 	{ stdout: "ignore", stderr: "ignore" },
 );
 
