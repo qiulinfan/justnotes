@@ -1,0 +1,80 @@
+/* The loading screen (index.html) over the window until the layout is restored */
+.app-loading {
+	position: fixed;
+	inset: 0;
+	z-index: 10000;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 28px;
+	background: var(--background-primary);
+	transition: opacity 240ms ease;
+}
+
+.app-loading.is-done {
+	opacity: 0;
+	pointer-events: none;
+}
+
+.app-loading-icon {
+	width: 88px;
+	height: 88px;
+	border-radius: 20px;
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+	animation: app-loading-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.app-loading-dot {
+	transform-box: fill-box;
+	transform-origin: center;
+	animation: app-loading-dot 1.4s ease-in-out 420ms infinite;
+}
+
+.app-loading-bar {
+	width: 132px;
+	height: 3px;
+	overflow: hidden;
+	border-radius: 2px;
+	background: var(--background-modifier-border);
+	animation: app-loading-in 420ms 120ms ease both;
+}
+
+.app-loading-bar > div {
+	width: 40%;
+	height: 100%;
+	border-radius: 2px;
+	background: #e4703a;
+	animation: app-loading-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes app-loading-in {
+	from {
+		opacity: 0;
+		transform: scale(0.92);
+	}
+}
+
+@keyframes app-loading-dot {
+	50% {
+		transform: translateY(-14px);
+	}
+}
+
+@keyframes app-loading-slide {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(250%);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.app-loading-icon,
+	.app-loading-dot,
+	.app-loading-bar,
+	.app-loading-bar > div {
+		animation: none;
+	}
+}

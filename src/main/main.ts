@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, type Session, session, shell, type WebContents } from "electron";
 import { enclosingVault } from "../cli/vaults";
 import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultNamed, vaultOf } from "./ipc";
@@ -247,6 +247,19 @@ function setupPopout(child: BrowserWindow, opener: WebContents) {
 // window, each with its own ?vault=, in this one process and profile.
 const vaultWindows = new Map<string, BrowserWindow>();
 
+// The theme a vault's page starts in, before its stylesheet and settings load:
+// appearance.json's "theme" as the page applies it ("obsidian" dark,
+// "moonstone" light), else the system's. The window's background takes it
+// too, so opening a vault never flashes white.
+function startTheme(vault: string): "dark" | "light" {
+	try {
+		const theme = JSON.parse(fs.readFileSync(path.join(vault, ".obsidian", "appearance.json"), "utf8")).theme;
+		if (theme === "obsidian") return "dark";
+		if (theme === "moonstone") return "light";
+	} catch {}
+	return nativeTheme.shouldUseDarkColors ? "dark" : "light";
+}
+
 // Opens a vault's window, or brings its open window to the front.
 function openVault(vault: string) {
 	const key = realPathOf(vault);
@@ -256,10 +269,12 @@ function openVault(vault: string) {
 		open.focus();
 		return open;
 	}
+	const theme = startTheme(vault);
 	const win = new BrowserWindow({
 		width: 1280,
 		height: 860,
 		titleBarStyle: "hiddenInset",
+		backgroundColor: theme === "dark" ? "#1e1e1e" : "#ffffff",
 		webPreferences: {
 			// Obsidian plugins call require("fs"), require("child_process") and
 			// require("electron") directly, so the renderer needs Node.
@@ -293,7 +308,7 @@ function openVault(vault: string) {
 		openUrl(evt.url, contents);
 	});
 	contents.on("did-navigate", () => listening.delete(contents));
-	win.loadFile(path.join(__dirname, "index.html"), { query: { vault } }).catch((err) => console.error("Could not load the window of", vault, err));
+	win.loadFile(path.join(__dirname, "index.html"), { query: { vault, theme } }).catch((err) => console.error("Could not load the window of", vault, err));
 	return win;
 }
 
@@ -363,6 +378,12 @@ app.whenReady().then(() => {
 	handleSchemes();
 	handlePermissions(session.defaultSession);
 	setApplicationMenu();
+	// The packaged app carries the icon in its bundle; run from the repo, the
+	// Dock would show Electron's.
+	if (!app.isPackaged && process.platform === "darwin") {
+		const icon = path.join(__dirname, "..", "packaging", "icon.png");
+		if (fs.existsSync(icon)) app.dock?.setIcon(icon);
+	}
 	startCli(vaultWindows, openVault).catch((err) => console.error("The command line socket could not start", err));
 	return openFirstVaults();
 });

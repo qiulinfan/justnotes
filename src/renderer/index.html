@@ -6,6 +6,29 @@
 		<link rel="stylesheet" href="app.css" />
 	</head>
 	<body class="theme-light">
+		<!-- Shown while the vault loads, in the theme main read from the vault; boot fades it out once the layout is restored. -->
+		<script>
+			if (new URLSearchParams(location.search).get("theme") === "dark") document.body.classList.replace("theme-light", "theme-dark");
+		</script>
+		<div class="app-loading" aria-label="Loading">
+			<svg class="app-loading-icon" viewBox="100 100 824 824" aria-hidden="true">
+				<defs>
+					<linearGradient id="app-loading-paper" x1="0" y1="0" x2="0" y2="1">
+						<stop offset="0" stop-color="#fdfaf3" />
+						<stop offset="1" stop-color="#efe6d4" />
+					</linearGradient>
+					<clipPath id="app-loading-body"><rect x="100" y="100" width="824" height="824" rx="185" /></clipPath>
+				</defs>
+				<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#app-loading-paper)" />
+				<g clip-path="url(#app-loading-body)" stroke-width="8">
+					<path d="M100 420H924M100 530H924M100 640H924M100 750H924M100 860H924" stroke="#cfd8e8" />
+					<path d="M290 100V924" stroke="#efb7aa" />
+				</g>
+				<path d="M590 430V668Q590 800 462 800Q398 800 356 760" fill="none" stroke="#23262f" stroke-width="104" stroke-linecap="round" />
+				<circle class="app-loading-dot" cx="590" cy="302" r="66" fill="#e4703a" />
+			</svg>
+			<div class="app-loading-bar"><div></div></div>
+		</div>
 		<script src="renderer.js"></script>
 	</body>
 </html>

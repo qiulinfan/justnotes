@@ -146,6 +146,7 @@ async function boot() {
 	await app.plugins.initialize();
 	await app.restoreLayoutState({ ...DEFAULT_LAYOUT, right: defaultRightSidebar(app) });
 	app.workspace.setLayoutReady();
+	hideLoading();
 	handleWindowClose(app);
 	installCli(app);
 
@@ -153,7 +154,18 @@ async function boot() {
 	if (failed.length) console.info("Plugins not loaded:", failed);
 }
 
+// The loading screen in index.html fades out once the layout is restored, or
+// when boot fails, so the failure notice shows. A timer rather than an
+// animation frame: a hidden window runs no frames.
+function hideLoading() {
+	const el = document.querySelector(".app-loading");
+	if (!el) return;
+	el.classList.add("is-done");
+	window.setTimeout(() => el.remove(), 300);
+}
+
 boot().catch((err) => {
+	hideLoading();
 	console.error(err);
 	new Notice(`justnotes failed to start: ${err.message}`, 0);
 });

@@ -68,7 +68,9 @@ plain style. Development notes belong in this file.
   `src/main/cli.ts` and `cli-server.ts` serve the socket,
   `src/renderer/cli.ts` runs a request in the vault window.
 - `packaging/`: what the packaged app adds (see Packaging and releases): the
-  icon (`icon.svg`, rendered to `icon.png`) and the command's launchers.
+  icon (`icon.svg`, rendered with `rsvg-convert -w 1024 -h 1024 packaging/icon.svg
+  -o packaging/icon.png`; run from the repo, main sets it as the Dock icon) and
+  the command's launchers.
   `electron-builder.yml` is the packaging configuration.
 - `src/renderer/`: host UI (boot, core commands, file explorer, search, view
   and workspace commands, bases view, the core plugins in `core-plugins.ts`
@@ -82,6 +84,12 @@ plain style. Development notes belong in this file.
   behavior instead of guessing. A quick inventory:
   `grep -oE "require\(['\"][^'\"]+['\"]\)"` for modules and
   `grep -oE 'app\.[a-zA-Z]+(\.[a-zA-Z]+)?'` for app members.
+- Startup screen: main reads the vault's `appearance.json` theme (else the
+  system's) to give the window its background and the page a `?theme=`, so
+  `index.html` starts dark or light; its `.app-loading` overlay (the icon and an
+  indeterminate bar, styles in `05-loading.css`) covers the page until boot
+  restores the layout or fails, then fades out (`hideLoading`, on a timer
+  because hidden windows run no animation frames).
 - Boot order: `vault.load`, the metadata index (started early, awaited), then
   `internalPlugins.initialize` and `installCorePlugins`, then
   `plugins.initialize`, then the layout restore and `layout-ready`. Plugins
