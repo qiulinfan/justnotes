@@ -77,6 +77,17 @@ describe("property edits rewrite only the property they change", () => {
 		expect(setProperty("{a: 1, b: [x]}\n", "a", 2)).toBe("a: 2\nb:\n  - x\n");
 	});
 
+	// A note written on Windows: `property:set` must not leave it with mixed
+	// line breaks, which git shows as a change to every edited line.
+	test("CRLF YAML keeps CRLF on the lines an edit writes, and a CRLF note gets a CRLF block", () => {
+		const yaml = "a: 1\r\nb: [x, y]\r\n";
+		expect(setProperty(yaml, "a", ["p", "q"])).toBe("a:\r\n  - p\r\n  - q\r\nb: [x, y]\r\n");
+		expect(insertProperty(yaml, "c", "new")).toBe("a: 1\r\nb: [x, y]\r\nc: new\r\n");
+		expect(removeProperty(yaml, "a")).toBe("b: [x, y]\r\n");
+		expect(setProperty(yaml, "a", 1)).toBe(yaml);
+		expect(replaceFrontmatter("body\r\n", setProperty("", "k", "v"))).toBe("---\r\nk: v\r\n---\r\nbody\r\n");
+	});
+
 	test("YAML that is not a map of properties is left alone", () => {
 		for (const bad of ["a: 1\na: 2\n", "- a\n", "a: [\n"]) {
 			expect(readProperties(bad)).toBeNull();
