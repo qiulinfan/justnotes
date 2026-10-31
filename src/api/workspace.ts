@@ -1557,7 +1557,7 @@ export class Workspace extends Events {
 		let item: WorkspaceItem | null = null;
 		if (data?.type === "leaf") {
 			const leaf = new WorkspaceLeaf(this.app, id);
-			if (typeof data.group === "string") leaf.group = data.group;
+			if (typeof data.group === "string") leaf.setGroup(data.group);
 			const state = typeof data.state?.type === "string" ? data.state : { type: "empty" };
 			restore.push([leaf, { ...state, pinned: state.pinned ?? data.pinned }]);
 			item = leaf;
