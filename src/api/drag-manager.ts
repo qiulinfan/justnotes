@@ -1,4 +1,5 @@
 import type { App } from "./app";
+import { appWindows } from "./dom";
 import { setIcon } from "./icons";
 import type { TAbstractFile, TFile, TFolder } from "./vault";
 
@@ -32,6 +33,8 @@ export class DragManager {
 	#ghostEl: HTMLElement | null = null;
 	#actionEl: HTMLElement | null = null;
 	#blank = new Image();
+	// Ends the drag in progress.
+	#end: (() => void) | null = null;
 
 	constructor(app: App) {
 		this.app = app;
@@ -64,7 +67,13 @@ export class DragManager {
 	}
 
 	// Starts a drag of `data` from `evt`'s element; it ends with the drag.
+	// The drag may start in a popout window and cross into another one, so
+	// every app window's document is watched. A drop ends it once the drop's
+	// dispatch is over, whatever the target did: a target may stop the event,
+	// or re-render the dragged element (a bookmark moved), which then gets its
+	// dragend outside every document.
 	onDragStart(evt: DragEvent, data: DragData) {
+		this.#end?.();
 		this.draggable = data;
 		if (evt.dataTransfer) {
 			// A link's own drag data (its URL, the text) would be dropped as
@@ -73,7 +82,7 @@ export class DragManager {
 			evt.dataTransfer.effectAllowed = "all";
 			evt.dataTransfer.setDragImage(this.#blank, 0, 0);
 		}
-		const ghost = document.body.createDiv("drag-ghost");
+		const ghost = evt.doc.body.createDiv("drag-ghost");
 		const self = ghost.createDiv("drag-ghost-self");
 		setIcon(self.createSpan(), data.icon);
 		self.createSpan({ text: data.title });
@@ -81,25 +90,32 @@ export class DragManager {
 		this.#actionEl.hide();
 		this.#ghostEl = ghost;
 		this.#move(evt);
-		const doc = document;
+		const docs = appWindows().map((win) => win.document);
 		// Each target under the pointer names its action again in its own
 		// dragover, which runs after this capturing listener.
 		const move = (e: DragEvent) => {
 			this.setAction(null);
 			this.#move(e);
 		};
+		const dropped = () => window.setTimeout(end);
 		const end = () => {
-			doc.removeEventListener("dragover", move, true);
-			doc.removeEventListener("dragend", end, true);
-			doc.removeEventListener("drop", end);
+			if (this.#end !== end) return;
+			this.#end = null;
+			for (const doc of docs) {
+				doc.removeEventListener("dragover", move, true);
+				doc.removeEventListener("dragend", end, true);
+				doc.removeEventListener("drop", dropped, true);
+			}
 			this.draggable = null;
-			this.#ghostEl?.detach();
+			ghost.detach();
 			this.#ghostEl = this.#actionEl = null;
 		};
-		doc.addEventListener("dragover", move, true);
-		doc.addEventListener("dragend", end, true);
-		// A drop handler may stop the event; the drag still ends with dragend.
-		doc.addEventListener("drop", end);
+		for (const doc of docs) {
+			doc.addEventListener("dragover", move, true);
+			doc.addEventListener("dragend", end, true);
+			doc.addEventListener("drop", dropped, true);
+		}
+		this.#end = end;
 	}
 
 	// What dropping here would do, shown on the ghost; null hides it.
@@ -115,8 +131,11 @@ export class DragManager {
 		return data.files ?? (data.file ? [data.file] : []);
 	}
 
+	// The ghost follows the pointer into the window it is over.
 	#move(evt: DragEvent) {
 		if (!this.#ghostEl || (evt.clientX === 0 && evt.clientY === 0)) return;
+		const body = evt.doc.body;
+		if (this.#ghostEl.parentNode !== body) body.appendChild(this.#ghostEl);
 		this.#ghostEl.style.left = `${evt.clientX + 10}px`;
 		this.#ghostEl.style.top = `${evt.clientY + 10}px`;
 	}
