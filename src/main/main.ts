@@ -208,7 +208,7 @@ function setApplicationMenu() {
 					command("New tab", "workspace:new-tab", "CmdOrCtrl+T"),
 					{ type: "separator" },
 					command("Quick switcher…", "switcher:open", "CmdOrCtrl+O"),
-					{ label: "Open vault…", click: () => void pickVault() },
+					command("Open vault…", "app:open-vault"),
 					{ type: "separator" },
 					command("Close tab", "workspace:close", "CmdOrCtrl+W"),
 					{ label: "Close window", accelerator: "Shift+CmdOrCtrl+W", click: (_item, win) => win?.close() },
@@ -266,12 +266,6 @@ function runCommand(id: string) {
 	const focused = BrowserWindow.getFocusedWindow()?.webContents;
 	const page = focused ? (popoutOpeners.get(focused) ?? focused) : [...vaultWindows.values()][0]?.webContents;
 	page?.executeJavaScript(`window.app?.commands.executeCommandById(${JSON.stringify(id)})`).catch((err) => console.error("Could not run", id, err));
-}
-
-// File > Open vault…: a folder the user picks opens in its own window.
-async function pickVault() {
-	const picked = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"], title: "Open vault" });
-	if (!picked.canceled && picked.filePaths[0]) await openLaunch({ vaults: [picked.filePaths[0]], files: [], urls: [] });
 }
 
 // Each popout's vault page, whose links its own count as (a popout's page
