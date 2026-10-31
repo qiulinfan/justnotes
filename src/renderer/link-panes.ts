@@ -1,3 +1,4 @@
+import type { EditorView } from "@codemirror/view";
 import type { App } from "../api/app";
 import { setIcon } from "../api/icons";
 import { Keymap } from "../api/keymap";
@@ -619,21 +620,25 @@ export class OutlineView extends ActiveFilePane {
 	}
 
 	// The view showing this pane's file: the active one, else the most recent.
-	#markdownView(): MarkdownView | null {
-		const active = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (active?.file === this.file) return active;
-		const recent = this.app.workspace.getMostRecentLeaf()?.view;
-		return recent instanceof MarkdownView && recent.file === this.file ? recent : null;
+	// The 0-based line the note's view is at: a Markdown editor's cursor or
+	// reading view's top line, or the cursor of a TeX or text note's editor
+	// (its CodeMirror `editorView`). Null when no view shows the note.
+	#viewLine(): number | null {
+		const ofView = (view: unknown) => {
+			if (view instanceof MarkdownView) return view.file === this.file ? (view.getMode() === "preview" ? Math.floor(view.previewMode.getScroll()) : view.editor.getCursor().line) : null;
+			const v = view as { file?: TFile | null; editorView?: EditorView | null } | undefined;
+			if (!v?.editorView || v.file !== this.file) return null;
+			const state = v.editorView.state;
+			return state.doc.lineAt(state.selection.main.head).number - 1;
+		};
+		return ofView(this.app.workspace.activeLeaf?.view) ?? ofView(this.app.workspace.getMostRecentLeaf()?.view);
 	}
 
 	// Marks the heading the cursor is under (the top of the reading view).
 	#highlight() {
-		const view = this.#markdownView();
+		const line = this.#viewLine();
 		let item: OutlineItem | null = null;
-		if (view && this.#items.length) {
-			const line = view.getMode() === "preview" ? Math.floor(view.previewMode.getScroll()) : view.editor.getCursor().line;
-			item = this.#items[headingAt(this.#items.map((i) => i.node.heading), line)] ?? null;
-		}
+		if (line !== null && this.#items.length) item = this.#items[headingAt(this.#items.map((i) => i.node.heading), line)] ?? null;
 		if (item === this.#active) return;
 		this.#active?.self.removeClass("is-active");
 		this.#active = item;

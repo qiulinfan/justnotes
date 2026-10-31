@@ -114,7 +114,8 @@ export async function appendTo(app: App, file: TFile, content: string, inline: b
 
 export async function prependTo(app: App, file: TFile, content: string, inline: boolean) {
 	await app.vault.process(file, (text) => {
-		const at = locateFrontmatter(text)?.to ?? 0;
+		// Only a Markdown note has frontmatter to keep on top.
+		const at = file.extension === "md" ? (locateFrontmatter(text)?.to ?? 0) : 0;
 		const gap = at > 0 && !/\r?\n$/.test(text.slice(0, at)) ? "\n" : "";
 		return `${text.slice(0, at)}${gap}${content}${inline ? "" : "\n"}${text.slice(at)}`;
 	});

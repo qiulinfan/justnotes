@@ -126,16 +126,19 @@ describe("incremental resolution", () => {
 
 	// Backlinks and the graph read these maps: a renamed-in note must show its
 	// links at once, a renamed-out one must stop counting as a note.
-	test("a file renamed to a note is read, and a note renamed to another type drops its cache and links", async () => {
-		const { cache, vault } = await makeCache({ "a.txt": "[[b]] #t", "c.md": "[[b]]", "b.md": "" });
-		await vault.rename(vault.getFileByPath("a.txt")!, "a.md");
-		await vault.rename(vault.getFileByPath("c.md")!, "c.txt");
+	// A text note (.txt) is a note too, read as text: its wikilinks, no tags.
+	test("a file renamed to a note is read, a note renamed to another type drops its cache and links, and one renamed to text is read again", async () => {
+		const { cache, vault } = await makeCache({ "a.csv": "[[b]] #t", "c.md": "[[b]]", "d.md": "[[b]] #t", "b.md": "" });
+		await vault.rename(vault.getFileByPath("a.csv")!, "a.md");
+		await vault.rename(vault.getFileByPath("c.md")!, "c.csv");
+		await vault.rename(vault.getFileByPath("d.md")!, "d.txt");
 		await settle();
 		expect(cache.getCache("a.md")?.tags?.[0].tag).toBe("#t");
 		expect(cache.resolvedLinks["a.md"]).toEqual({ "b.md": 1 });
-		expect(cache.getCache("c.txt")).toBeNull();
-		expect(cache.resolvedLinks["c.txt"]).toBeUndefined();
-		expect(cache.getBacklinksForFile(vault.getFileByPath("b.md")!).keys()).toEqual(["a.md"]);
+		expect(cache.getCache("c.csv")).toBeNull();
+		expect(cache.resolvedLinks["c.csv"]).toBeUndefined();
+		expect(cache.getCache("d.txt")?.tags).toBeUndefined();
+		expect(cache.getBacklinksForFile(vault.getFileByPath("b.md")!).keys().sort()).toEqual(["a.md", "d.txt"]);
 	});
 
 	test("frontmatter links count as links", async () => {

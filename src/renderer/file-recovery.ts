@@ -1,5 +1,6 @@
 import type { CorePluginHost } from "../api/internal-plugins";
 import type { App } from "../api/app";
+import { isIndexedNote } from "../api/note-files";
 import { Modal } from "../api/ui/modal";
 import { Notice } from "../api/ui/notice";
 import { moment } from "../api/util";
@@ -21,7 +22,8 @@ export interface Snapshot {
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
-const RECOVERABLE = new Set(["md", "canvas"]);
+// Notes (TeX and text notes within the index limit too) and canvases.
+const recoverable = (file: TAbstractFile | null): file is TFile => isIndexedNote(file) || (file instanceof TFile && file.extension === "canvas");
 
 // When a note whose last snapshot is `last` should be snapshotted, holding
 // `data` at `now`: never when the text is the snapshot's, at once when the
@@ -158,7 +160,7 @@ export class FileRecovery {
 	install(host: CorePluginHost) {
 		const { vault, workspace } = this.app;
 		const watch = (file: TAbstractFile | null) => {
-			if (file instanceof TFile && RECOVERABLE.has(file.extension)) this.schedule(file);
+			if (recoverable(file)) this.schedule(file);
 		};
 		host.registerEvent(vault.on("modify", watch));
 		// The text as it was opened, before any edit.
@@ -184,7 +186,7 @@ export class FileRecovery {
 		if (pending) {
 			clearTimeout(pending.timer);
 			this.#pending.delete(oldPath);
-			if (RECOVERABLE.has(file.extension)) this.#arm(file.path, pending);
+			if (recoverable(file)) this.#arm(file.path, pending);
 		}
 		this.store.rename(oldPath, file.path).catch((err) => console.error(err));
 	}

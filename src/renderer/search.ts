@@ -1,6 +1,7 @@
 import { setIcon, setTooltip } from "../api/icons";
 import type { CachedMetadata } from "../api/metadata";
 import { getAllTags, parseFrontMatterTags } from "../api/metadata-utils";
+import { isIndexedNote } from "../api/note-files";
 import { debounce } from "../api/util";
 import type { TFile } from "../api/vault";
 import { ItemView } from "../api/view";
@@ -152,10 +153,11 @@ export class SearchView extends ItemView {
 		const nameRe = re && new RegExp(re.source, re.flags.replace("g", ""));
 		let files = 0;
 		let matches = 0;
-		// Excluded files (userIgnoreFilters) are left out, as in Obsidian.
+		// Excluded files (userIgnoreFilters) are left out, as in Obsidian; TeX and
+		// text notes have no tags, so a tag query reads Markdown only.
 		const all = this.app.vault
-			.getMarkdownFiles()
-			.filter((file) => !this.app.metadataCache.isUserIgnored(file.path))
+			.getFiles()
+			.filter((f) => (tags === null ? isIndexedNote(f) : f.extension === "md") && !this.app.metadataCache.isUserIgnored(f.path))
 			.sort((a, b) => b.stat.mtime - a.stat.mtime);
 		for (const file of all) {
 			const cache = tags === null ? null : this.app.metadataCache.getFileCache(file);
@@ -182,7 +184,7 @@ export class SearchView extends ItemView {
 		const title = group.createDiv("tree-item-self search-result-file-title is-clickable mod-collapsible");
 		const icon = title.createDiv("tree-item-icon collapse-icon");
 		setIcon(icon, "right-triangle");
-		title.createDiv({ cls: "tree-item-inner", text: file.basename });
+		title.createDiv({ cls: "tree-item-inner", text: file.extension === "md" ? file.basename : file.name });
 		setTooltip(title, file.path, { placement: "right" });
 		if (found.length) title.createDiv("tree-item-flair-outer").createSpan({ cls: "tree-item-flair", text: String(found.length) });
 		title.addEventListener("click", () => this.#open(file, null));

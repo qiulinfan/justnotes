@@ -318,3 +318,49 @@ body.theme-dark .cm-editor .cm-panels {
 .code-file-view .cm-activeLineGutter {
 	background: var(--background-primary-alt);
 }
+
+/* A .txt file (plain-text-view.ts): the note editor's look without Markdown,
+   the readable line width when that setting is on. */
+.plain-text-view {
+	padding: 0 !important;
+	overflow: hidden !important;
+}
+
+.plain-text-view .cm-editor {
+	height: 100%;
+	font-family: var(--font-text);
+	font-size: var(--font-text-size);
+	line-height: var(--line-height-normal);
+	color: var(--text-normal);
+	background: var(--background-primary);
+}
+
+.plain-text-view .cm-editor.cm-focused {
+	outline: none;
+}
+
+.plain-text-view .cm-scroller {
+	padding: 24px 0 80px;
+	font-family: var(--font-text);
+	line-height: var(--line-height-normal);
+}
+
+.plain-text-view .cm-content {
+	caret-color: var(--interactive-accent);
+	padding: 0 24px;
+}
+
+.plain-text-view.is-readable-line-width .cm-scroller {
+	justify-content: center;
+}
+
+.plain-text-view.is-readable-line-width .cm-content {
+	flex-grow: 0;
+	width: var(--file-line-width);
+	max-width: 100%;
+}
+
+.plain-text-view .cm-cursor {
+	border-left-color: var(--interactive-accent);
+	border-left-width: 2px;
+}

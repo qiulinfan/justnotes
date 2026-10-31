@@ -1,6 +1,8 @@
 import * as nodePath from "node:path";
 import { Events } from "./events";
+import { textParserFor } from "./metadata-text";
 import { destinationText, getAllTags, getLinkpath, locateFrontMatter, parseFrontMatterAliases, spacedDestination } from "./metadata-utils";
+import { isIndexedNote, isNoteExtension } from "./note-files";
 import { parseYaml } from "./util";
 import { type TAbstractFile, TFile, type Vault } from "./vault";
 
@@ -119,7 +121,7 @@ const HTML_BLOCK =
 const HTML_TAG_LINE = /^ {0,3}<\/?[a-zA-Z][\w-]*(?:\s+[^<>]*)?\/?>\s*$/;
 const BLOCK_ID = /(?:^|\s)\^([A-Za-z0-9-]+)[ \t]*$/;
 const STANDALONE_ID = /^ {0,3}\^([A-Za-z0-9-]+)[ \t]*$/;
-const WIKILINK = /(!?)\[\[([^[\]]+?)\]\]/g;
+export const WIKILINK = /(!?)\[\[([^[\]]+?)\]\]/g;
 // [text](dest "title"), dest possibly in <...>, one level of nesting in both.
 const MDLINK = /(!?)\[((?:[^[\]\n]|\[[^[\]\n]*\])*)\]\(\s*(<[^<>\n]*>|(?:[^\s()]|\([^\s()]*\))*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)/g;
 const MDLINK_ONE = new RegExp(MDLINK.source);
@@ -278,13 +280,13 @@ function frontmatterLinks(value: unknown, key: string, out: FrontmatterLinkCache
 }
 
 // 'path#sub|alias'; inside tables the pipe is escaped as '\|'.
-function splitWikilink(inner: string) {
+export function splitWikilink(inner: string) {
 	const m = /^(.*?)\\?\|([\s\S]*)$/.exec(inner);
 	return m ? { link: m[1].trim(), alias: m[2] } : { link: inner.trim(), alias: undefined };
 }
 
 // Obsidian shows [[note#heading]] as 'note > heading'.
-function wikiDisplay(link: string) {
+export function wikiDisplay(link: string) {
 	return link
 		.split("#")
 		.filter(Boolean)
@@ -775,7 +777,11 @@ export class MetadataCache extends Events {
 		this.vault = vault;
 		// Registered before any plugin, so 'deleted' runs before plugins' vault 'delete' handlers.
 		vault.on("create", (f: TAbstractFile) => f instanceof TFile && this.#onCreate(f));
-		vault.on("modify", (f: TAbstractFile) => f instanceof TFile && f.extension === "md" && this.#index(f));
+		vault.on("modify", (f: TAbstractFile) => {
+			if (isIndexedNote(f)) this.#index(f);
+			// A text note that grew past the limit leaves the cache.
+			else if (f instanceof TFile && this.#cache.delete(f.path)) this.#setLinks(f.path, null, null);
+		});
 		vault.on("delete", (f: TAbstractFile) => f instanceof TFile && this.#onDelete(f));
 		vault.on("rename", (f: TAbstractFile, oldPath: string) => f instanceof TFile && this.#onRename(f, oldPath));
 	}
@@ -789,7 +795,7 @@ export class MetadataCache extends Events {
 
 	async #initialIndex() {
 		this.#buildNames();
-		const files = this.vault.getMarkdownFiles();
+		const files = this.vault.getFiles().filter((f) => isIndexedNote(f));
 		for (let i = 0; i < files.length; i += 50) await Promise.all(files.slice(i, i + 50).map((f) => this.#index(f)));
 		this.#flush();
 		this.resolved = true;
@@ -816,7 +822,7 @@ export class MetadataCache extends Events {
 		try {
 			const text = await this.vault.cachedRead(file);
 			if (this.#generation.get(file) !== generation || this.vault.getAbstractFileByPath(file.path) !== file) return;
-			const cache = parseMetadata(text);
+			const cache = (textParserFor(file.extension) ?? parseMetadata)(text);
 			this.#cache.set(file.path, cache);
 			this.trigger("changed", file, text, cache);
 			this.#queue(file);
@@ -831,7 +837,7 @@ export class MetadataCache extends Events {
 	#onCreate(file: TFile) {
 		this.#names().add(file.name.toLowerCase(), file);
 		this.#appeared(file);
-		if (file.extension === "md") this.#index(file);
+		if (isIndexedNote(file)) this.#index(file);
 		this.#scheduleFlush();
 	}
 
@@ -852,7 +858,7 @@ export class MetadataCache extends Events {
 		this.#cache.delete(file.path);
 		this.#setLinks(file.path, null, null);
 		for (const src of this.#backlinks.get(file.path) ?? []) this.#queuePath(src);
-		if (file.extension === "md") this.trigger("deleted", file, prev);
+		if (isNoteExtension(file.extension)) this.trigger("deleted", file, prev);
 		this.#scheduleFlush();
 	}
 
@@ -861,10 +867,11 @@ export class MetadataCache extends Events {
 		this.#names().add(file.name.toLowerCase(), file);
 		const cache = this.#cache.get(oldPath);
 		this.#cache.delete(oldPath);
-		// A note keeps its cache; a file that stops being a note loses it, and
-		// one that becomes a note (a.txt to a.md) is read.
-		const note = file.extension === "md";
-		if (cache && note) this.#cache.set(file.path, cache);
+		// A note keeps its cache when its kind stays; a file that stops being a
+		// note loses it, and one that becomes a note, or another kind of note
+		// (a.txt to a.md), is read.
+		const note = isIndexedNote(file);
+		if (cache && note && nodePath.posix.extname(oldPath) === `.${file.extension}`) this.#cache.set(file.path, cache);
 		else if (note) this.#index(file);
 		// Its own links move with it; links to it follow it at once and are re-resolved.
 		const resolved = note ? (this.resolvedLinks[oldPath] ?? null) : null;
@@ -879,7 +886,7 @@ export class MetadataCache extends Events {
 			this.#setLinks(src, moved, this.unresolvedLinks[src] ?? {});
 			this.#queuePath(src);
 		}
-		if (file.extension === "md") this.#queue(file);
+		if (note) this.#queue(file);
 		this.#appeared(file);
 		this.#scheduleFlush();
 	}

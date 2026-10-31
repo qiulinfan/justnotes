@@ -1,6 +1,7 @@
 import { syntaxTree } from "@codemirror/language";
 import type { SyntaxNode } from "@lezer/common";
 import type { App } from "./app";
+import { isNoteExtension } from "./note-files";
 import { Editor, type EditorPosition } from "./editor";
 import { excludedLast, isFileShown } from "./file-visibility";
 import { parseFrontMatterAliases } from "./metadata-utils";
@@ -114,7 +115,8 @@ export class LinkSuggest extends EditorSuggest<LinkSuggestion> {
 		const aux = el.createDiv("suggestion-aux");
 		if (value.level) aux.createSpan({ cls: "suggestion-flair", text: `H${value.level}` });
 		else if (value.alias) aux.createSpan({ cls: "suggestion-flair", text: "alias" });
-		else if (value.file.extension !== "md") aux.createSpan({ cls: "suggestion-flair", text: value.file.extension });
+		// TeX and text notes show their whole name, so they need no flair.
+		else if (!isNoteExtension(value.file.extension)) aux.createSpan({ cls: "suggestion-flair", text: value.file.extension });
 	}
 
 	selectSuggestion(value: LinkSuggestion) {

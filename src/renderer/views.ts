@@ -3,6 +3,7 @@ import { setIcon } from "../api/icons";
 import { Keymap } from "../api/keymap";
 import { attempt, MoveModal, PromptModal } from "../api/ui/file-modals";
 import { Menu } from "../api/ui/menu";
+import { fileDisplayName, isNoteExtension } from "../api/note-files";
 import { type FuzzyMatch, FuzzySuggestModal } from "../api/ui/suggest";
 import { excludedLast, isFileShown } from "../api/file-visibility";
 import { debounce, prepareFuzzySearch } from "../api/util";
@@ -159,8 +160,9 @@ export class FileExplorerView extends ItemView {
 			} else if (child instanceof TFile) {
 				const item = el.createDiv("tree-item nav-file");
 				const self = item.createDiv({ cls: "tree-item-self nav-file-title is-clickable", attr: { "data-path": child.path } });
-				self.createDiv({ cls: "tree-item-inner nav-file-title-content", text: child.extension === "md" ? child.basename : child.name });
-				if (child.extension !== "md") self.createDiv({ cls: "nav-file-tag", text: child.extension });
+				self.createDiv({ cls: "tree-item-inner nav-file-title-content", text: fileDisplayName(child) });
+				// TeX and text notes show their whole name, so they need no badge.
+				if (!isNoteExtension(child.extension)) self.createDiv({ cls: "nav-file-tag", text: child.extension });
 				self.addEventListener("click", (evt) => {
 					if (!this.#select(evt, child)) this.app.workspace.getLeaf(Keymap.isModEvent(evt)).openFile(child);
 				});
@@ -254,6 +256,8 @@ export class FileExplorerView extends ItemView {
 		this.#markSelected();
 		if (file instanceof TFolder) {
 			menu.addItem((i) => i.setTitle("New note").setIcon("square-pen").setSection("action-primary").onClick(() => newNote(this.app, file)));
+			menu.addItem((i) => i.setTitle("New TeX file").setIcon("sigma").setSection("action-primary").onClick(() => newNote(this.app, file, "tex")));
+			menu.addItem((i) => i.setTitle("New text file").setIcon("file-text").setSection("action-primary").onClick(() => newNote(this.app, file, "txt")));
 			menu.addItem((i) => i.setTitle("New folder").setIcon("folder-plus").setSection("action-primary").onClick(() => newFolder(this.app, file)));
 		} else if (file instanceof TFile) {
 			menu.addItem((i) =>
@@ -320,8 +324,8 @@ export function retargetFolders(expanded: Iterable<string>, oldPath: string, new
 }
 
 // A file operation that fails (a name taken, a file in use) says why.
-async function newNote(app: App, folder: TFolder) {
-	const file = await app.fileManager.createNewMarkdownFile(folder);
+async function newNote(app: App, folder: TFolder, extension = "md") {
+	const file = await app.fileManager.createNewNoteFile(folder, extension);
 	await app.workspace.getLeaf(false).openFile(file);
 }
 

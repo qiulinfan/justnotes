@@ -53,13 +53,16 @@
 	},
 	"devDependencies": {
 		"@types/d3-force": "^3.0.10",
+		"@types/jsdom": "^21.1.7",
 		"@types/markdown-it": "^14.2.0",
 		"@types/node": "^26.6.6",
 		"@types/prismjs": "^1.26.6",
 		"@types/turndown": "^5.0.6",
+		"@unified-latex/unified-latex-util-parse": "1.8.4",
 		"electron": "^45.2.0",
 		"electron-builder": "26.18.0",
 		"esbuild": "^0.28.2",
+		"jsdom": "^26.1.0",
 		"obsidian": "^1.14.4",
 		"typescript": "^7.0.2"
 	}

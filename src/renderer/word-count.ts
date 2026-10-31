@@ -1,7 +1,11 @@
 import type { CorePluginHost } from "../api/internal-plugins";
 import type { App } from "../api/app";
+import type { EditorView } from "@codemirror/view";
 import { MarkdownView } from "../api/markdown-view";
+import { isNoteFile } from "../api/note-files";
 import { debounce } from "../api/util";
+import type { TFile } from "../api/vault";
+import { texText } from "../latex/tex/texText";
 
 // Chinese and Japanese characters count one word each; anything else counts
 // runs of letters and digits between spaces, so a lone dash is no word.
@@ -18,19 +22,33 @@ export function countWords(text: string) {
 
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
 
+// The text and selection the status bar counts: the active Markdown note's,
+// else those of a TeX or text note's editor (its CodeMirror `editorView`). A
+// TeX note counts the text TeX typesets, not its commands.
+export function countedText(view: unknown): { text: string; selection: string } | null {
+	if (view instanceof MarkdownView) {
+		return { text: view.editor.getValue(), selection: view.getMode() === "source" ? view.editor.getSelection() : "" };
+	}
+	const v = view as { file?: TFile | null; editorView?: EditorView } | null;
+	if (!v?.editorView || !isNoteFile(v.file)) return null;
+	const state = v.editorView.state;
+	const prose = v.file.extension === "tex" ? texText : (s: string) => s;
+	const selection = state.selection.ranges.map((r) => state.sliceDoc(r.from, r.to)).join("\n");
+	return { text: prose(state.doc.toString()), selection: selection.trim() ? prose(selection) : "" };
+}
+
 // The status bar's count for the active note, or for its selection while
 // one is made, as Obsidian's Word count shows it.
 export function installWordCount(app: App, host: CorePluginHost) {
 	const el = host.addStatusBarItem("plugin-word-count");
 	const update = debounce(
 		() => {
-			const view = app.workspace.getActiveViewOfType(MarkdownView);
-			if (!view) {
+			const counted = countedText(app.workspace.activeLeaf?.view);
+			if (!counted) {
 				el.empty();
 				return;
 			}
-			const selection = view.getMode() === "source" ? view.editor.getSelection() : "";
-			const { words, characters } = countWords(selection || view.editor.getValue());
+			const { words, characters } = countWords(counted.selection || counted.text);
 			el.setText(`${plural(words, "word")} ${plural(characters, "character")}`);
 		},
 		200,

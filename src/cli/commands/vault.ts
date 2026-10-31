@@ -5,6 +5,7 @@ import { viewTable } from "../../api/bases/export";
 import { executeQuery } from "../../api/bases/query";
 import type { CachedMetadata } from "../../api/metadata";
 import { getAllTags, parseFrontMatterAliases } from "../../api/metadata-utils";
+import { isIndexedNote, isNoteFile } from "../../api/note-files";
 import type { CliData } from "../../api/plugin";
 import { apiVersion, moment, normalizePath } from "../../api/util";
 import { TFile, TFolder } from "../../api/vault";
@@ -12,8 +13,9 @@ import { dailyNotePathIn } from "../../renderer/daily-notes";
 import { compileSearch, hasTags, isTag, type SearchMatch, tagsMatches, tagTerms, textMatches } from "../../renderer/search";
 import { fillTemplate, findTemplatesFolder, templateFiles, dateFormat, timeFormat } from "../../renderer/templates";
 import { countWords } from "../../renderer/word-count";
+import { texText } from "../../latex/tex/texText";
 import { CliError, intParam, keyValues, list, oneOf, on, type Row, result, usage } from "../output";
-import { type Ctx, folderParam, type Handler, inFolder, markdown, needsLive, readConfigJson, resolveName, targetFile } from "./context";
+import { type Ctx, folderParam, type Handler, inFolder, markdown, needsLive, note, readConfigJson, resolveName, targetFile } from "./context";
 
 // The built-in commands that only read the vault: they run in the vault
 // window, and with no app running against the headless app (offline.ts).
@@ -113,9 +115,10 @@ async function search(ctx: Ctx, params: CliData): Promise<Hit[]> {
 	const nameRe = re && new RegExp(re.source, re.flags.replace("g", ""));
 	const { vault, metadataCache } = ctx.app;
 	const hits: Hit[] = [];
+	// TeX and text notes have no tags: a tag query reads Markdown only.
 	const all = vault
-		.getMarkdownFiles()
-		.filter((f) => inFolder(f.path, folder))
+		.getFiles()
+		.filter((f) => (tag === null ? isIndexedNote(f) : f.extension === "md") && inFolder(f.path, folder))
 		.sort((a, b) => sortPaths(a.path, b.path));
 	for (const f of all) {
 		const cache = tags === null ? null : metadataCache.getFileCache(f);
@@ -203,7 +206,8 @@ const deadends: Handler = (ctx, params) => {
 	const { resolvedLinks, unresolvedLinks } = ctx.app.metadataCache;
 	const has = (record: Record<string, Record<string, number>>, path: string) => Object.keys(record[path] ?? {}).length > 0;
 	const rows = ctx.app.vault
-		.getMarkdownFiles()
+		.getFiles()
+		.filter((f) => isNoteFile(f))
 		.map((f) => f.path)
 		.filter((path) => !has(resolvedLinks, path) && !has(unresolvedLinks, path))
 		.sort(sortPaths)
@@ -254,7 +258,7 @@ const neighbours: Handler = (ctx, params) => {
 // ---- Outline and word count
 
 const outline: Handler = (ctx, params) => {
-	const target = markdown(targetFile(ctx, params));
+	const target = note(targetFile(ctx, params));
 	const headings = (cacheOf(ctx.app, target)?.headings ?? []).map((h) => ({ heading: h.heading, level: h.level, line: h.position.start.line + 1 }));
 	if (on(params, "total")) return result({ total: headings.length }, String(headings.length));
 	const format = params.json === "true" ? "json" : oneOf(params, "format", ["tree", "md", "json"] as const, "tree");
@@ -265,7 +269,9 @@ const outline: Handler = (ctx, params) => {
 
 const wordcount: Handler = async (ctx, params) => {
 	const target = targetFile(ctx, params);
-	const counts = countWords(await ctx.app.vault.cachedRead(target));
+	// A TeX note counts the text TeX typesets, as the status bar does.
+	const text = await ctx.app.vault.cachedRead(target);
+	const counts = countWords(target.extension === "tex" ? texText(text) : text);
 	if (on(params, "words")) return result(counts.words, String(counts.words));
 	if (on(params, "characters")) return result(counts.characters, String(counts.characters));
 	return keyValues({ path: target.path, ...counts });
@@ -605,7 +611,7 @@ const baseQuery: Handler = async (ctx, params) => {
 
 export function randomNote(ctx: Ctx, params: CliData) {
 	const folder = folderParam(ctx, params, "folder");
-	const notes = ctx.app.vault.getMarkdownFiles().filter((f) => inFolder(f.path, folder));
+	const notes = ctx.app.vault.getFiles().filter((f) => isNoteFile(f) && inFolder(f.path, folder));
 	if (!notes.length) throw new CliError("No notes to pick from.");
 	return notes[Math.floor(Math.random() * notes.length)];
 }

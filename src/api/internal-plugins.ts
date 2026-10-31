@@ -1,6 +1,7 @@
 import type { App } from "./app";
 import { Component } from "./events";
 import type { Command } from "./keymap";
+import type { SettingTab } from "./plugin";
 import type { TFile } from "./vault";
 import type { ViewCreator } from "./view";
 
@@ -38,6 +39,8 @@ const CORE_PLUGINS = [
 	"sync",
 	"bases",
 	"webviewer",
+	// justnotes' own, not Obsidian's: obsidian-latex-live built in (src/latex).
+	"latex",
 ];
 
 // The core plugins whose instances justnotes backs with its own features
@@ -64,7 +67,12 @@ const IMPLEMENTED = new Set([
 	"audio-recorder",
 	"file-recovery",
 	"bookmarks",
+	"latex",
 ]);
+
+// Core plugins of justnotes' own, which Obsidian's core-plugins.json never
+// lists: they start enabled unless turned off in the Core plugins settings.
+const JUSTNOTES_OWN = new Set(["latex"]);
 
 // File explorer and Search are part of justnotes' window: they stay on.
 export const ALWAYS_ON = new Set(["file-explorer", "global-search"]);
@@ -88,6 +96,11 @@ export const CORE_PLUGIN_INFO: Record<string, { name: string; description: strin
 	slides: { name: "Slides", description: "Presents a note as a slide deck." },
 	"audio-recorder": { name: "Audio recorder", description: "Record audio and save it as an attachment in a note." },
 	"file-recovery": { name: "File recovery", description: "Keeps snapshots of your notes to restore lost work." },
+	latex: {
+		name: "LaTeX",
+		description:
+			"Edits, compiles and previews .tex files with the installed TeX: completion, live preview, PDF preview with SyncTeX, HTML export (obsidian-latex-live, built in). While on, the community plugin latex-live is not loaded.",
+	},
 };
 
 export interface InternalPluginInstance {
@@ -151,6 +164,12 @@ export class CorePluginHost extends Component {
 	registerExtensions(extensions: string[], viewType: string) {
 		this.app.viewRegistry.registerExtensions(extensions, viewType);
 		this.register(() => this.app.viewRegistry.unregisterExtensions(extensions));
+	}
+
+	// The plugin's options, under Core plugins in the settings window.
+	addSettingTab(tab: SettingTab) {
+		this.app.setting.addCoreSettingTab(tab);
+		this.register(() => this.app.setting.removeSettingTab(tab));
 	}
 }
 
@@ -286,6 +305,7 @@ const OFF_BY_DEFAULT = new Set(["slides", "audio-recorder"]);
 // user's choices made in justnotes.
 export function applyCoreOverlay(config: Record<string, boolean>, overlay: CoreOverlay) {
 	const result = { ...config };
+	for (const id of JUSTNOTES_OWN) result[id] = true;
 	for (const id of overlay.disabled) result[id] = false;
 	for (const id of overlay.enabled) result[id] = true;
 	return result;

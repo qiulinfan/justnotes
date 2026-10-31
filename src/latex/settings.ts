@@ -1,0 +1,404 @@
+import { App } from "../api/app";
+import { SettingTab } from "../api/plugin";
+import { Setting } from "../api/ui/setting";
+import type { LatexLive as LatexLivePlugin } from "./latex-live";
+import type { EngineSetting } from "./tex/project";
+import type { TemplateVisualizationProfile } from "./editor/templateVisualization";
+import { EMPTY_USER_RULES, type UserEnvRules } from "./tex/envRules";
+
+/** Source text, or live preview (编辑模式): formulas render in place, source under the cursor. */
+export type EditingMode = "source" | "live";
+
+export interface LatexLiveSettings {
+  templateVisualizations: TemplateVisualizationProfile[];
+  /** Root paths relative to this vault; missing means native automatic visualization. */
+  templateAssignments: Record<string, string>;
+  /** The live editor's formula aliases, wrapper environments and hidden commands (src/tex/envRules.ts). */
+  envRules: UserEnvRules;
+  /** Directory with pdflatex, latexmk, synctex; empty means auto-detect. */
+  texBinDir: string;
+  /** Engine when the document has no `% !TEX program` comment. */
+  engine: EngineSetting;
+  /** Delay after the last keystroke before saving and recompiling. */
+  debounceMs: number;
+  /** Precompile the preamble into a format file (pdfLaTeX only). */
+  preambleCache: boolean;
+  /** Pass -shell-escape (needed by minted etc.; runs arbitrary commands). */
+  shellEscape: boolean;
+  /** Scroll the preview to the cursor (SyncTeX) as you move around. */
+  followCursor: boolean;
+  /** Invert preview colors: never, or follow Obsidian's dark theme. */
+  invertPreview: "never" | "dark-theme";
+  /**
+   * Live preview crops tables and TikZ pictures from the PDF in beamer too (SyncTeX gives a
+   * frame's whole page there); off, a table stays source and a picture folds to one line.
+   */
+  beamerCrops: boolean;
+  /** texlab binary for completion and hover; empty means auto-detect. */
+  texlabPath: string;
+  /** Show the YOLO plugin's AI ghost-text completion in LaTeX files. */
+  yoloTabCompletion: boolean;
+  /** Render the formula under the mouse pointer in a hover (project macros included). */
+  hoverRender: boolean;
+  /**
+   * The hover compiles what MathJax and the PDF crops cannot show with the document's own engine
+   * and preamble (a fragment compile in the build folder).
+   */
+  texFragmentFallback: boolean;
+  /** Show the rendering of the formula at the cursor below it while it is typed. */
+  cursorPreview: boolean;
+  /** Expand LaTeX Suite's snippets (when that plugin is enabled) in LaTeX documents. */
+  latexSuiteSnippets: boolean;
+  /** The mode of newly opened LaTeX editors; each view keeps its own in its view state. */
+  editingMode: EditingMode;
+  /** Editor typography: zero/empty follows the Obsidian theme. */
+  editorFontSize: number;
+  editorLineHeight: number;
+  editorFontFamily: string;
+  /** MathJax previews relative to their editor/popup text size (1 = 100%). */
+  mathPreviewScale: number;
+  /** Vault folder "Export to HTML" proposes; empty: next to the root .tex file. */
+  exportFolder: string;
+}
+
+export const DEFAULT_SETTINGS: LatexLiveSettings = {
+  templateVisualizations: [],
+  templateAssignments: {},
+  envRules: EMPTY_USER_RULES,
+  texBinDir: "",
+  engine: "auto",
+  debounceMs: 400,
+  preambleCache: true,
+  shellEscape: false,
+  followCursor: true,
+  invertPreview: "never",
+  beamerCrops: false,
+  texlabPath: "",
+  yoloTabCompletion: false,
+  hoverRender: true,
+  texFragmentFallback: true,
+  cursorPreview: false,
+  latexSuiteSnippets: true,
+  editingMode: "source",
+  editorFontSize: 0,
+  editorLineHeight: 0,
+  editorFontFamily: "",
+  mathPreviewScale: 1,
+  exportFolder: "",
+};
+
+/** The `latex` core plugin's options, listed under Core plugins in the settings. */
+export class LatexLiveSettingTab extends SettingTab {
+  constructor(
+    app: App,
+    readonly plugin: LatexLivePlugin,
+  ) {
+    super(app);
+    this.id = "latex";
+    this.name = "LaTeX";
+  }
+
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
+    const s = this.plugin.settings;
+    const save = () => void this.plugin.saveSettings();
+
+    new Setting(containerEl).setName("Editor appearance").setHeading();
+    new Setting(containerEl)
+      .setName("Editor font size (px)")
+      .setDesc("10–40 px. Leave empty to follow Obsidian's code size. Applies immediately to open LaTeX editors.")
+      .addText(t => t.setPlaceholder("Follow Obsidian").setValue(s.editorFontSize ? String(s.editorFontSize) : "").onChange(v => {
+        const text = v.trim(), n = text ? Number(text) : 0;
+        if (!text || (Number.isFinite(n) && n >= 10 && n <= 40)) { s.editorFontSize = n; save(); }
+      }));
+    new Setting(containerEl)
+      .setName("Editor line height")
+      .setDesc("1.1–2.4 times the font size. Leave empty to follow the theme.")
+      .addText(t => t.setPlaceholder("Follow theme").setValue(s.editorLineHeight ? String(s.editorLineHeight) : "").onChange(v => {
+        const text = v.trim(), n = text ? Number(text) : 0;
+        if (!text || (Number.isFinite(n) && n >= 1.1 && n <= 2.4)) { s.editorLineHeight = n; save(); }
+      }));
+    new Setting(containerEl)
+      .setName("Source font family")
+      .setDesc("An installed font name or CSS font list, for example JetBrains Mono, monospace. Leave empty to follow Obsidian.")
+      .addText(t => t.setPlaceholder("Follow Obsidian").setValue(s.editorFontFamily).onChange(v => {
+        s.editorFontFamily = v.trim(); save();
+      }));
+    new Setting(containerEl)
+      .setName("Formula preview size (%)")
+      .setDesc("50–200%. Controls formulas in live preview and popups; PDF typography stays in the TeX document.")
+      .addText(t => t.setValue(String(Math.round(s.mathPreviewScale * 100))).onChange(v => {
+        const n = Number(v.trim());
+        if (Number.isFinite(n) && n >= 50 && n <= 200) { s.mathPreviewScale = n / 100; save(); }
+      }));
+
+    new Setting(containerEl).setName("Template visualization").setHeading();
+    new Setting(containerEl)
+      .setName("Custom template profiles")
+      .setDesc("Configure environment headings, colors and title arguments. Choose a saved profile per LaTeX project; applies in live preview only.")
+      .addButton(button => button.setButtonText("Manage / choose profiles").onClick(() => this.plugin.openTemplateVisualizations()));
+
+    new Setting(containerEl).setName("Live editor rules").setHeading();
+    const rules = this.plugin.settings.envRules;
+    const count = (n: number) => (n ? `${n} added` : "defaults only");
+    for (const [kind, name, desc, n] of [
+      ["formulas", "Formula environments", "Environments rendered as a known formula environment, e.g. { \"myeq\": \"equation\" }.", Object.keys(rules.formulas).length],
+      ["wrappers", "Wrapper environments", "Environments whose \\begin/\\end lines collapse while the content renders, e.g. [\"subequations\"].", rules.wrappers.length],
+      ["hidden", "Hidden commands", "Layout commands hidden with their arguments until touched, e.g. [\"centering\", \"DeckLayout\"].", rules.hidden.length],
+    ] as const) {
+      new Setting(containerEl)
+        .setName(name)
+        .setDesc(`${desc} Live editor only; the preamble's own definitions are detected. (${count(n)})`)
+        .addButton(button => button.setButtonText("Edit").onClick(() => this.plugin.openEnvRules(kind, () => this.display())));
+    }
+    new Setting(containerEl)
+      .setName("Crop TikZ in beamer")
+      .setDesc("Show TikZ pictures of beamer slides as crops of the PDF, at the positions each compile records. Where no record fits (overlay pictures, scaled boxes, \\foreach, fragile frames), SyncTeX locates only the whole page, so those crops can be loose; off, a picture folds to one line until the cursor enters it. Tables are always drawn as tables.")
+      .addToggle((t) =>
+        t.setValue(s.beamerCrops).onChange((v) => {
+          s.beamerCrops = v;
+          save();
+          this.plugin.texRender.cropsChanged();
+        }),
+      );
+
+    new Setting(containerEl).setName("Compilation").setHeading();
+
+    const detected = this.plugin.texBinDir();
+    new Setting(containerEl)
+      .setName("TeX binary directory")
+      .setDesc(
+        `Directory containing pdflatex, latexmk and synctex. Leave empty to ` +
+          `auto-detect. Currently using: ${detected ?? "not found"}`,
+      )
+      .addText((t) =>
+        t
+          .setPlaceholder("/Library/TeX/texbin")
+          .setValue(s.texBinDir)
+          .onChange((v) => {
+            s.texBinDir = v.trim();
+            save();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Default engine")
+      .setDesc(
+        "Used when the root file has no '% !TEX program = ...' comment. " +
+          "'auto' reads latexmkrc and the preamble (fontspec/ctex → XeLaTeX).",
+      )
+      .addDropdown((d) =>
+        d
+          .addOptions({
+            auto: "auto",
+            pdflatex: "pdfLaTeX",
+            xelatex: "XeLaTeX",
+            lualatex: "LuaLaTeX",
+          })
+          .setValue(s.engine)
+          .onChange((v) => {
+            s.engine = v as EngineSetting;
+            save();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Compile delay (ms)")
+      .setDesc("Pause after typing before the file is saved and recompiled.")
+      .addText((t) =>
+        t.setValue(String(s.debounceMs)).onChange((v) => {
+          const n = Number(v);
+          if (Number.isFinite(n) && n >= 100 && n <= 10000) {
+            s.debounceMs = n;
+            save();
+          }
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Cache the preamble")
+      .setDesc(
+        "pdfLaTeX only: precompile everything before \\begin{document} into " +
+          "a format (mylatexformat) and rebuild it when the preamble or a " +
+          "local file it loads changes. Often halves compile time.",
+      )
+      .addToggle((t) =>
+        t.setValue(s.preambleCache).onChange((v) => {
+          s.preambleCache = v;
+          save();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Follow cursor in preview")
+      .setDesc("Scroll the preview to the text under the cursor (SyncTeX).")
+      .addToggle((t) =>
+        t.setValue(s.followCursor).onChange((v) => {
+          s.followCursor = v;
+          save();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Invert preview colors")
+      .addDropdown((d) =>
+        d
+          .addOptions({ never: "never", "dark-theme": "with dark theme" })
+          .setValue(s.invertPreview)
+          .onChange((v) => {
+            s.invertPreview = v === "dark-theme" ? "dark-theme" : "never";
+            save();
+            this.plugin.refreshPreviews();
+          }),
+      );
+
+    const texlab = this.plugin.texlabPath();
+    new Setting(containerEl)
+      .setName("texlab binary")
+      .setDesc(
+        "Language server for completion (commands, environments, labels, citations, " +
+          "packages, files) and hover. Leave empty to auto-detect. Currently using: " +
+          `${texlab ?? "not found (brew install texlab)"}; status: ${this.plugin.texlab.status}.`,
+      )
+      .addText((t) =>
+        t
+          .setPlaceholder("/opt/homebrew/bin/texlab")
+          .setValue(s.texlabPath)
+          .onChange((v) => {
+            s.texlabPath = v.trim();
+            save();
+          }),
+      );
+
+    const yoloDesc = () =>
+      "Show the YOLO plugin's AI ghost text in LaTeX files. Tab order: completion popup > " +
+      "AI ghost text > next snippet field > indent; Enter never accepts AI text; Shift-Tab " +
+      "or Escape dismisses it. Uses YOLO's own triggers, delay and enable switch. Bridge: " +
+      `${s.yoloTabCompletion ? this.plugin.yolo.describe() : "off"}.`;
+    const yolo = new Setting(containerEl)
+      .setName("YOLO AI tab completion")
+      .setDesc(yoloDesc())
+      .addToggle((t) =>
+        t.setValue(s.yoloTabCompletion).onChange(async (v) => {
+          s.yoloTabCompletion = v;
+          await this.plugin.saveSettings();
+          this.plugin.yolo.refresh();
+          yolo.setDesc(yoloDesc());
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Allow shell escape")
+      .setDesc(
+        "Pass -shell-escape (minted, gnuplot, ...). Documents can then run " +
+          "arbitrary commands on this machine; enable only for trusted files.",
+      )
+      .addToggle((t) =>
+        t.setValue(s.shellEscape).onChange((v) => {
+          s.shellEscape = v;
+          save();
+        }),
+      );
+
+    new Setting(containerEl).setName("Rendering").setHeading();
+
+    new Setting(containerEl)
+      .setName("Render formulas on hover")
+      .setDesc(
+        "Hovering a formula in the editor shows it rendered with MathJax, using the macros " +
+          "the project defines (\\newcommand, \\DeclareMathOperator, ... in the root, its " +
+          "inputs and local packages); texlab's hover then stays quiet inside formulas. While " +
+          "the preview is open, a display formula, theorem box, TikZ picture, table or float " +
+          "unchanged since the last compile shows as the PDF prints it. What neither can show " +
+          "is compiled on its own (see \"Compile what the hover cannot render\").",
+      )
+      .addToggle((t) =>
+        t.setValue(s.hoverRender).onChange((v) => {
+          s.hoverRender = v;
+          save();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Compile what the hover cannot render")
+      .setDesc(
+        "When MathJax cannot draw a formula (tikz-cd, \\intertext, a macro built on internals) " +
+          "and there is no up-to-date crop from the preview's PDF, the hover typesets it with the " +
+          "document's own engine and preamble in the build folder: about 0.3 s with pdfLaTeX's " +
+          "cached preamble, 1–2 s with XeLaTeX. The same for tables, TikZ pictures and theorem " +
+          "boxes without a crop.",
+      )
+      .addToggle((t) =>
+        t.setValue(s.texFragmentFallback).onChange((v) => {
+          s.texFragmentFallback = v;
+          save();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Preview the formula at the cursor")
+      .setDesc(
+        "While the cursor is in a formula, show its rendering below it and update it as you type " +
+          "(inline math in both modes, display math in source mode). Hidden while the completion " +
+          "list is open.",
+      )
+      .addToggle((t) =>
+        t.setValue(s.cursorPreview).onChange((v) => {
+          s.cursorPreview = v;
+          save();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("LaTeX Suite snippets")
+      .setDesc(
+        "Expand the snippets of the LaTeX Suite plugin (when it is enabled) in LaTeX documents, " +
+          "with its options, trigger key and tab stops; math and text modes come from this " +
+          "editor. Snippets that use context functions or included macros are skipped.",
+      )
+      .addToggle((t) =>
+        t.setValue(s.latexSuiteSnippets).onChange((v) => {
+          s.latexSuiteSnippets = v;
+          save();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Default editing mode")
+      .setDesc(
+        "The mode of newly opened LaTeX editors. Live preview renders formulas in place with the " +
+          "project's macros and equation numbers from the last compile, and shows a formula's " +
+          "source while the cursor is on it. Each editor switches with its header icon or the " +
+          "command 'Toggle live preview' and keeps its own mode.",
+      )
+      .addDropdown((d) =>
+        d
+          .addOptions({ source: "Source", live: "Live preview" })
+          .setValue(s.editingMode)
+          .onChange((v) => {
+            s.editingMode = v === "live" ? "live" : "source";
+            save();
+          }),
+      );
+
+    new Setting(containerEl).setName("HTML export").setHeading();
+
+    new Setting(containerEl)
+      .setName("Export folder")
+      .setDesc(
+        "Vault folder where \"Export to HTML\" proposes to save the page (created when missing). Leave " +
+          "empty to save it next to the root .tex file. Within a session, each document proposes the " +
+          "file it was last exported to.",
+      )
+      .addText((t) =>
+        t
+          .setPlaceholder("next to the root file")
+          .setValue(s.exportFolder)
+          .onChange((v) => {
+            s.exportFolder = v.trim();
+            save();
+          }),
+      );
+  }
+}

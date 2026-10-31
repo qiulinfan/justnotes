@@ -222,6 +222,9 @@ export interface Command {
 	editorCheckCallback?: (checking: boolean, editor: any, ctx: any) => boolean | void;
 	isVisible?: () => boolean;
 	isBypassCommand?: () => boolean;
+	// justnotes' own: an editor command that also runs in a plain text editor
+	// (a `.txt` view's textEditor) when no Markdown editor is active.
+	plainText?: boolean;
 }
 
 export class HotkeyManager {
@@ -387,10 +390,19 @@ export class Commands {
 		return Object.values(this.commands);
 	}
 
+	// The editor an editor command acts on: the active Markdown editor, else,
+	// for a plainText command, the active plain text editor.
+	#editorFor(cmd: Command): EditorContext | null {
+		const active = this.app.workspace.activeEditor;
+		if (active || !cmd.plainText) return active;
+		const view = this.app.workspace.activeLeaf?.view as { textEditor?: unknown } | undefined;
+		return view?.textEditor ? { editor: view.textEditor } : null;
+	}
+
 	// Whether the command can run now, without running it.
 	isAvailable(cmd: Command) {
 		try {
-			return runCommand(cmd, true, this.app.workspace.activeEditor);
+			return runCommand(cmd, true, this.#editorFor(cmd));
 		} catch (err) {
 			console.error(`Command ${cmd.id} failed`, err);
 			return false;
@@ -403,7 +415,7 @@ export class Commands {
 	executeCommand(cmd: Command, evt?: Event) {
 		if (evt) this.app.lastEvent = evt as UIEvent;
 		try {
-			const editor = this.app.workspace.activeEditor;
+			const editor = this.#editorFor(cmd);
 			const trigger = evt ?? currentEvent();
 			if ((cmd.editorCallback || cmd.editorCheckCallback) && keyInOtherField(trigger, editor)) return false;
 			if (!runCommand(cmd, true, editor)) return false;

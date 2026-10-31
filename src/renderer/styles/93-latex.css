@@ -1,0 +1,1219 @@
+/*! SPDX-License-Identifier: MIT
+MIT License
+
+Copyright (c) 2026 Qiulin Fan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+/* Editor view */
+.ll-editor-content {
+  padding: 0;
+  height: 100%;
+  font-size: var(--font-text-size, 16px);
+}
+/* Source code at the theme's code size (as Markdown code blocks): a monospace font at the
+   text size looks a size larger than the text. */
+.ll-editor-content .cm-editor {
+  height: 100%;
+  font-family: var(--ll-editor-font-family, var(--font-monospace));
+  font-size: var(--ll-editor-font-size, var(--code-size, 0.875em));
+  background: transparent;
+  color: var(--text-normal);
+}
+/* CodeMirror outlines a focused editor; an Obsidian editor shows focus by its cursor. */
+.ll-editor-content .cm-editor.cm-focused {
+  outline: none;
+}
+.ll-editor-content .cm-editor .cm-scroller {
+  font-family: var(--ll-editor-font-family, var(--font-monospace));
+}
+.ll-editor-content .cm-editor .cm-gutters {
+  background: transparent;
+  color: var(--text-faint);
+  border-right: 1px solid var(--background-modifier-border);
+}
+.ll-editor-content .cm-editor .cm-activeLine {
+  background: var(--background-primary-alt);
+}
+.ll-editor-content .cm-editor.ll-has-selection .cm-activeLine {
+  background: transparent;
+}
+/* The line a jump (inverse SyncTeX) landed on, for FLASH_MS (src/editor/reveal.ts). */
+.ll-editor-content .cm-editor .cm-line.ll-reveal-flash,
+.ll-editor-content .cm-editor .lsp-lp-render.ll-reveal-flash {
+  animation: ll-reveal-flash 1.5s ease-out;
+}
+@keyframes ll-reveal-flash {
+  0%,
+  40% {
+    background-color: var(--text-highlight-bg, rgba(255, 208, 0, 0.4));
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.ll-editor-content .cm-editor .cm-selectionBackground,
+.ll-editor-content .cm-editor.cm-focused .cm-selectionBackground {
+  background: var(--text-selection);
+}
+
+/* texlab hover and completion docs (rendered Markdown) */
+.ll-editor-content .cm-tooltip-hover .ll-lsp-doc {
+  max-width: 560px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 4px 10px;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+}
+.ll-editor-content .ll-lsp-doc > :first-child {
+  margin-top: 0;
+}
+.ll-editor-content .ll-lsp-doc > :last-child {
+  margin-bottom: 0;
+}
+
+/* shared:editor.css begin */
+/* Shared with obsidian-latex-live / obsidian-tinymist: keep byte-identical (canonical copy: obsidian-tinymist/src/editor/shared). */
+/* CodeMirror chrome for the plugins' editor views. Each view adds "lsp-cm-view" to the
+   element that holds its .cm-editor; tooltips and panels mount inside .cm-editor, so these
+   rules reach them. Obsidian's editor CSS only targets Markdown views (.cm-s-obsidian). */
+
+/* Caret: drawSelection() draws its own cursor, black unless EditorView.darkTheme is set. */
+.lsp-cm-view .cm-editor .cm-cursor,
+.lsp-cm-view .cm-editor .cm-dropCursor {
+  border-left-color: var(--caret-color, var(--text-normal));
+}
+.lsp-cm-view .cm-editor .cm-scroller {
+  line-height: var(--line-height-normal, 1.5);
+}
+
+/* Selection matches and search hits (CM defaults are bright green / yellow). */
+.lsp-cm-view .cm-editor .cm-selectionMatch {
+  background: var(--text-highlight-bg);
+}
+.lsp-cm-view .cm-editor .cm-searchMatch {
+  background: var(--text-highlight-bg);
+  outline: none;
+}
+.lsp-cm-view .cm-editor .cm-searchMatch.cm-searchMatch-selected {
+  background: var(--text-highlight-bg-active, var(--text-highlight-bg));
+  outline: 1px solid var(--interactive-accent);
+}
+
+/* Panels: search / replace, go to line. */
+.lsp-cm-view .cm-editor .cm-panels {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+.lsp-cm-view .cm-editor .cm-panels-top {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.lsp-cm-view .cm-editor .cm-panels-bottom {
+  border-top: 1px solid var(--background-modifier-border);
+}
+.lsp-cm-view .cm-editor .cm-panel {
+  padding: 4px 8px;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+}
+.lsp-cm-view .cm-editor .cm-panel label {
+  color: var(--text-muted);
+  font-size: inherit;
+}
+.lsp-cm-view .cm-editor .cm-panel .cm-textfield {
+  background: var(--background-modifier-form-field);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  padding: 2px 6px;
+  font-size: inherit;
+}
+.lsp-cm-view .cm-editor .cm-panel .cm-textfield:focus {
+  border-color: var(--interactive-accent);
+}
+.lsp-cm-view .cm-editor .cm-panel .cm-button {
+  background: var(--interactive-normal);
+  background-image: none;
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  padding: 2px 8px;
+  font-size: inherit;
+}
+.lsp-cm-view .cm-editor .cm-panel .cm-button:hover {
+  background: var(--interactive-hover);
+}
+.lsp-cm-view .cm-editor .cm-panel button[name="close"] {
+  color: var(--text-muted);
+}
+
+/* Tooltips: hover docs, diagnostics, completion. */
+.lsp-cm-view .cm-editor .cm-tooltip {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+}
+.lsp-cm-view .cm-editor .cm-tooltip-lint {
+  max-width: 560px;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+}
+/* Hover sections (render, lint, language server): CM separates them only in its light
+   theme, in a fixed grey. */
+.lsp-cm-view .cm-tooltip-hover > .cm-tooltip-section:not(:first-child) {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+/* Render hover (renderHover.ts): the rendering under the pointer, the first hover section,
+   on Obsidian's popover background. Rendered ink follows --text-normal (currentColor). */
+.lsp-cm-view .cm-tooltip-hover:has(> .lsp-render-hover) {
+  overflow: hidden;
+  box-shadow: var(--shadow-s);
+}
+.lsp-cm-view .lsp-render-hover {
+  max-width: min(640px, 80vw);
+  max-height: 50vh;
+  overflow: auto;
+  padding: 6px 10px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: var(--font-text);
+}
+/* MathJax's display margin (1em above and below) is for paragraphs. */
+.lsp-cm-view .lsp-render-hover mjx-container[display="true"] {
+  margin: 0;
+}
+.lsp-cm-view .lsp-render-hover.is-pending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+}
+.lsp-cm-view .lsp-render-hover-spinner {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--background-modifier-border);
+  border-top-color: var(--interactive-accent);
+  border-radius: 50%;
+  animation: lsp-render-hover-spin 0.8s linear infinite;
+}
+@keyframes lsp-render-hover-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* hoverError: the renderer's message, then the source it failed on. */
+.lsp-cm-view .lsp-render-hover-message {
+  color: var(--text-error);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+  white-space: pre-wrap;
+}
+.lsp-cm-view .lsp-render-hover-source {
+  margin: 4px 0 0;
+  padding: 0;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+  white-space: pre-wrap;
+}
+
+/* Cursor preview (renderHover.ts `cursorPreview`): the rendering of the formula at the
+   cursor, below it while it is typed. Clicks go through to the text under it; hidden while
+   the completion list (below the line too) is open. */
+.lsp-cm-view .cm-tooltip.lsp-cursor-preview {
+  overflow: hidden;
+  box-shadow: var(--shadow-s);
+  pointer-events: none;
+}
+.lsp-cm-view .cm-tooltip.lsp-cursor-preview.is-empty,
+.lsp-cm-view .cm-tooltip.lsp-cursor-preview.is-covered {
+  display: none;
+}
+/* The source being typed fails: its last rendering stays, marked. */
+.lsp-cm-view .lsp-cursor-preview.is-error > .lsp-render-hover {
+  border-left: 2px solid var(--text-error);
+  opacity: 0.7;
+}
+
+/* Live preview (livePreview.ts): constructs rendered in the editor's own lines. Block
+   widgets and theorem boxes never get vertical margins: CodeMirror's height map misses
+   margins (measured: ArrowDown skipped visible lines and the gutter drifted), so their
+   spacing is padding or goes on line decorations. */
+.lsp-cm-view .lsp-lp-render {
+  font-family: var(--font-text);
+}
+/* Inline math stays inline: an inline-block with overflow would sit on the text baseline by
+   its bottom edge. Display math inside a line may scroll. */
+.lsp-cm-view .lsp-lp-render.is-display:not(.is-block) {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  vertical-align: middle;
+}
+.lsp-cm-view .lsp-lp-render.is-block {
+  display: block;
+  margin: 0;
+  padding: 0.25em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.lsp-cm-view .lsp-lp-render mjx-container[display="true"] {
+  margin: 0;
+}
+.lsp-cm-view .lsp-lp-render:empty {
+  display: none;
+}
+/* The rendering under a revealed block, while its source is edited. */
+.lsp-cm-view .lsp-lp-render.is-below {
+  position: relative;
+  border-left: 2px solid var(--interactive-accent);
+  opacity: 0.8;
+}
+/* A newer source still rendering, or failing: the last rendering stays. */
+.lsp-cm-view .lsp-lp-render.is-pending {
+  opacity: 0.5;
+}
+.lsp-cm-view .lsp-lp-render.is-below.is-error::after {
+  content: "!";
+  position: absolute;
+  top: 0.25em;
+  right: 0.5em;
+  min-width: 1.3em;
+  padding: 0 0.3em;
+  border-radius: var(--radius-s, 4px);
+  background: var(--text-error);
+  color: var(--text-on-accent, #fff);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-smaller, 0.8em);
+  font-weight: 600;
+  line-height: 1.3em;
+  text-align: center;
+}
+.lsp-cm-view .lsp-lp-message {
+  color: var(--text-error);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+  white-space: pre-wrap;
+}
+/* Source kept because its render failed (the render hover shows the message). */
+.lsp-cm-view .lsp-lp-error {
+  text-decoration: underline dotted var(--text-error);
+  text-underline-offset: 3px;
+}
+/* Chips: \ref, \eqref, \cite, @label, <label>. */
+.lsp-cm-view .lsp-lp-chip {
+  padding: 0 0.3em;
+  border-radius: var(--radius-s, 4px);
+  background: var(--background-modifier-hover);
+  color: var(--text-accent);
+  font-family: var(--font-text);
+  /* The editor's text size, not the line's: a label chip on a heading stays small and plain. */
+  font-size: calc(var(--font-text-size, 16px) * 0.92);
+  font-weight: var(--font-normal, 400);
+}
+.lsp-cm-view .lsp-lp-chip.is-cite {
+  color: var(--text-muted);
+}
+.lsp-cm-view .lsp-lp-chip.is-label {
+  background: none;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-faint);
+}
+.lsp-cm-view .lsp-lp-chip.is-missing {
+  color: var(--text-warning);
+}
+/* A reference chip jumps to its \label on click (labelJump.ts). */
+.lsp-cm-view .lsp-lp-chip.is-ref[data-ll-ref-key]:hover {
+  cursor: var(--cursor-link, pointer);
+  text-decoration: underline;
+  text-decoration-color: var(--text-accent-hover, currentColor);
+  text-underline-offset: 2px;
+}
+/* Headings (line classes). */
+.lsp-cm-view .cm-line.lsp-lp-h1,
+.lsp-cm-view .cm-line.lsp-lp-h2,
+.lsp-cm-view .cm-line.lsp-lp-h3,
+.lsp-cm-view .cm-line.lsp-lp-h4,
+.lsp-cm-view .cm-line.lsp-lp-h5,
+.lsp-cm-view .cm-line.lsp-lp-h6 {
+  font-family: var(--font-text);
+  line-height: var(--line-height-tight, 1.3);
+}
+.lsp-cm-view .cm-line.lsp-lp-h1 {
+  font-size: var(--h1-size);
+  font-weight: var(--h1-weight, 700);
+  color: var(--h1-color, inherit);
+}
+.lsp-cm-view .cm-line.lsp-lp-h2 {
+  font-size: var(--h2-size);
+  font-weight: var(--h2-weight, 600);
+  color: var(--h2-color, inherit);
+}
+.lsp-cm-view .cm-line.lsp-lp-h3 {
+  font-size: var(--h3-size);
+  font-weight: var(--h3-weight, 600);
+  color: var(--h3-color, inherit);
+}
+.lsp-cm-view .cm-line.lsp-lp-h4 {
+  font-size: var(--h4-size);
+  font-weight: var(--h4-weight, 600);
+  color: var(--h4-color, inherit);
+}
+.lsp-cm-view .cm-line.lsp-lp-h5 {
+  font-size: var(--h5-size);
+  font-weight: var(--h5-weight, 600);
+  color: var(--h5-color, inherit);
+}
+.lsp-cm-view .cm-line.lsp-lp-h6 {
+  font-size: var(--h6-size);
+  font-weight: var(--h6-weight, 600);
+  color: var(--h6-color, inherit);
+}
+/* Text styles (marks on the content; the command and braces hidden). */
+.lsp-cm-view .lsp-lp-strong {
+  font-weight: var(--bold-weight, 700);
+}
+.lsp-cm-view .lsp-lp-em {
+  font-style: italic;
+}
+.lsp-cm-view .lsp-lp-u {
+  text-decoration: underline;
+}
+.lsp-cm-view .lsp-lp-sc {
+  font-variant: small-caps;
+}
+.lsp-cm-view .lsp-lp-tt {
+  padding: 0 0.15em;
+  border-radius: var(--radius-s, 4px);
+  background: var(--code-background);
+  font-family: var(--font-monospace);
+}
+/* List markers: bullets, numbers, description terms. */
+.lsp-cm-view .lsp-lp-bullet {
+  display: inline-block;
+  min-width: 1.2em;
+  color: var(--list-marker-color, var(--text-muted));
+  font-family: var(--font-text);
+}
+.lsp-cm-view .lsp-lp-bullet.is-term {
+  color: var(--text-normal);
+  font-weight: var(--bold-weight, 700);
+}
+/* Theorem-like boxes: a BlockWrapper element around the lines. The role classes carry
+   elegantbook's default (blue) scheme; a box sets --lp-box-color inline for its document's. */
+.lsp-cm-view .lsp-lp-box {
+  --lp-box-color: var(--interactive-accent);
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--lp-box-color) 55%, transparent);
+  border-left-width: 3px;
+  border-left-color: var(--lp-box-color);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--lp-box-color) 8%, transparent);
+}
+.lsp-cm-view .lsp-lp-box.is-main {
+  --lp-box-color: rgb(0, 166, 82);
+}
+.lsp-cm-view .lsp-lp-box.is-second {
+  --lp-box-color: rgb(255, 134, 24);
+}
+.lsp-cm-view .lsp-lp-box.is-third {
+  --lp-box-color: rgb(0, 174, 247);
+}
+.lsp-cm-view .lsp-lp-box-title {
+  color: var(--lp-box-color, var(--text-accent));
+  font-family: var(--font-text);
+  font-weight: 600;
+}
+/* A dark scheme colour (elegantbook's color=black) would be unreadable on a dark background:
+   the head keeps its hue, lightened; the border and background keep the colour itself. */
+.theme-dark .lsp-cm-view .lsp-lp-box-title {
+  color: oklch(from var(--lp-box-color, var(--text-accent)) max(l, 0.72) c h);
+}
+.lsp-cm-view .lsp-lp-qed {
+  margin-left: 0.5em;
+  color: var(--text-muted);
+}
+/* Images and paper frames (PDF crops, Typst paper renders): a white card; the dark-theme
+   invert follows the plugin's preview setting (is-inverted). */
+.lsp-cm-view .lsp-lp-image img {
+  max-width: 100%;
+  max-height: 320px;
+}
+.lsp-cm-view .lsp-lp-paper {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+}
+.lsp-cm-view .lsp-lp-paper.is-inverted {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Completion list. Obsidian's app.css hides .cm-completionDetail for every editor. */
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete > ul {
+  font-family: var(--font-monospace);
+}
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete > ul > li[role="option"] {
+  display: flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete .cm-completionIcon,
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete .cm-completionLabel {
+  flex: none;
+}
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete .cm-completionDetail {
+  display: inline;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 1em;
+  font-style: normal;
+  font-size: 0.9em;
+  color: var(--text-faint);
+}
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete .cm-completionMatchedText {
+  text-decoration: none;
+  font-weight: 600;
+  color: var(--text-accent);
+}
+/* Symbol glyph column (lspGlyphColumn) takes the kind icon's place. */
+.lsp-cm-view .cm-tooltip-autocomplete .lsp-completion-glyph {
+  flex: none;
+  width: 1.4em;
+  text-align: center;
+  font-family: var(--font-text);
+}
+.lsp-cm-view .cm-tooltip-autocomplete li:has(> .lsp-completion-glyph) > .cm-completionIcon {
+  display: none;
+}
+.lsp-cm-view .cm-tooltip-autocomplete li:has(> .cm-completionIcon-deprecated) > .cm-completionLabel {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.lsp-cm-view .cm-completionIcon-snippet::after {
+  content: "⧉";
+}
+.lsp-cm-view .cm-completionIcon-file::after {
+  content: "▭";
+}
+.lsp-cm-view .cm-completionIcon-folder::after {
+  content: "▸";
+}
+.lsp-cm-view .cm-completionIcon-reference::after {
+  content: "¶";
+}
+.lsp-cm-view .cm-completionIcon-color::after {
+  content: "●";
+}
+.lsp-cm-view .cm-tooltip.cm-completionInfo {
+  max-width: 420px;
+  max-height: 300px;
+  overflow: auto;
+  padding: 6px 10px;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+}
+.lsp-cm-view .cm-completionInfo .lsp-completion-info {
+  white-space: pre-wrap;
+}
+.lsp-cm-view .cm-completionInfo img {
+  max-height: 3em;
+}
+/* texlab's symbol images are black on opaque white. */
+.theme-dark .lsp-cm-view .cm-completionInfo img[src^="data:image/png"] {
+  filter: invert(1);
+}
+
+/* Snippet fields (CM's #00000022 is invisible on a dark background). */
+.lsp-cm-view .cm-editor .cm-snippetField {
+  background: var(--background-modifier-active-hover, var(--background-modifier-hover));
+  border-radius: 2px;
+}
+.lsp-cm-view .cm-editor .cm-snippetFieldPosition {
+  border-left-color: var(--text-accent);
+}
+
+/* YOLO ghost text: its own 60% opacity on --text-muted is too faint here. */
+.lsp-cm-view .cm-editor .yolo-ghost-text {
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+/* shared:editor.css end */
+
+/* Scale only LaTeX's wrappers around MathJax. CHTML's own inline percentage keeps
+   its font-height compensation; font-size updates the actual layout height.
+   Failed math, images, PDF crops, fragment cards and pending spinners do not match. */
+.ll-editor-content .lsp-lp-math:has(> mjx-container[jax="CHTML"]) {
+  font-size: calc(1em * var(--ll-math-preview-scale, 1));
+}
+.ll-editor-content .lsp-render-hover:has(> mjx-container[jax="CHTML"]),
+.ll-editor-content .ll-theorem-math:not(.ll-theorem-math .ll-theorem-math):has(> mjx-container[jax="CHTML"]) {
+  font-size: calc(var(--ll-editor-math-font-size, 1em) * var(--ll-math-preview-scale, 1));
+}
+
+/* ElegantBook proof/example: solid opposing corners over a transparent body.
+   Keep the wrapper's border dimensions and zero padding for CM's height map. */
+.ll-editor-content .lsp-lp-box.ll-corner-frame {
+  position: relative;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 0;
+}
+.ll-editor-content .ll-corner-frame::before,
+.ll-editor-content .ll-corner-frame::after {
+  content: "";
+  position: absolute;
+  width: 1.2em;
+  height: .8em;
+  border: 0 solid var(--lp-box-color);
+  pointer-events: none;
+}
+.ll-editor-content .ll-corner-frame::before {
+  top: -1px;
+  left: -3px;
+  border-top-width: 3px;
+  border-left-width: 3px;
+}
+.ll-editor-content .ll-corner-frame::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom-width: 3px;
+  border-right-width: 3px;
+}
+.theme-dark .ll-editor-content .ll-corner-frame::before,
+.theme-dark .ll-editor-content .ll-corner-frame::after {
+  border-color: oklch(from var(--lp-box-color) max(l, 0.72) c h);
+}
+/* Live preview, LaTeX's own (latexLive.ts): a proof's \end line shows its mark at the right. */
+.ll-editor-content .cm-line.ll-qed-line {
+  text-align: right;
+}
+/* \centering and center (latexLive #17): the lines stay text. */
+.ll-editor-content .cm-line.lsp-lp-center {
+  text-align: center;
+}
+/* Beamer (latexLive #18-#22, docs/beamer.md). A frame card: its title bar on the \begin line.
+   No margins on the cards or the title page: CodeMirror's line heights would miss them. */
+.ll-editor-content .lsp-lp-box.ll-frame {
+  --lp-box-color: var(--interactive-accent);
+  border-left-width: 1px;
+  border-radius: var(--radius-m, 6px);
+  background: transparent;
+}
+.ll-editor-content .cm-line.ll-frame-head {
+  position: relative;
+  padding-right: 3.5em;
+  font-family: var(--font-text);
+  background: color-mix(in srgb, var(--lp-box-color, var(--interactive-accent)) 10%, transparent);
+}
+/* On the line, not the title's mark: CodeMirror draws the title's math outside the mark. */
+.ll-editor-content .cm-line.ll-frame-head,
+.ll-editor-content .cm-line.ll-frame-head.is-frametitle {
+  font-size: 1.15em;
+  font-weight: 600;
+  color: var(--text-accent);
+}
+.ll-editor-content .ll-frame-subtitle {
+  margin-left: 0.6em;
+  font-size: 0.87em;
+  font-weight: normal;
+  color: var(--text-muted);
+}
+.ll-editor-content .cm-line.ll-frame-head.is-framesubtitle {
+  color: var(--text-muted);
+}
+.ll-editor-content .ll-frame-page {
+  position: absolute;
+  top: 0.15em;
+  right: 0.4em;
+  padding: 0 0.4em;
+  border-radius: var(--radius-s, 4px);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-smaller, 12px);
+  font-weight: normal;
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+  cursor: pointer;
+}
+.ll-editor-content .ll-frame-page:hover {
+  color: var(--text-accent);
+}
+/* A banner command's call (\sectionframe): its arguments one under the other, centered. */
+.ll-editor-content .lsp-lp-box.ll-banner {
+  border-left-width: 1px;
+  border-radius: var(--radius-m, 6px);
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+}
+.ll-editor-content .lsp-lp-box.ll-banner .cm-line {
+  position: relative;
+  padding: 0.3em 3.5em;
+  text-align: center;
+  font-family: var(--font-text);
+}
+.ll-editor-content .ll-banner-break {
+  display: block;
+}
+.ll-editor-content .ll-banner-arg.is-arg1 {
+  font-size: 0.8em;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.ll-editor-content .ll-banner-arg.is-arg2 {
+  font-size: 1.4em;
+  font-weight: 700;
+  color: var(--text-accent);
+}
+.ll-editor-content .ll-banner-arg.is-arg3 {
+  color: var(--text-muted);
+}
+/* A TikZ picture in beamer without crops, and \titlepage: one line until the cursor enters it. */
+.ll-editor-content .ll-tikz-fold,
+.ll-editor-content .ll-titlepage {
+  display: block;
+  padding: 0 0.4em;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small, 13px);
+  color: var(--text-muted);
+  cursor: text;
+}
+/* PDF crops (blockCrop.ts): a paper card around the crop, scaled down in a narrow pane. */
+.ll-editor-content .lsp-lp-paper.ll-crop {
+  vertical-align: top;
+}
+.ll-editor-content .ll-crop > img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+/* The block goes on over a page break; only its first page is cropped. */
+.ll-editor-content .ll-crop-continues {
+  padding: 2px 6px;
+  border-top: 1px dashed #bbb;
+  color: #666;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-smaller);
+  text-align: center;
+}
+/* A tabular drawn from its source (latexLive #23, latexTable.ts): rules are borders; a table
+   in a center environment is centered. No vertical margins (a block widget). */
+.ll-editor-content .lsp-lp-table {
+  text-align: left;
+}
+.ll-editor-content .ll-table {
+  margin: 0;
+  border-collapse: collapse;
+}
+.ll-editor-content .ll-table.is-center {
+  margin: 0 auto;
+}
+.ll-editor-content .ll-table td {
+  padding: 0.15em 0.6em;
+  border-width: 0;
+  border-style: solid;
+  border-color: var(--text-normal);
+  vertical-align: top;
+  white-space: nowrap;
+}
+.ll-editor-content .ll-table td.is-l,
+.ll-editor-content .ll-table td.is-p {
+  text-align: left;
+}
+.ll-editor-content .ll-table td.is-c {
+  text-align: center;
+}
+.ll-editor-content .ll-table td.is-r {
+  text-align: right;
+}
+/* A \multirow over its rows: centred unless `[t]`. */
+.ll-editor-content .ll-table td.v-c {
+  vertical-align: middle;
+}
+.ll-editor-content .ll-table td.v-b {
+  vertical-align: bottom;
+}
+/* Paragraph columns (p, m, b, X) wrap. */
+.ll-editor-content .ll-table td.is-p {
+  min-width: 8em;
+  white-space: normal;
+}
+.ll-editor-content .ll-table td.top-thin,
+.ll-editor-content .ll-table td.top-light {
+  border-top-width: 1px;
+}
+.ll-editor-content .ll-table td.top-heavy {
+  border-top-width: 2px;
+}
+.ll-editor-content .ll-table td.top-double {
+  border-top-width: 3px;
+  border-top-style: double;
+}
+.ll-editor-content .ll-table td.bottom-thin,
+.ll-editor-content .ll-table td.bottom-light {
+  border-bottom-width: 1px;
+}
+.ll-editor-content .ll-table td.bottom-heavy {
+  border-bottom-width: 2px;
+}
+.ll-editor-content .ll-table td.bottom-double {
+  border-bottom-width: 3px;
+  border-bottom-style: double;
+}
+.ll-editor-content .ll-table td.left-1 {
+  border-left-width: 1px;
+}
+.ll-editor-content .ll-table td.left-2 {
+  border-left-width: 3px;
+  border-left-style: double;
+}
+.ll-editor-content .ll-table td.right-1 {
+  border-right-width: 1px;
+}
+.ll-editor-content .ll-table td.right-2 {
+  border-right-width: 3px;
+  border-right-style: double;
+}
+/* A cell with a formula MathJax rejects: its source. */
+.ll-editor-content .ll-table td.is-source {
+  font-family: var(--font-monospace);
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+/* A fragment compile in the render hover (fragments.ts): TeX's own output on paper. */
+.ll-editor-content .lsp-lp-paper.ll-fragment {
+  vertical-align: top;
+}
+.ll-editor-content .ll-fragment > img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+/* The render hover without a rendering: why (a block changed since the last compile). */
+.ll-editor-content .ll-render-note {
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+}
+
+/* LaTeX syntax colors, theme-variable driven */
+.ll-comment {
+  color: var(--text-faint);
+  font-style: italic;
+}
+.ll-command {
+  color: var(--color-purple, #7657c8);
+}
+.ll-keyword {
+  color: var(--color-purple, #7657c8);
+  font-weight: 600;
+}
+.ll-env {
+  color: var(--color-cyan, #17a89a);
+}
+.ll-section {
+  color: var(--color-blue, #2574d8);
+  font-weight: 700;
+}
+.ll-ref {
+  color: var(--color-cyan, #17a89a);
+}
+/* \caption{..} shown as "Figure n: " (latexLive.ts) */
+.ll-caption-head {
+  font-weight: 600;
+}
+.ll-math,
+.ll-math-delim {
+  color: var(--color-yellow, #b8860b);
+}
+.ll-command.ll-in-math {
+  color: var(--color-orange, #f27a24);
+}
+.ll-bracket,
+.ll-escape {
+  color: var(--text-muted);
+}
+.ll-verbatim {
+  color: var(--color-green, #2f9e44);
+}
+
+/* Preview pane */
+.ll-template-modal { width: min(760px, 90vw); }
+.ll-template-modal p { overflow-wrap: anywhere; }
+.ll-template-form { margin: 12px 0; }
+.ll-template-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.ll-template-actions select { min-width: 0; max-width: 100%; }
+.ll-template-field { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr); gap: 12px; align-items: center; margin: 10px 0; }
+.ll-template-field input, .ll-template-field select { width: 100%; min-width: 0; }
+.ll-template-color-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ll-template-color-control input[type="color"] { flex: 0 0 36px; width: 36px; }
+.ll-template-rule { padding: 12px; margin: 8px 0; border: 1px solid var(--background-modifier-border); border-radius: 6px; }
+.ll-template-rule summary, .ll-template-json summary { cursor: pointer; font-weight: 600; }
+.ll-template-json { margin: 14px 0; }
+.ll-template-json textarea { width: 100%; box-sizing: border-box; font-family: var(--font-monospace); margin: 8px 0; }
+.ll-template-json button { margin: 4px 8px 4px 0; }
+.ll-template-error { color: var(--text-error); white-space: pre-wrap; }
+.ll-env-rules-defaults { color: var(--text-muted); font-size: var(--font-ui-small); }
+.ll-env-rules-json { width: 100%; box-sizing: border-box; font-family: var(--font-monospace); margin: 8px 0; }
+@media (max-width: 480px) { .ll-template-field { grid-template-columns: 1fr; gap: 4px; } }
+
+.ll-preview {
+  display: flex;
+  flex-direction: column;
+  padding: 0 !important;
+  overflow: hidden;
+  min-height: 0;
+}
+/* Build controls and diagnostics reserve their own space above the PDF viewport. */
+.ll-preview-dock {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 40%;
+  overflow: hidden;
+  background: var(--background-primary);
+}
+.ll-toolbar {
+  position: static;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: var(--font-ui-small);
+  flex: 0 0 auto;
+}
+.ll-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.ll-status.is-ok::before {
+  content: "✓ ";
+  color: var(--color-green, #2f9e44);
+}
+.ll-status.is-error {
+  color: var(--text-error);
+}
+.ll-status.is-error::before {
+  content: "✗ ";
+}
+.ll-status.is-busy::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  animation: ll-pulse 0.9s ease-in-out infinite;
+}
+@keyframes ll-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+.ll-actions {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.ll-problems {
+  position: static;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 30%;
+  overflow: auto;
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: var(--font-ui-small);
+}
+.ll-preview-dock > .ll-problems {
+  max-height: none;
+}
+.ll-problems.is-hidden,
+.ll-empty.is-hidden {
+  display: none;
+}
+.ll-problems > summary {
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.ll-problem {
+  display: flex;
+  gap: 8px;
+  padding: 2px 8px 2px 20px;
+}
+.ll-problem.is-clickable {
+  cursor: pointer;
+}
+.ll-problem.is-clickable:hover {
+  background: var(--background-modifier-hover);
+}
+.ll-problem.is-error .ll-problem-where {
+  color: var(--text-error);
+}
+.ll-problem.is-warning .ll-problem-where {
+  color: var(--color-orange, #f27a24);
+}
+.ll-problem-where {
+  flex: 0 0 auto;
+  font-family: var(--font-monospace);
+}
+.ll-problem-msg {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+.ll-scroll {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  background: var(--background-primary);
+}
+.ll-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-faint);
+}
+.ll-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+.ll-page {
+  position: relative;
+  flex: 0 0 auto;
+  background: white;
+  /* The pages sit on the note's background; a hairline marks the paper's edge. */
+  box-shadow: 0 0 0 1px var(--background-modifier-border);
+}
+.ll-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ll-invert .ll-page canvas {
+  filter: invert(1) hue-rotate(180deg);
+}
+.ll-invert .ll-page {
+  background: black;
+}
+.ll-sync-mark {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 3px;
+  background: var(--text-highlight-bg, rgba(255, 208, 0, 0.4));
+  animation: ll-fade 1.5s ease-out forwards;
+}
+@keyframes ll-fade {
+  0%,
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Log modal */
+.ll-log-modal {
+  width: min(900px, 90vw);
+}
+.ll-log {
+  max-height: 70vh;
+  overflow: auto;
+  font-size: var(--font-ui-smaller);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+/* The HTML export's progress and completion Notices, its report. */
+.ll-export-cancel {
+  margin-left: 8px;
+}
+.ll-export-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.ll-export-report {
+  width: min(760px, 90vw);
+}
+.ll-export-summary {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  user-select: text;
+  word-break: break-word;
+}
+.ll-export-report .ll-problem {
+  padding-left: 0;
+}
+
+/* Current-project theorem cards and explicit proof-reference graph. */
+.ll-theorem-graph {
+  width: min(760px, 90vw);
+  max-height: min(620px, 70vh);
+  overflow: auto;
+  padding: 12px;
+  box-sizing: border-box;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px #0002;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small, 14px);
+  line-height: 1.5;
+}
+.ll-theorem-graph-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ll-theorem-graph-help, .ll-theorem-graph-notices { font-size: .85em; color: var(--text-muted); }
+.ll-theorem-graph-help { margin: 6px 0; }
+.ll-theorem-graph-notices p { margin: 4px 0; }
+.ll-theorem-diagram { position: relative; display: flex; align-items: flex-start; gap: 28px; width: max-content; padding: 8px 20px 8px 0; }
+.ll-theorem-column { display: flex; flex-direction: column; gap: 16px; width: 330px; flex: none; }
+.ll-theorem-node { position: relative; z-index: 1; border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 8px; background: var(--background-secondary); }
+.ll-theorem-node.is-selected { border-color: var(--interactive-accent); }
+.ll-theorem-graph-node { display: block; width: 100%; height: auto; white-space: normal; text-align: left; font-weight: 600; padding: 6px; }
+.ll-theorem-node small { color: var(--text-muted); }
+.ll-theorem-node-actions { display: flex; gap: 6px; margin: 6px 0; }
+.ll-theorem-graph button { flex-shrink: 0; }
+.ll-theorem-graph button:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
+.ll-theorem-graph-detail { max-width: 100%; overflow: auto; margin-top: 8px; }
+.ll-theorem-arrows { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 0; color: var(--interactive-accent); overflow: visible; }
+.ll-theorem-arrows > path { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.ll-theorem-graph-content { font-family: var(--font-text); overflow-wrap: break-word; }
+.ll-theorem-graph-content h4 { margin: 8px 0 4px; font-size: 1em; }
+.ll-theorem-graph-content p { margin: 6px 0; }
+.ll-theorem-graph-content section + section { border-top: 1px solid var(--background-modifier-border); margin-top: 10px; padding-top: 4px; }
+.ll-theorem-graph-content pre, .ll-theorem-graph-content mjx-container[display="true"] { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+.ll-theorem-graph-content pre { white-space: pre-wrap; padding: 6px; background: var(--background-primary); font-size: .9em; }
+.ll-theorem-graph-content a[data-ll-theorem-key] { color: var(--text-accent); text-decoration: underline; cursor: pointer; }
+.ll-theorem-graph-content .llx-list { padding-left: 0; }
+.ll-theorem-graph-content .llx-list li { display: flex; gap: .6em; margin: .3em 0; }
+.ll-theorem-graph-content .llx-label { flex-shrink: 0; }
+.ll-theorem-graph-content .llx-bf { font-weight: 700; }
+.ll-theorem-graph-content .llx-it { font-style: italic; }
+.ll-theorem-graph-content .llx-tt { font-family: var(--font-monospace); }
+.ll-theorem-graph-content .llx-display { max-width: 100%; overflow-x: auto; }
+.ll-theorem-graph-content .llx-source { white-space: pre-wrap; font-family: var(--font-monospace); }
+.ll-theorem-graph-content .llx-kai { font-family: KaiTi, "Kaiti SC", var(--font-text); }
+.ll-theorem-graph-content .llx-fs { font-family: FangSong, STFangsong, var(--font-text); }
+.ll-theorem-graph-content .llx-sc { font-variant: small-caps; }
+.ll-theorem-graph-content .llx-thm-head { font-weight: 600; }
+.ll-theorem-graph-content .llx-qed { float: right; }
+.ll-theorem-graph-content img { max-width: 100%; height: auto; }
+.ll-theorem-graph-content table { border-collapse: collapse; max-width: 100%; }
+.ll-theorem-graph-content td, .ll-theorem-graph-content th { padding: 3px 6px; }
+.ll-theorem-graph-content .llx-missing, .ll-theorem-graph-content .llx-math-error { color: var(--text-error, #be3030); }
+.ll-theorem-render-note, .ll-theorem-footnote { font-size: .85em; color: var(--text-muted); }
+
+/* Project tools: bounded result panes; project indexing never lives in the editor layout. */
+.ll-project-tools input[type="search"], .ll-project-tools textarea { width: 100%; }
+.ll-project-tools textarea { font-family: var(--font-monospace); resize: vertical; }
+.ll-project-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.ll-project-results, .ll-bib-results { max-height: 45vh; overflow: auto; min-height: 0; }
+.ll-project-group { margin: 8px 0; }
+.ll-project-match, .ll-bib-result { display: block; width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; margin: 4px 0; }
+.ll-project-edit { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; background: var(--background-secondary); }
+.ll-project-status { color: var(--text-muted); margin: 8px 0; }
+.ll-bib-detail { max-height: 35vh; overflow: auto; padding: 8px 0; }
+.ll-bib-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ll-bib-detail dt { font-weight: bold; }
+.ll-bib-detail dd { margin: 0 0 6px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ll-spelling-error { text-decoration: underline wavy var(--text-error); text-underline-offset: 3px; }
+.ll-project-tools { min-width: 0; overflow-wrap: anywhere; }
+.ll-project-tools input[type="text"] { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.ll-project-toolbar > label { display: flex; gap: 6px; align-items: center; min-width: 0; flex: 1 1 180px; }
+.ll-project-toolbar input[type="text"] { flex: 1 1 auto; }
+.ll-bib-detail button { max-width: 100%; white-space: normal; }
+.ll-project-outline { overflow: auto; min-height: 0; }
+
+/* pdf:pdfReading.css begin */
+/* PDF text and link geometry comes from the host's pdf.js, independent of editor typography. */
+.ll-page .ll-pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  user-select: text;
+  z-index: 1;
+}
+.ll-pdf-text :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+.ll-pdf-text .markedContent { top: 0; height: 0; }
+.ll-pdf-text span[role="img"] { user-select: none; cursor: default; }
+.ll-pdf-text ::selection { background: rgba(50, 120, 230, 0.3); color: transparent; }
+.ll-pdf-text br::selection { background: transparent; }
+.ll-pdf-links { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.ll-pdf-link { position: absolute; display: block; pointer-events: auto; cursor: pointer; }
+.ll-pdf-link:hover { background: rgba(50, 120, 230, 0.12); }
+.ll-pdf-link:focus-visible { outline: 2px solid var(--interactive-accent); }
+.ll-pdf-navigation {
+  display: flex;
+  gap: 4px;
+  padding: 3px 8px;
+  align-items: center;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: var(--font-ui-small);
+}
+.ll-pdf-navigation input { width: 4.5em; height: 24px; text-align: center; }
+.ll-pdf-count { color: var(--text-muted); white-space: nowrap; }
+.ll-pdf-scale { color: var(--text-muted); margin-left: auto; }
+.ll-preview .ll-toolbar { flex-wrap: wrap; }
+.ll-preview .ll-actions { flex-wrap: wrap; }
+/* pdf:pdfReading.css end */
+
+/* justnotes: the pasted-image form (src/latex/editor/imagePaste.ts). */
+.ll-figure-path { font-family: var(--font-monospace); font-size: var(--font-ui-small); color: var(--text-muted); word-break: break-all; margin-bottom: 8px; }
+.ll-figure-modal .ll-figure-width { width: 5em; }

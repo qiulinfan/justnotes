@@ -40,6 +40,11 @@ function pluginRequire(id: string) {
 	return (window as any).require(id);
 }
 
+// Community plugins a core plugin of justnotes' own replaces: while that core
+// plugin is on, the community one is not loaded (both would register the same
+// views, extensions and commands). In Obsidian it keeps working unchanged.
+export const REPLACED_BY: Record<string, string> = { "latex-live": "latex" };
+
 // The user's own enable/disable choices, applied over the vault's
 // community-plugins.json, which justnotes reads but never writes.
 interface EnabledOverlay {
@@ -56,6 +61,8 @@ export class Plugins {
 	loadingPluginId: string | null = null;
 	#styles = new Map<string, HTMLStyleElement>();
 	#overlay: EnabledOverlay = { enabled: [], disabled: [] };
+	// community-plugins.json's ids, before the overlay.
+	#listed: string[] = [];
 
 	constructor(app: App) {
 		this.app = app;
@@ -102,7 +109,25 @@ export class Plugins {
 		} catch {}
 		const saved = this.app.loadLocalStorage("enabled-plugins");
 		this.#overlay = { enabled: saved?.enabled ?? [], disabled: saved?.disabled ?? [] };
-		for (const id of applyOverlay(ids, this.#overlay)) await this.enablePlugin(id);
+		this.#listed = Array.isArray(ids) ? ids : [];
+		for (const id of applyOverlay(this.#listed, this.#overlay)) await this.enablePlugin(id);
+	}
+
+	// The core plugin that keeps this community plugin from loading now, if any.
+	replacedBy(id: string) {
+		const core = REPLACED_BY[id];
+		return core && this.app.internalPlugins.getPluginById(core)?.enabled ? core : null;
+	}
+
+	// A replacing core plugin turned on: the community plugins it replaces go
+	// (their enabled choice stays); turned off, the enabled ones load again.
+	async coreReplacementStarted(core: string) {
+		for (const [id, by] of Object.entries(REPLACED_BY)) if (by === core && this.plugins[id]) await this.disablePlugin(id);
+	}
+
+	coreReplacementStopped(core: string) {
+		const wanted = applyOverlay(this.#listed, this.#overlay);
+		for (const [id, by] of Object.entries(REPLACED_BY)) if (by === core && wanted.includes(id)) void this.enablePlugin(id);
 	}
 
 	getPlugin(id: string) {
@@ -152,6 +177,7 @@ export class Plugins {
 	// False when it did not load, or was turned off while loading.
 	async #enable(id: string) {
 		if (this.plugins[id]) return true;
+		if (this.replacedBy(id)) return false;
 		const manifest = this.manifests[id];
 		if (!manifest) {
 			console.warn(`Plugin "${id}" is enabled but not installed`);
