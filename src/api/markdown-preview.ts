@@ -9,6 +9,7 @@ import { Keymap } from "./keymap";
 import { MarkdownRenderer } from "./markdown";
 import type { MarkdownView } from "./markdown-view";
 import type { CachedMetadata } from "./metadata";
+import { resolveSubpath } from "./metadata-utils";
 import { debounce } from "./util";
 import type { TFile } from "./vault";
 import { mergeText, mirrorsOf, textChanges } from "./view";
@@ -531,19 +532,9 @@ export function offsetOfLine(anchors: [number, number][], line: number, lines: n
 	return 0;
 }
 
-const normalizeHeading = (s: string) => s.replace(/[#^|:%[\]\\]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-
-// The 0-based line a link subpath points at: `#Heading` (or nested
-// `#Parent#Child`) or `#^block`, from the file's metadata cache.
+// The 0-based line a link subpath points at (`#Heading`, nested
+// `#Parent#Child`, `#^block`), as resolveSubpath finds it in the file's
+// metadata cache.
 export function subpathLine(cache: CachedMetadata | null, subpath: string): number | null {
-	if (!cache) return null;
-	if (subpath.startsWith("#^")) return cache.blocks?.[subpath.slice(2).toLowerCase()]?.position.start.line ?? null;
-	let line: number | null = null;
-	for (const part of subpath.split("#").filter(Boolean)) {
-		const want = normalizeHeading(part);
-		const heading = cache.headings?.find((h) => h.position.start.line > (line ?? -1) && normalizeHeading(h.heading) === want);
-		if (!heading) return line;
-		line = heading.position.start.line;
-	}
-	return line;
+	return cache ? (resolveSubpath(cache, subpath)?.start.line ?? null) : null;
 }

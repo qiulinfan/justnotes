@@ -10,6 +10,16 @@ import { Menu } from "./ui/menu";
 import { mirrorEdits, TextFileView, type ViewStateResult } from "./view";
 import type { WorkspaceLeaf } from "./workspace";
 
+const SCHEME = /^[a-z][\w+.-]*:/i;
+
+function safeDecode(href: string) {
+	try {
+		return decodeURI(href);
+	} catch {
+		return href;
+	}
+}
+
 export class MarkdownView extends TextFileView {
 	editor: Editor;
 	editMode: MarkdownEditView;
@@ -130,14 +140,17 @@ export class MarkdownView extends TextFileView {
 		return file ? this.app.vault.getResourcePath(file) : null;
 	}
 
-	// Rendered links open on click, as in Obsidian's Live Preview.
+	// Rendered links open on click, as in Obsidian's Live Preview; a link to a
+	// heading or block of this note (even in a pinned tab) moves within it.
 	onLinkClick(evt: MouseEvent) {
 		const el = evt.button === 0 ? (evt.target as HTMLElement).closest("[data-href]") : null;
 		if (!el) return false;
 		evt.preventDefault();
 		const href = el.getAttribute("data-href")!;
-		if (/^[a-z][\w+.-]*:/i.test(href)) require("electron").shell.openExternal(href);
-		else this.app.workspace.openLinkText(decodeURI(href), this.file?.path ?? "", Keymap.isModEvent(evt));
+		const newLeaf = Keymap.isModEvent(evt);
+		if (SCHEME.test(href)) require("electron").shell.openExternal(href);
+		else if (href.startsWith("#") && !newLeaf) this.setEphemeralState({ subpath: safeDecode(href) });
+		else this.app.workspace.openLinkText(safeDecode(href), this.file?.path ?? "", newLeaf);
 		return true;
 	}
 
