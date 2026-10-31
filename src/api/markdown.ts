@@ -875,8 +875,9 @@ export function loadPdfJs() {
 		const base = libUrl("pdfjs/");
 		const lib = await import(`${base}pdf.min.mjs`);
 		lib.GlobalWorkerOptions.workerSrc = `${base}pdf.worker.min.mjs`;
+		// The sources getDocument itself accepts: a URL, the bytes, or parameters.
 		const withAssets = (src: any) => {
-			const params = typeof src === "string" || src instanceof URL ? { url: src } : ArrayBuffer.isView(src) ? { data: src } : { ...src };
+			const params = typeof src === "string" || src instanceof URL ? { url: src } : src instanceof ArrayBuffer || ArrayBuffer.isView(src) ? { data: src } : { ...src };
 			for (const [key, dir] of Object.entries(PDF_ASSETS)) {
 				const value = params[key];
 				if (typeof value !== "string") params[key] = base + dir;
