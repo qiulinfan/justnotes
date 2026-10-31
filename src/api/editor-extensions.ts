@@ -4,7 +4,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { bracketMatching, codeFolding, foldGutter, HighlightStyle, indentOnInput, indentUnit, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState, type Extension, Prec } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, type Extension, Prec } from "@codemirror/state";
 import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
@@ -14,6 +14,8 @@ import { editorEditorField, editorInfoField, editorLivePreviewField } from "./ed
 import { setIcon } from "./icons";
 import { type LivePreviewHost, livePreview, livePreviewState } from "./live-preview";
 import type { MarkdownView } from "./markdown-view";
+import { moment } from "./util";
+import type { TFile } from "./vault";
 
 // Obsidian syntax that lezer-markdown does not know. Nodes for Obsidian-only
 // syntax take Obsidian's lowercase token names (math, hashtag, comment...),
@@ -493,6 +495,65 @@ function followConfig(app: App) {
 	});
 }
 
+// Obsidian's own paste and drop handling, after plugins had their turn:
+// files become attachments next to the note, and a URL pasted over
+// selected text links that text.
+const EMBEDDABLE = /^(png|jpe?g|gif|svg|webp|bmp|avif|mp3|wav|m4a|ogg|flac|mp4|webm|ogv|mov|mkv|pdf)$/i;
+const URL_ONLY = /^[a-z][\w+.-]*:\/\/\S+$/i;
+
+async function attach(view: MarkdownView, files: File[], pasted: boolean) {
+	const { app } = view;
+	const sourcePath = view.file?.path ?? "";
+	const webUtils = require("electron").webUtils;
+	const links: string[] = [];
+	for (const file of files) {
+		// A file dragged from inside the vault is linked, not copied.
+		const disk: string | undefined = webUtils?.getPathForFile?.(file);
+		const base = app.vault.adapter.basePath;
+		let target: TFile | null = disk?.startsWith(`${base}/`) ? app.vault.getFileByPath(disk.slice(base.length + 1)) : null;
+		if (!target) {
+			const ext = /\.([^.]+)$/.exec(file.name)?.[1] ?? file.type.split("/")[1]?.replace("jpeg", "jpg") ?? "bin";
+			const name = pasted && file.type.startsWith("image/") ? `Pasted image ${moment().format("YYYYMMDDHHmmss")}.${ext}` : file.name;
+			const path = await app.fileManager.getAvailablePathForAttachment(name, sourcePath);
+			target = await app.vault.createBinary(path, await file.arrayBuffer());
+		}
+		const link = app.fileManager.generateMarkdownLink(target, sourcePath);
+		links.push(EMBEDDABLE.test(target.extension) ? `!${link}` : link);
+	}
+	view.editor.replaceSelection(links.join("\n"), "input.paste");
+}
+
+function pasteDefault(view: MarkdownView, evt: ClipboardEvent) {
+	const data = evt.clipboardData;
+	if (!data) return false;
+	if (data.files.length) {
+		attach(view, [...data.files], true).catch((err) => console.error(err));
+		return true;
+	}
+	const url = data.getData("text/plain").trim();
+	const { state } = view.editor.cm;
+	const linkable = (r: { from: number; to: number; empty: boolean }) =>
+		!r.empty && state.doc.lineAt(r.from).number === state.doc.lineAt(r.to).number && !URL_ONLY.test(state.sliceDoc(r.from, r.to).trim());
+	if (!URL_ONLY.test(url) || !state.selection.ranges.every(linkable)) return false;
+	view.editor.cm.dispatch(
+		state.changeByRange((r) => {
+			const insert = `[${state.sliceDoc(r.from, r.to)}](${url})`;
+			return { changes: { from: r.from, to: r.to, insert }, range: EditorSelection.cursor(r.from + insert.length) };
+		}),
+		{ userEvent: "input.paste" },
+	);
+	return true;
+}
+
+function dropDefault(view: MarkdownView, evt: DragEvent) {
+	const files = [...(evt.dataTransfer?.files ?? [])];
+	if (!files.length) return false;
+	const pos = view.editor.cm.posAtCoords({ x: evt.clientX, y: evt.clientY });
+	if (pos !== null) view.editor.cm.dispatch({ selection: { anchor: pos } });
+	attach(view, files, false).catch((err) => console.error(err));
+	return true;
+}
+
 // The CodeMirror configuration of a Markdown editor: language, highlighting,
 // keymaps, Live Preview, and the hooks that connect it to its view.
 // `plugins` holds the extensions plugins registered.
@@ -570,11 +631,17 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 			},
 			paste: (evt) => {
 				app.workspace.trigger("editor-paste", evt, view.editor, view);
-				return evt.defaultPrevented;
+				if (evt.defaultPrevented) return true;
+				if (!pasteDefault(view, evt)) return false;
+				evt.preventDefault();
+				return true;
 			},
 			drop: (evt) => {
 				app.workspace.trigger("editor-drop", evt, view.editor, view);
-				return evt.defaultPrevented;
+				if (evt.defaultPrevented) return true;
+				if (!dropDefault(view, evt)) return false;
+				evt.preventDefault();
+				return true;
 			},
 		}),
 	];
