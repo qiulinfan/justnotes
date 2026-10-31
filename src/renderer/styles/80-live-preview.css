@@ -24,29 +24,6 @@
 	padding-top: 0.4em;
 }
 
-/* Quotes: one bar per level, in Live Preview where the > marks are hidden. */
-.markdown-source-view.mod-cm6.is-live-preview .HyperMD-quote {
-	--quote-bar: linear-gradient(var(--blockquote-border-color, var(--interactive-accent)), var(--blockquote-border-color, var(--interactive-accent)));
-	background: var(--quote-bar) 6px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat;
-	padding-left: 18px !important;
-	color: var(--blockquote-color, var(--text-muted));
-}
-
-.markdown-source-view.mod-cm6.is-live-preview .HyperMD-quote-2 {
-	background:
-		var(--quote-bar) 6px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat,
-		var(--quote-bar) 20px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat;
-	padding-left: 32px !important;
-}
-
-.markdown-source-view.mod-cm6.is-live-preview .HyperMD-quote-3 {
-	background:
-		var(--quote-bar) 6px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat,
-		var(--quote-bar) 20px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat,
-		var(--quote-bar) 34px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat;
-	padding-left: 46px !important;
-}
-
 /* Fenced code: a box over its lines, the language at the top right. */
 .markdown-source-view.mod-cm6 .HyperMD-codeblock {
 	font-family: var(--font-monospace);
@@ -75,6 +52,34 @@
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
 	user-select: none;
+}
+
+/* Quotes, in Live Preview where the > marks are hidden. As in Obsidian, the
+   first level's bar is the line's inline-start border and the indent its
+   inline-start padding, with no more than three classes, so a plugin rule of
+   that weight loaded later can undo them (obsidian-git's conflict markers).
+   Deeper levels add a bar each. Placed after the code block rules, with an
+   important indent, so a fenced block inside a quote keeps the quote's look. */
+.markdown-source-view.is-live-preview .HyperMD-quote {
+	--quote-bar: linear-gradient(var(--blockquote-border-color, var(--interactive-accent)), var(--blockquote-border-color, var(--interactive-accent)));
+	margin-inline-start: 6px;
+	border-inline-start: var(--blockquote-border-thickness, 3px) solid var(--blockquote-border-color, var(--interactive-accent));
+	border-radius: 0;
+	padding-inline-start: 9px !important;
+	background: none;
+	color: var(--blockquote-color, var(--text-muted));
+}
+
+.markdown-source-view.is-live-preview .HyperMD-quote-2 {
+	background: var(--quote-bar) 11px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat;
+	padding-inline-start: 23px !important;
+}
+
+.markdown-source-view.is-live-preview .HyperMD-quote-3 {
+	background:
+		var(--quote-bar) 11px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat,
+		var(--quote-bar) 25px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat;
+	padding-inline-start: 37px !important;
 }
 
 /* The bullet character stays in the text, drawn over as a dot. */
