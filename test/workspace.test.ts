@@ -82,6 +82,21 @@ describe("LeafHistory", () => {
 		expect(l.now()).toBe("d");
 	});
 
+	// A plugin view whose getState throws must not trap the user in its leaf.
+	test("back from a view whose state cannot be read still navigates, with nothing to come forward to", async () => {
+		let shown: HistoryState | null = null;
+		const history = new LeafHistory(
+			() => shown,
+			async (state) => {
+				shown = state;
+			},
+		);
+		history.pushState(entry("a"));
+		await history.back();
+		expect(shown).toEqual(entry("a"));
+		expect(history.forwardHistory).toEqual([]);
+	});
+
 	test("opening a note after going back drops what was ahead", async () => {
 		const l = leaf("a");
 		l.open("b");

@@ -109,10 +109,12 @@ export interface HistoryState {
 export class LeafHistory {
 	backHistory: HistoryState[] = [];
 	forwardHistory: HistoryState[] = [];
-	#current: () => HistoryState;
+	#current: () => HistoryState | null;
 	#apply: (state: HistoryState) => Promise<void>;
 
-	constructor(current: () => HistoryState, apply: (state: HistoryState) => Promise<void>) {
+	// `current` is null for a view that cannot report its state; leaving it
+	// still works, there is just no way back to it.
+	constructor(current: () => HistoryState | null, apply: (state: HistoryState) => Promise<void>) {
 		this.#current = current;
 		this.#apply = apply;
 	}
@@ -138,7 +140,8 @@ export class LeafHistory {
 		const to = delta < 0 ? this.forwardHistory : this.backHistory;
 		const steps = Math.min(Math.abs(delta), from.length);
 		if (!steps) return;
-		to.push(this.#current());
+		const current = this.#current();
+		if (current) to.push(current);
 		for (let i = 1; i < steps; i++) to.push(from.pop()!);
 		await this.#apply(from.pop()!);
 	}
@@ -387,9 +390,16 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 		return data;
 	}
 
-	#historyState(): HistoryState {
-		const { pinned: _pinned, ...state } = this.getViewState();
-		return { title: this.getDisplayText(), icon: this.getIcon(), state, eState: this.getEphemeralState() };
+	// Null when the view cannot report its state (logged): a broken plugin view
+	// must still be replaceable, it just leaves no entry to come back to.
+	#historyState(): HistoryState | null {
+		try {
+			const { pinned: _pinned, ...state } = this.getViewState();
+			return { title: this.getDisplayText(), icon: this.getIcon(), state, eState: this.getEphemeralState() };
+		} catch (err) {
+			console.error(err);
+			return null;
+		}
 	}
 
 	// Linked FileViews keep showing the same file.
@@ -1136,7 +1146,13 @@ export class Workspace extends Events {
 
 	onLeafClosing(leaf: WorkspaceLeaf) {
 		if (!this.isRootLeaf(leaf) || leaf.view.getViewType() === "empty") return;
-		this.#closed.push({ state: leaf.getViewState(), eState: leaf.getEphemeralState() });
+		try {
+			this.#closed.push({ state: leaf.getViewState(), eState: leaf.getEphemeralState() });
+		} catch (err) {
+			// A view that cannot report its state still closes; it just cannot be reopened.
+			console.error(err);
+			return;
+		}
 		if (this.#closed.length > 10) this.#closed.shift();
 	}
 
