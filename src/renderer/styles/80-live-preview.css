@@ -217,7 +217,15 @@
 }
 
 .markdown-source-view.mod-cm6 .cm-callout > .callout,
-.markdown-source-view.mod-cm6 .table-wrapper > table {
+.markdown-source-view.mod-cm6 .table-wrapper > table,
+.markdown-source-view.mod-cm6 .cm-embed-block > p,
+.markdown-source-view.mod-cm6 .cm-embed-block > p > .internal-embed {
+	margin: 0;
+}
+
+/* An embed inside a line stays in it. */
+.markdown-source-view.mod-cm6 .cm-inline-embed > p {
+	display: inline;
 	margin: 0;
 }
 
@@ -231,6 +239,12 @@
 	color: var(--text-faint);
 	opacity: 0;
 	cursor: pointer;
+}
+
+/* Embeds and code-block output keep the top right corner for their own
+   controls (an embed's link, a base's toolbar); their button sits beside it. */
+.markdown-source-view.mod-cm6 .cm-embed-block:not(.cm-callout) > .edit-block-button {
+	right: -26px;
 }
 
 .markdown-source-view.mod-cm6 .cm-embed-block:hover > .edit-block-button {

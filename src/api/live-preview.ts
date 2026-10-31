@@ -8,6 +8,7 @@ import { setIcon } from "./icons";
 import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, onCodeBlockProcessorsChange, renderMath, resolveHtmlSrc } from "./markdown";
 import { getLinkpath } from "./metadata-utils";
 import { parseYaml } from "./util";
+import type { TFile } from "./vault";
 
 export interface LivePreviewHost {
 	app: App;
@@ -540,6 +541,42 @@ class CodeBlockWidget extends WidgetType {
 	}
 }
 
+// An embed other than a found image: a note or one of its sections, a PDF, a
+// base, media, or a missing file. The renderer renders its source through
+// its own embed path and post processors, so it is the reading view's embed.
+// `target` is the file the link resolves to, so a created or renamed target
+// renders again. A block widget when the embed is alone on its line.
+class EmbedWidget extends WidgetType {
+	constructor(
+		readonly source: string,
+		readonly target: string,
+		readonly block: boolean,
+		readonly host: LivePreviewHost,
+	) {
+		super();
+	}
+
+	eq(other: EmbedWidget) {
+		return other.source === this.source && other.target === this.target && other.block === this.block;
+	}
+
+	toDOM(view: EditorView) {
+		const el = this.block ? createDiv("cm-embed-block markdown-rendered") : createSpan("cm-inline-embed markdown-rendered");
+		const child = widgetComponent(view, el);
+		MarkdownRenderer.render(this.host.app, this.source, el, this.host.sourcePath(), child).catch((err) => console.error(err));
+		if (this.block) editButton(view, el, (v) => v.posAtDOM(el));
+		return el;
+	}
+
+	destroy(dom: HTMLElement) {
+		renderChildren.get(dom)?.unload();
+	}
+
+	ignoreEvent() {
+		return true;
+	}
+}
+
 // The text of a math node without the quote marks of the lines it goes on
 // to, which are its children inside a quote.
 function mathText(state: EditorState, node: SyntaxNode) {
@@ -586,7 +623,8 @@ function ancestors(node: SyntaxNode, ...names: string[]) {
 
 interface BuildContext {
 	host: LivePreviewHost;
-	isResolved(linkpath: string): boolean;
+	// The file a link path names, or null.
+	linkDest(linkpath: string): TFile | null;
 	resolveImage(link: string): string | null;
 }
 
@@ -620,6 +658,15 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 	};
 	// Block widgets replace whole lines, so the block must be alone on them.
 	const ownsLines = (node: SyntaxNode) => !doc.sliceString(doc.lineAt(node.from).from, node.from).trim() && !ancestors(node, "Blockquote");
+	// An embed that is not a found image renders through the renderer: as a
+	// block when it is alone on its line, else within the line.
+	const embed = (node: SyntaxNode, linkpath: string) => {
+		const line = doc.lineAt(node.from);
+		const block = ownsLines(node) && node.to <= line.to && !doc.sliceString(node.to, line.to).trim();
+		if (block && touchesLines(node.from, node.to)) return;
+		const widget = new EmbedWidget(state.sliceDoc(node.from, node.to), cx.linkDest(linkpath)?.path ?? "", block, host);
+		decos.push(block ? Decoration.replace({ widget, block: true }).range(line.from, line.to) : Decoration.replace({ widget }).range(node.from, node.to));
+	};
 
 	syntaxTree(state).iterate({
 		enter: (ref) => {
@@ -763,7 +810,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (!url || marks.length < 2) return;
 					const textEnd = marks[1].from;
 					const href = state.sliceDoc(url.from, url.to);
-					const unresolved = !SCHEME.test(href) && !cx.isResolved(getLinkpath(safeDecode(href)));
+					const unresolved = !SCHEME.test(href) && !cx.linkDest(getLinkpath(safeDecode(href)));
 					decos.push(hide.range(from, marks[0].to));
 					if (textEnd > marks[0].to) {
 						decos.push(Decoration.mark({ class: unresolved ? "cm-underline is-unresolved" : "cm-underline", attributes: { "data-href": href } }).range(marks[0].to, textEnd));
@@ -791,9 +838,12 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const url = node.getChild("URL");
 					const marks = node.getChildren("LinkMark");
 					const target = url ? safeDecode(state.sliceDoc(url.from, url.to)) : null;
-					const src = target ? cx.resolveImage(target) : null;
+					if (!target) return false;
 					const alt = marks.length >= 2 ? state.sliceDoc(marks[0].to, marks[1].from) : "";
-					if (src && target) decos.push(Decoration.replace({ widget: new ImageWidget(src, target, alt) }).range(from, to));
+					const local = !SCHEME.test(target);
+					const src = !local || IMAGE.test(getLinkpath(target)) ? cx.resolveImage(target) : null;
+					if (src) decos.push(Decoration.replace({ widget: new ImageWidget(src, target, alt) }).range(from, to));
+					else if (local) embed(node, getLinkpath(target));
 					return false;
 				}
 				case "HTMLTag": {
@@ -824,10 +874,11 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 						const src = IMAGE.test(path) ? cx.resolveImage(path) : null;
 						const alt = alias ? state.sliceDoc(alias.from, alias.to) : "";
 						if (src) decos.push(Decoration.replace({ widget: new ImageWidget(src, target, alt) }).range(from, to));
+						else embed(node, path);
 						return false;
 					}
 					const shown = alias ?? targetNode;
-					const unresolved = !cx.isResolved(getLinkpath(target));
+					const unresolved = !cx.linkDest(getLinkpath(target));
 					decos.push(hide.range(from, shown.from));
 					decos.push(
 						Decoration.mark({ class: unresolved ? "cm-underline is-unresolved" : "cm-underline", attributes: { "data-href": target } }).range(shown.from, shown.to),
@@ -896,7 +947,7 @@ export async function searchTag(app: App, tag: string) {
 export function livePreview(host: LivePreviewHost): Extension {
 	// Link and image resolution scan the vault, so each is cached per editor
 	// until refreshLivePreview.
-	const resolved = new Map<string, boolean>();
+	const dests = new Map<string, TFile | null>();
 	const images = new Map<string, string | null>();
 	const cached = <T>(cache: Map<string, T>, link: string, resolve: () => T) => {
 		const key = `${host.sourcePath()}\n${link}`;
@@ -905,14 +956,14 @@ export function livePreview(host: LivePreviewHost): Extension {
 	};
 	const cx: BuildContext = {
 		host,
-		isResolved: (linkpath) => cached(resolved, linkpath, () => !!host.app.metadataCache.getFirstLinkpathDest(linkpath, host.sourcePath())),
+		linkDest: (linkpath) => cached(dests, linkpath, () => host.app.metadataCache.getFirstLinkpathDest(linkpath, host.sourcePath())),
 		resolveImage: (link) => cached(images, link, () => host.resolveImage(link)),
 	};
 	const field = StateField.define<DecorationSet>({
 		create: (state) => build(state, cx),
 		update(decos, tr) {
 			if (tr.effects.some((e) => e.is(refresh))) {
-				resolved.clear();
+				dests.clear();
 				images.clear();
 				return build(tr.state, cx);
 			}
