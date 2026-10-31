@@ -46,43 +46,30 @@ export function registerCoreCommands(app: App) {
 		input.focus();
 		input.select();
 	});
-	add("app:reload", "Reload app without saving", [["Mod"], "r"], () => location.reload());
+	// Open views, the layout and plugins' quit tasks are saved first, as when
+	// the window closes.
+	add("app:reload", "Reload app without saving", [["Mod"], "r"], async () => {
+		try {
+			await app.workspace.flushBeforeQuit();
+		} finally {
+			location.reload();
+		}
+	});
 	add("workspace:new-tab", "New tab", [["Mod"], "t"], () => app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true }));
 	add("workspace:close", "Close current tab", [["Mod"], "w"], () => app.workspace.activeLeaf?.detach());
+	// The new note goes where "Default location for new notes" says, which can
+	// be the active note's folder.
 	add("file-explorer:new-file", "Create new note", [["Mod"], "n"], async () => {
-		const file = await app.fileManager.createNewMarkdownFile(app.fileManager.getNewFileParent(""));
+		const file = await app.fileManager.createNewMarkdownFile(app.fileManager.getNewFileParent(app.workspace.getActiveFile()?.path ?? ""));
 		await app.workspace.getLeaf(false).openFile(file);
-	});
-	app.commands.addCommand({
-		id: "editor:save-file",
-		name: "Save current file",
-		hotkeys: [{ modifiers: ["Mod"], key: "s" }],
-		checkCallback: (checking) => {
-			const view = app.workspace.getActiveViewOfType(MarkdownView);
-			if (!view) return false;
-			if (!checking) view.save();
-			return true;
-		},
 	});
 	registerEditorCommands(app);
 }
 
-// A key pressed in another text field (the editor's find field, a modal's
-// input, a plugin's own editor) belongs to that field, not to the note
-// behind it. Runs from the command palette or from code are not key events
-// in a focused field: the palette has closed and given focus back.
-function keyForAnotherField(editor: Editor) {
-	const evt = window.event;
-	if (!(evt instanceof KeyboardEvent) || evt.target !== document.activeElement) return false;
-	const el = evt.target as HTMLElement;
-	if (editor.cm.contentDOM.contains(el)) return false;
-	return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.isContentEditable;
-}
-
 // Obsidian's built-in editor commands, with its ids and default hotkeys.
-// They run only in a Markdown editor that is being edited, so in other views
-// and in reading view their keys fall through; hotkeys.json overrides them
-// like any command.
+// They run only in a Markdown editor that is being edited, so in other views,
+// in reading view and in other text fields (Commands.executeCommand) their
+// keys fall through; hotkeys.json overrides them like any command.
 function registerEditorCommands(app: App) {
 	const editorCommand = (
 		id: string,
@@ -96,7 +83,7 @@ function registerEditorCommands(app: App) {
 			name,
 			hotkeys: hotkey ? [{ modifiers: hotkey[0], key: hotkey[1] }] : undefined,
 			editorCheckCallback: (checking, editor, view) => {
-				if (!(editor instanceof Editor) || view?.getMode?.() === "preview" || keyForAnotherField(editor) || !available(editor)) return false;
+				if (!(editor instanceof Editor) || view?.getMode?.() === "preview" || !available(editor)) return false;
 				if (!checking) run(editor, view);
 				return true;
 			},

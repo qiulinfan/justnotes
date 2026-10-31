@@ -1,4 +1,5 @@
 import * as cmAutocomplete from "@codemirror/autocomplete";
+import * as cmCollab from "@codemirror/collab";
 import * as cmCommands from "@codemirror/commands";
 import * as cmLanguage from "@codemirror/language";
 import * as cmLint from "@codemirror/lint";
@@ -20,6 +21,7 @@ import { debounce } from "./util";
 const SHARED_MODULES: Record<string, unknown> = {
 	obsidian,
 	"@codemirror/autocomplete": cmAutocomplete,
+	"@codemirror/collab": cmCollab,
 	"@codemirror/commands": cmCommands,
 	"@codemirror/language": cmLanguage,
 	"@codemirror/lint": cmLint,
@@ -196,18 +198,26 @@ export class Plugins {
 		return new PluginClass(this.app, manifest) as Plugin;
 	}
 
+	// Adding or removing a plugin's styles.css is a css-change, as in Obsidian.
 	async #loadStyles(manifest: PluginManifest) {
+		let css: string;
 		try {
-			const css = await this.app.vault.adapter.read(`${manifest.dir}/styles.css`);
-			const style = createEl("style", { text: css, attr: { "data-plugin": manifest.id } });
-			this.app.customCss.insertPluginStyle(style);
-			this.#styles.set(manifest.id, style);
-		} catch {}
+			css = await this.app.vault.adapter.read(`${manifest.dir}/styles.css`);
+		} catch {
+			return;
+		}
+		const style = createEl("style", { text: css, attr: { "data-plugin": manifest.id } });
+		this.app.customCss.insertPluginStyle(style);
+		this.#styles.set(manifest.id, style);
+		this.app.workspace.trigger("css-change");
 	}
 
 	#removeStyles(id: string) {
-		this.#styles.get(id)?.remove();
+		const style = this.#styles.get(id);
+		if (!style) return;
+		style.remove();
 		this.#styles.delete(id);
+		this.app.workspace.trigger("css-change");
 	}
 }
 

@@ -24,22 +24,32 @@ const DEFAULT_LAYOUT = {
 	right: { type: "split", direction: "horizontal", collapsed: true, children: [] },
 };
 
-async function applyTheme(app: App) {
-	let theme = "system";
-	try {
-		theme = JSON.parse(await app.vault.adapter.read(`${app.vault.configDir}/appearance.json`)).theme ?? "system";
-	} catch {}
+// The base theme follows the vault's "theme" setting (appearance.json is part
+// of the vault config): "obsidian" is dark, "moonstone" light and "system"
+// follows the OS. A set accentColor replaces the theme's accent. Both apply
+// again when the config changes.
+function applyTheme(app: App) {
 	const media = window.matchMedia("(prefers-color-scheme: dark)");
 	let dark: boolean | null = null;
+	let accent = "";
 	const apply = () => {
+		const theme = app.vault.getConfig("theme");
 		const next = theme === "obsidian" || (theme !== "moonstone" && media.matches);
-		if (next === dark) return;
-		dark = next;
-		document.body.toggleClass("theme-dark", dark);
-		document.body.toggleClass("theme-light", !dark);
-		app.workspace.trigger("css-change");
+		if (next !== dark) {
+			dark = next;
+			document.body.toggleClass("theme-dark", dark);
+			document.body.toggleClass("theme-light", !dark);
+			app.workspace.trigger("css-change");
+		}
+		const value = app.vault.getConfig("accentColor");
+		const color = typeof value === "string" ? value : "";
+		if (color !== accent) {
+			accent = color;
+			app.setAccentColor(color || null);
+		}
 	};
 	media.addEventListener("change", apply);
+	app.vault.on("config-changed", apply);
 	apply();
 }
 
@@ -95,7 +105,10 @@ async function boot() {
 
 	buildShell(app);
 	await app.vault.load();
-	await applyTheme(app);
+	// Indexing overlaps the rest of boot and is done before plugins load, so
+	// getFileCache() works in their onload, as in Obsidian.
+	const indexed = app.metadataCache.initialize();
+	applyTheme(app);
 	await app.hotkeyManager.load();
 	await loadMathJax().catch((err) => console.error(err));
 	registerCoreCommands(app);
@@ -103,12 +116,10 @@ async function boot() {
 	registerViewCommands(app);
 	registerWorkspaceCommands(app);
 
-	// Plugins load first so the layout can restore their views; layout-ready
-	// callbacks then see every file's metadata.
-	await app.plugins.initialize();
-	const indexed = app.metadataCache.initialize();
-	await app.restoreLayoutState(DEFAULT_LAYOUT);
 	await indexed;
+	// Plugins load before the layout, so it can restore their views.
+	await app.plugins.initialize();
+	await app.restoreLayoutState(DEFAULT_LAYOUT);
 	app.workspace.setLayoutReady();
 	handleWindowClose(app);
 

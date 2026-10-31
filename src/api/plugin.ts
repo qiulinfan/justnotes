@@ -233,18 +233,10 @@ export class Plugin extends Component {
 
 	// Like Obsidian, leaves of the type stay open when the plugin unloads: the
 	// workspace turns them into placeholders that keep their state until the
-	// type is registered again. It does so by listening for the registry's
-	// "view-unregistered"; while nothing listens (before that workspace change
-	// is merged), the leaves are closed instead, or the unloaded plugin's views
-	// would keep running. Drop the detach once the placeholders are in.
+	// type is registered again.
 	registerView(type: string, creator: ViewCreator) {
-		const registry = this.app.viewRegistry;
-		registry.registerView(type, creator);
-		this.register(() => {
-			const listeners = (registry as { _?: Record<string, unknown[]> })._?.["view-unregistered"];
-			if (!listeners?.length) this.app.workspace.detachLeavesOfType(type);
-			registry.unregisterView(type);
-		});
+		this.app.viewRegistry.registerView(type, creator);
+		this.register(() => this.app.viewRegistry.unregisterView(type));
 	}
 
 	registerExtensions(extensions: string[], viewType: string) {
@@ -258,11 +250,12 @@ export class Plugin extends Component {
 		return postProcessor;
 	}
 
+	// Unloading removes this plugin's handler only; another plugin's handler for
+	// the same language stays.
 	registerMarkdownCodeBlockProcessor(language: string, handler: any, sortOrder?: number) {
-		MarkdownPreviewRenderer.registerCodeBlockPostProcessor(language, handler);
-		this.register(() => MarkdownPreviewRenderer.unregisterCodeBlockPostProcessor(language));
-		const processor = MarkdownPreviewRenderer.createCodeBlockPostProcessor(language, handler);
-		return sortOrder === undefined ? processor : Object.assign(processor, { sortOrder });
+		const processor = MarkdownPreviewRenderer.registerCodeBlockPostProcessor(language, handler, sortOrder);
+		this.register(() => MarkdownPreviewRenderer.unregisterCodeBlockPostProcessor(language, handler));
+		return processor;
 	}
 
 	// A Bases view type for the view picker, removed when the plugin unloads.

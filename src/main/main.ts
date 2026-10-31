@@ -25,6 +25,8 @@ if (profile) app.setPath("userData", path.resolve(profile));
 // not register itself as the scheme's handler: that would take it from an
 // installed Obsidian.
 const isObsidianUrl = (url: string) => /^obsidian:/i.test(url);
+// The only URLs a link or window.open may hand to the system.
+const isWebUrl = (url: string) => /^(https?|mailto):/i.test(url);
 // Pages whose renderer listens for URLs; until then they wait in pendingUrls.
 // A page stops listening when a new document commits (a reload).
 const listening = new WeakSet<WebContents>();
@@ -36,9 +38,12 @@ function sendObsidianUrl(url: string, from?: WebContents) {
 	else pendingUrls.push(url);
 }
 
+// A link or window.open from the app page: web and mail URLs open in the
+// system's apps, obsidian: URLs in the vault window, and anything else
+// (file:, other schemes) nowhere.
 function openUrl(url: string, from: WebContents) {
 	if (isObsidianUrl(url)) sendObsidianUrl(url, from);
-	else void shell.openExternal(url);
+	else if (isWebUrl(url)) void shell.openExternal(url);
 }
 
 // Plugins also reach this process's shell through remote; obsidian: URLs given
@@ -83,7 +88,7 @@ app.on("web-contents-created", (_evt, contents) => {
 	});
 	if (contents.getType() !== "webview") return;
 	contents.setWindowOpenHandler(({ url }) => {
-		if (/^(https?|mailto):/i.test(url)) void shell.openExternal(url);
+		if (isWebUrl(url)) void shell.openExternal(url);
 		return { action: "deny" };
 	});
 });
@@ -127,7 +132,8 @@ async function createWindow() {
 		openUrl(url, contents);
 		return { action: "deny" };
 	});
-	// A link without a handler must not navigate the window away from the app.
+	// A link without a handler must not navigate the window away from the app;
+	// it opens as from window.open instead.
 	contents.on("will-navigate", (evt) => {
 		if (!evt.isMainFrame || samePage(evt.url, contents.getURL())) return;
 		evt.preventDefault();

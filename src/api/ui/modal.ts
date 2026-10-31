@@ -17,7 +17,10 @@ export class Modal {
 
 	constructor(app: App) {
 		this.app = app;
-		this.scope = new Scope(app.scope);
+		// Unlike a popover suggest's, a modal's scope has no parent: keys it does
+		// not handle reach no app hotkey or command, so typing in the modal never
+		// acts on the note behind it.
+		this.scope = new Scope();
 		this.scope.register([], "Escape", () => {
 			this.close();
 			return false;
