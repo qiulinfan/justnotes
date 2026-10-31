@@ -1,12 +1,12 @@
 import { autocompletion, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { bracketMatching, codeFolding, foldGutter, HighlightStyle, indentOnInput, indentUnit, syntaxHighlighting, syntaxTree } from "@codemirror/language";
+import { bracketMatching, codeFolding, foldGutter, foldNodeProp, foldService, HighlightStyle, indentOnInput, indentUnit, Language, LanguageDescription, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range, type StateCommand } from "@codemirror/state";
 import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { IterMode, NodeProp, type SyntaxNode } from "@lezer/common";
+import { IterMode, NodeProp, type NodePropSource, type Parser, type SyntaxNode } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import type { BlockContext, Element, LeafBlock, LeafBlockParser, Line, MarkdownConfig } from "@lezer/markdown";
 import type { App } from "./app";
@@ -464,10 +464,60 @@ const activeLine = ViewPlugin.fromClass(
 	{ decorations: (v) => v.decorations },
 );
 
-// Headings and lists fold from a chevron in the gutter, as with Obsidian's
-// foldHeading and foldIndent options (both on by default).
-function folding(app: App): Extension[] {
-	if (!(app.vault.getConfig("foldHeading") ?? true) && !(app.vault.getConfig("foldIndent") ?? true)) return [];
+// What folds, by Obsidian's two settings (both on by default): a heading's
+// section (foldHeading) and what is nested in a list item (foldIndent).
+// Nothing else does, though lang-markdown folds every block of more than one
+// line (paragraphs, quotes, tables, math, code blocks) and the languages of
+// fenced code fold their own syntax.
+export interface FoldSettings {
+	heading: boolean;
+	indent: boolean;
+}
+
+const noFold = () => null;
+
+// A list item folds the blocks nested in it (sub-lists, further paragraphs,
+// quotes, code) from the end of its first paragraph, whose own lines stay
+// like any paragraph's.
+function foldListItem(item: SyntaxNode, state: EditorState) {
+	const first = item.firstChild?.nextSibling;
+	return first?.nextSibling ? { from: state.doc.lineAt(first.to).to, to: item.to } : null;
+}
+
+// A fenced block's language from language-data, with its folds left out.
+const foldlessCode = new WeakMap<Language, Language>();
+function codeLanguage(info: string): Language | LanguageDescription | null {
+	const found = LanguageDescription.matchLanguageName(languages, info, true);
+	const lang = found?.support?.language;
+	const parser = lang?.parser as (Parser & { configure?(config: { props: NodePropSource[] }): Parser }) | undefined;
+	// Not loaded yet (lang-markdown loads it and parses again), or a stream
+	// language, which has no folds.
+	if (!lang || !parser?.configure) return found;
+	let foldless = foldlessCode.get(lang);
+	if (!foldless) foldlessCode.set(lang, (foldless = new Language(lang.data, parser.configure({ props: [foldNodeProp.add(() => noFold)] }), [], lang.name)));
+	return foldless;
+}
+
+// The Markdown language with Obsidian's syntax and folds.
+export function markdownSupport(fold: FoldSettings): Extension {
+	const blockFolds: MarkdownConfig = {
+		props: [
+			foldNodeProp.add((type) => {
+				if (!type.is("Block")) return undefined;
+				return fold.indent && type.name === "ListItem" ? foldListItem : noFold;
+			}),
+		],
+	};
+	const md = markdown({ base: markdownLanguage, codeLanguages: codeLanguage, extensions: [...obsidianMarkdown, blockFolds] });
+	if (fold.heading) return md;
+	// lang-markdown folds heading sections with a fold service among its support extensions.
+	const support = Array.isArray(md.support) ? md.support : [md.support];
+	return [md.language, support.filter((ext: Extension) => !EditorState.create({ extensions: ext }).facet(foldService).length)];
+}
+
+// Folds open and close from a chevron in the gutter.
+function folding(fold: FoldSettings): Extension[] {
+	if (!fold.heading && !fold.indent) return [];
 	return [
 		codeFolding(),
 		foldGutter({
@@ -612,6 +662,7 @@ function dropDefault(view: MarkdownView, evt: DragEvent) {
 export function markdownEditorExtensions(view: MarkdownView, plugins: Compartment): Extension[] {
 	const app = view.app;
 	followVault(view);
+	const fold: FoldSettings = { heading: app.vault.getConfig("foldHeading") ?? true, indent: app.vault.getConfig("foldIndent") ?? true };
 	const host: LivePreviewHost = {
 		app,
 		sourcePath: () => view.file?.path ?? "",
@@ -637,7 +688,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		search({ top: true }),
 		autocompletion({ override: [], activateOnTyping: false }),
 		EditorView.lineWrapping,
-		markdown({ base: markdownLanguage, codeLanguages: languages, extensions: obsidianMarkdown }),
+		markdownSupport(fold),
 		livePreview(host),
 		livePreviewState,
 		activeLine,
@@ -712,7 +763,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		}),
 	];
 	if (app.vault.getConfig("showLineNumber")) ext.push(lineNumbers());
-	ext.push(folding(app));
+	ext.push(folding(fold));
 	return ext;
 }
 
