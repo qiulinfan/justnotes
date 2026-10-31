@@ -241,10 +241,28 @@
 	cursor: pointer;
 }
 
-/* Embeds and code-block output keep the top right corner for their own
-   controls (an embed's link, a base's toolbar); their button sits beside it. */
-.markdown-source-view.mod-cm6 .cm-embed-block:not(.cm-callout) > .edit-block-button {
-	right: -26px;
+/* The button keeps the top right corner of its block, inside it, so it stays
+   in reach in a narrow pane; in callouts and code blocks, the corner of their
+   padded content. An embedded note's link and a base's toolbar make room for
+   it, and the link shows with it. */
+.markdown-source-view.mod-cm6 .cm-callout > .edit-block-button,
+.markdown-source-view.mod-cm6 .cm-preview-code-block > .edit-block-button {
+	right: 10px;
+}
+
+.markdown-source-view.mod-cm6 .cm-embed-block > p > .markdown-embed > .markdown-embed-link {
+	right: 28px;
+}
+
+.markdown-source-view.mod-cm6 .cm-embed-block:hover > p > .markdown-embed > .markdown-embed-link {
+	opacity: 1;
+}
+
+/* The room in a base's toolbar shrinks away before any of its items, so it
+   adds nothing to the width the toolbar needs. */
+.markdown-source-view.mod-cm6 .cm-embed-block .bases-toolbar::after {
+	content: "";
+	flex: 0 1 24px;
 }
 
 .markdown-source-view.mod-cm6 .cm-embed-block:hover > .edit-block-button {
