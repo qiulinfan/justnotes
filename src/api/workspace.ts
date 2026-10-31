@@ -596,7 +596,30 @@ export class WorkspaceTabs extends WorkspaceParent {
 			this.app.workspace.setActiveLeaf(leaf, { focus: true });
 		});
 		this.headerEl.createDiv("workspace-tab-header-spacer");
+		// Obsidian's tab list: the group's tabs, and what plugins add on the
+		// workspace's `tab-group-menu` (Bookmarks' "Bookmark N tabs...").
+		const tabList = this.headerEl.createDiv("workspace-tab-header-tab-list clickable-icon");
+		setIcon(tabList, "chevron-down");
+		setTooltip(tabList, "Tabs");
+		tabList.addEventListener("click", (evt) => this.#showTabList(evt));
 		this.tabsContainerEl = this.containerEl.createDiv("workspace-tab-container");
+	}
+
+	#showTabList(evt: MouseEvent) {
+		const menu = new Menu();
+		const shown = this.children[this.currentTab];
+		for (const leaf of this.children) {
+			menu.addItem((i) =>
+				i
+					.setSection("tabs")
+					.setTitle(leaf.getDisplayText())
+					.setIcon(leaf.getIcon())
+					.setChecked(leaf === shown)
+					.onClick(() => this.app.workspace.setActiveLeaf(leaf, { focus: true })),
+			);
+		}
+		this.app.workspace.trigger("tab-group-menu", menu, this);
+		menu.showAtMouseEvent(evt);
 	}
 
 	// A new tab stays in the background (activating or revealing it shows it),

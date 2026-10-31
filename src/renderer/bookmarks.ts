@@ -859,30 +859,50 @@ export function installBookmarks(app: App, host: CorePluginHost) {
 		return heading ? `#${heading.heading}` : null;
 	});
 	editorCommand("bookmarks:bookmark-current-section", "Bookmarks: Bookmark block under cursor...", (editor, line) => blockSubpath(editor, line));
+	// The bookmarks for some tabs, each file once however many tabs show it.
+	const tabItems = (leaves: WorkspaceLeaf[]) => {
+		const items: BookmarkItem[] = [];
+		for (const leaf of leaves) {
+			const item = instance.itemForView(leaf.view);
+			if (item && !items.some((other) => item.type === "file" && other.path === item.path)) items.push(item);
+		}
+		return items;
+	};
+	const bookmarkTabs = (items: BookmarkItem[]) =>
+		new PromptModal(app, "Bookmark all tabs in a new group", "", (title) => {
+			const group = instance.addItem(newBookmark("group", instance.ctime(), { items: [], title }));
+			for (const item of items) {
+				item.ctime = instance.ctime();
+				group.items!.push(item);
+			}
+			instance.onItemsChanged(true);
+		}).open();
 	host.addCommand({
 		id: "bookmarks:bookmark-all-tabs",
 		name: "Bookmarks: Bookmark all tabs...",
 		checkCallback: (checking) => {
-			// Each file once, however many tabs show it.
-			const items: BookmarkItem[] = [];
-			workspace.iterateRootLeaves((leaf) => {
-				const item = instance.itemForView(leaf.view);
-				if (item && !items.some((other) => item.type === "file" && other.path === item.path)) items.push(item);
-			});
+			const leaves: WorkspaceLeaf[] = [];
+			workspace.iterateRootLeaves((leaf) => leaves.push(leaf));
+			const items = tabItems(leaves);
 			if (!items.length) return false;
-			if (!checking) {
-				new PromptModal(app, "Bookmark all tabs in a new group", "", (title) => {
-					const group = instance.addItem(newBookmark("group", instance.ctime(), { items: [], title }));
-					for (const item of items) {
-						item.ctime = instance.ctime();
-						group.items!.push(item);
-					}
-					instance.onItemsChanged(true);
-				}).open();
-			}
+			if (!checking) bookmarkTabs(items);
 			return true;
 		},
 	});
+	// The tab group's tab list.
+	host.registerEvent(
+		workspace.on("tab-group-menu", (menu: Menu, tabs: { children: WorkspaceLeaf[] }) => {
+			const items = tabItems(tabs.children);
+			if (!items.length) return;
+			menu.addItem((i) =>
+				i
+					.setTitle(`Bookmark ${items.length} ${items.length === 1 ? "tab" : "tabs"}...`)
+					.setIcon("bookmark")
+					.setSection("action")
+					.onClick(() => bookmarkTabs(items)),
+			);
+		}),
+	);
 	// justnotes' own: Obsidian bookmarks URLs from its Web viewer.
 	host.addCommand({
 		id: "bookmarks:bookmark-url",

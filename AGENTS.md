@@ -217,7 +217,9 @@ plain style. Development notes belong in this file.
   `bookmark-current-section` (the block under the cursor, given a `^id` when
   it has none), `bookmark-all-tabs` (a new group) and
   `unbookmark-current-view`, and justnotes' own `bookmarks:bookmark-url`.
-  Menus: file (Bookmark.../Edit bookmark...), files (several), editor (on a
+  Menus: tab group (the tab list's "Bookmark N tabs...", on the workspace's
+  `tab-group-menu`, which the chevron at the end of a tab bar fires),
+  file (Bookmark.../Edit bookmark...), files (several), editor (on a
   heading line), tab (`leaf-menu`, graph and search), and `url-menu`
   (Bookmark link.../Edit bookmark... on an external link). The view drags
   rows through `app.dragManager` (`type: "bookmarks"`, `items: [{item}]`,
@@ -235,8 +237,9 @@ plain style. Development notes belong in this file.
   `main/link-policy.ts`, shared with main) is refused. Edit... changes a URL
   bookmark's URL and title; opening it is `window.open`, so main's policy
   decides. `addItem` puts an item without a `ctime` (from the CLI or a
-  plugin) in Obsidian's key order. Not there yet: the tab group's "Bookmark
-  N tabs" menu, a heading bookmark does not follow a renamed heading.
+  plugin) in Obsidian's key order. A heading bookmark does not follow a
+  heading edited in place, as links to it do not in Obsidian; Obsidian's
+  "Rename this heading..." command, which updates links, is not there yet.
 - Graph view (`graph-data.ts` for options, queries and nodes, tested;
   `graph-renderer.ts` for the canvas; `graph-view.ts` for the views): a
   d3-force simulation drawn with Canvas 2D, frames only while the layout moves

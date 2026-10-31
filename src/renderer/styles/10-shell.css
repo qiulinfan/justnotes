@@ -265,6 +265,17 @@ body.is-grabbing :is(webview, iframe) {
 	flex: 1;
 }
 
+.workspace-tab-header-tab-list {
+	align-self: center;
+	display: flex;
+	margin: 0 4px;
+}
+
+.workspace-tab-header-tab-list .svg-icon {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
 .mod-sidedock .workspace-tab-header-container {
 	align-items: center;
 }
