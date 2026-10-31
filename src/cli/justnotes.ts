@@ -9,7 +9,6 @@
 // the vault and wait for it. --offline never asks or starts the app.
 import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
-import { createRequire } from "node:module";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -18,6 +17,7 @@ import pkg from "../../package.json";
 import { escapeValue, parseCliArgs } from "./args";
 import { candidateLines, completeWords } from "./complete";
 import { completionScript } from "./completion";
+import { devElectron } from "./dev-app";
 import { CliError, list, NeedsApp, render } from "./output";
 import { ask, type CliAddress, type CliRequest, type CliResponse, cliAddress, defaultProfile, EXIT_FAILURE, EXIT_USAGE, enterSocketDir } from "./protocol";
 import { BUILTINS, builtinHelp, type CommandSpec, flagsOf, helpText, missingReason } from "./spec";
@@ -140,7 +140,8 @@ async function offline(spec: CommandSpec, vault: string, words: string[]) {
 // dist/cli/justnotes.mjs run by the app's own binary as Node
 // (ELECTRON_RUN_AS_NODE, packaging/justnotes), so it starts that binary,
 // without the variable, which would make it Node again. From source it starts
-// the checkout's electron with its built dist/.
+// the checkout's electron (as justnotes.app on macOS, dev-app.ts) with its
+// built dist/.
 function appCommand(options: Options, vault: string): { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv } {
 	const args = ["--vault", vault, ...(options.ownProfile ? ["--profile", options.profile] : [])];
 	if (process.versions.electron) {
@@ -148,8 +149,7 @@ function appCommand(options: Options, vault: string): { command: string; args: s
 		return { command: process.execPath, args, cwd: os.homedir(), env };
 	}
 	if (!fs.existsSync(path.join(ROOT, "dist", "main.js"))) throw new CliError(`justnotes is not built: run "bun run build" in ${ROOT}.`);
-	const electron = createRequire(path.join(ROOT, "package.json"))("electron") as string;
-	return { command: electron, args: [ROOT, ...args], cwd: ROOT, env: process.env };
+	return { command: devElectron(ROOT), args: [ROOT, ...args], cwd: ROOT, env: process.env };
 }
 
 // Starts the app for `vault` (with this profile) in the background, and waits

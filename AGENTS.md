@@ -545,6 +545,12 @@ plain style. Development notes belong in this file.
 
 ## Packaging and releases
 
+- Run from the repo (`bun run start`, scripts/start.ts, and the `justnotes`
+  command run from source), macOS starts `node_modules/.cache/justnotes-dev/
+  justnotes.app` (src/cli/dev-app.ts): a clone of Electron.app with
+  `CFBundleName` justnotes, the app icon and an ad-hoc signature, remade when
+  Electron or `packaging/icon.png` changes, so the menu bar and Dock say
+  justnotes rather than Electron. scripts/smoke.ts keeps plain Electron.
 - electron-builder (`electron-builder.yml`, pinned in devDependencies)
   packages the built `dist/`: `bun run dist:mac` makes `justnotes.app` for
   arm64 and x64 as `.dmg` and `.zip`, `bun run dist:win` an x64 NSIS

@@ -12,7 +12,7 @@
 	"scripts": {
 		"build": "bun build.ts",
 		"postinstall": "node node_modules/electron/install.js",
-		"start": "bun run build && electron .",
+		"start": "bun run build && bun scripts/start.ts",
 		"check": "tsc --noEmit -p .",
 		"test": "bun test test",
 		"cli": "bun src/cli/justnotes.ts",
