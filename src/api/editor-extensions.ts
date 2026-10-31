@@ -13,14 +13,17 @@ import { IterMode, MountedTree, NodeProp, type NodePropSource, type NodeSet, typ
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import { type BlockContext, type Element, type LeafBlock, type LeafBlockParser, type Line, type MarkdownConfig, parseCode, parser as commonmark } from "@lezer/markdown";
 import type { App } from "./app";
-import { importFile } from "./attachments";
+import { imageLink, importFile, isImageFile } from "./attachments";
 import { DragManager } from "./drag-manager";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
+import { editorSettings } from "./editor-settings";
 import { setIcon } from "./icons";
+import { imageMenu } from "./image-menu";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
 import { inlineMathEnd, mathBlockClose } from "./markdown";
 import { parseLinktext } from "./metadata-utils";
 import type { MarkdownView } from "./markdown-view";
+import { editorSelectionScroll } from "./selection-scroll";
 import { debounce } from "./util";
 import { TFile } from "./vault";
 
@@ -769,15 +772,21 @@ function followVault(view: MarkdownView) {
 // selected text links that text.
 const URL_ONLY = /^[a-z][\w+.-]*:\/\/\S+$/i;
 
+// An image as the "Pasted and dropped images as" setting writes it; any
+// other file as generateMarkdownLink links it (an embed unless it is a note,
+// as in Obsidian).
+function fileLink(app: App, file: TFile, sourcePath: string) {
+	return isImageFile(file) ? imageLink(app, file, sourcePath, editorSettings(app).pastedImageFormat) : app.fileManager.generateMarkdownLink(file, sourcePath);
+}
+
 async function attach(view: MarkdownView, files: File[], pasted: boolean) {
 	const { app } = view;
 	const sourcePath = view.file?.path ?? "";
 	const links: string[] = [];
 	for (const file of files) {
 		// A file dragged from inside the vault is linked, not copied.
-		// generateMarkdownLink embeds files that are no notes, as Obsidian's does.
 		const target = await importFile(app, file, sourcePath, pasted);
-		links.push(app.fileManager.generateMarkdownLink(target, sourcePath));
+		links.push(fileLink(app, target, sourcePath));
 	}
 	view.editor.replaceSelection(links.join("\n"), "input.paste");
 }
@@ -821,7 +830,7 @@ function linkDraggedFiles(view: MarkdownView) {
 		}
 		return DragManager.files(drag)
 			.filter((f): f is TFile => f instanceof TFile)
-			.map((f) => app.fileManager.generateMarkdownLink(f, sourcePath));
+			.map((f) => fileLink(app, f, sourcePath));
 	};
 	return ViewPlugin.define((cm) => {
 		const onDragOver = (evt: DragEvent) => {
@@ -877,6 +886,8 @@ export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
 		markdownSupport({ heading: false, indent: false }),
 		livePreview(host),
 		livePreviewState,
+		editorSelectionScroll(() => editorSettings(host.app).selectionScrollSpeed),
+		imageMenu(host),
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),
 		highlightedCode,
@@ -919,6 +930,8 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		markdownSupport(fold),
 		livePreview(host),
 		livePreviewState,
+		editorSelectionScroll(() => editorSettings(app).selectionScrollSpeed),
+		imageMenu({ app, sourcePath: () => view.file?.path ?? "", save: () => view.save() }),
 		activeLine,
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),

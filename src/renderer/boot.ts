@@ -1,10 +1,12 @@
 import { ipcRenderer } from "electron";
 import { App } from "../api/app";
-import { installDomExtensions } from "../api/dom";
+import { installDomExtensions, onWindowAdded } from "../api/dom";
+import { editorSettings } from "../api/editor-settings";
 import { setIcon } from "../api/icons";
 import { registerEditorSuggests } from "../api/editor-suggests";
 import { loadMathJax, setMarkdownApp } from "../api/markdown";
 import { MarkdownView } from "../api/markdown-view";
+import { installNativeSelectionScroll } from "../api/selection-scroll";
 import { Notice } from "../api/ui/notice";
 import { installTooltips } from "../api/ui/tooltip";
 import { installBases } from "./bases-view";
@@ -117,6 +119,9 @@ async function boot() {
 	const app = new App(vaultPath);
 	(window as any).app = app;
 	setMarkdownApp(app);
+	const selectionScrollSpeed = () => editorSettings(app).selectionScrollSpeed;
+	installNativeSelectionScroll(window, selectionScrollSpeed);
+	onWindowAdded((win) => installNativeSelectionScroll(win, selectionScrollSpeed));
 	document.title = `${app.vault.getName()} - justnotes`;
 
 	app.viewRegistry.registerView("empty", (leaf) => new EmptyView(leaf));

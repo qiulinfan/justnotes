@@ -161,6 +161,14 @@
 	vertical-align: bottom;
 }
 
+/* An aligned <img> (a block, see image-menu.ts) shows as in the reading
+   view: CodeMirror's widget buffers beside it would each add an empty line.
+   The source shows whenever the cursor is on its line, so no caret needs
+   them. */
+.markdown-source-view.mod-cm6 .cm-line:has(> .cm-html-embed > img:is([style*="display:block"], [style*="display: block"])) > .cm-widgetBuffer {
+	display: none;
+}
+
 .markdown-source-view.mod-cm6 .cm-underline[data-href] {
 	cursor: pointer;
 }

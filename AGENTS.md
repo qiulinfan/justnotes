@@ -60,6 +60,9 @@ plain style. Development notes belong in this file.
     `markdown-preview.ts` (reading view), `markdown.ts` (MarkdownRenderer, post
     processors, code-block registry, the math grammar, MathJax/pdf.js/Prism/
     Mermaid loaders), `live-preview.ts` and `editor-*.ts` (CodeMirror 6),
+    `selection-scroll.ts` (drag-select scrolling), `image-menu.ts` (the
+    image double-click menu), `editor-settings.ts`
+    (justnotes' own Editor tab), `attachments.ts` (pasted and dropped files),
     `vault.ts`, `metadata*.ts` (the cache; `metadata-types.ts`, the
     `metadataTypeManager`; `metadata-editor.ts` and `metadata-widgets.ts`,
     the Properties block), `frontmatter-edit.ts`, `file-manager.ts`, `keymap.ts`,
@@ -475,7 +478,8 @@ plain style. Development notes belong in this file.
   `enabled-core-plugins` (the Core plugins toggles, over `core-plugins.json`), `custom-css`
   (theme and snippets), `justnotes-expanded` (explorer folders),
   `property-types` (property type changes made in justnotes, layered over
-  `types.json`; an empty type unassigns one). The language
+  `types.json`; an empty type unassigns one), `justnotes-editor` (the
+  Editor settings tab, `editor-settings.ts`). The language
   is localStorage `language`, else `en`; never the OS locale.
 
 ## Command line
@@ -734,6 +738,15 @@ plain style. Development notes belong in this file.
   xattrs such as Finder tags. A read of a path waits for a write putting that
   file's bytes on disk; reads never wait for queued writes, because code inside
   the write queue (kgdistiller's reconcile hooks) may read.
+- `fileManager.renameFile` also follows raw HTML media srcs (`<img>`,
+  `<video>`, `<audio>`, `<source>`; `html-links.ts`), which the metadata
+  cache does not index (Obsidian leaves them broken): a relative src that
+  named a moved file exactly (relative to its note, backslashes, `./` and
+  %-escapes read as Typora writes them), and every relative src in a moved
+  note, is rewritten relative to the note, keeping `./`, %-escapes and
+  backslash style. Absolute paths, URLs, srcs that only found their file by
+  name and anything in code or comments are left alone. Only notes holding
+  a moved file's name are read.
 - The adapter keeps a folder-to-children index that only its add and drop
   paths update. Changes under `.obsidian` emit only vault `raw` events, as in
   Obsidian.
@@ -852,6 +865,40 @@ plain style. Development notes belong in this file.
   align="center">`, `<div>`, `<details>`, ...) renders through
   `MarkdownRenderer`, sanitized like the reading view, as a block widget
   (`.cm-html-embed`) until the selection enters its lines.
+- Double-clicking an image opens the image menu (`image-menu.ts`). Size:
+  presets (100, 75, 67, 50, 33, 25%) and Reset size rewrite an `<img>`'s
+  `zoom` style (only its value, keeping its spacing, the other declarations
+  and attributes; a missing style is added before the tag's end; reset
+  removes the zoom and an emptied style attribute), a wikilink's `|W` or a
+  Markdown image's `alt|W` (W from the image's `naturalWidth`, replacing a
+  `WxH`; reset removes it). Alignment (left, center, right, Reset
+  alignment) is an `<img>` style, `display:block; margin:0 auto` (center),
+  `margin:0 auto 0 0` (left), `margin:0 0 0 auto` (right), replacing any
+  display and margin declarations: the reading view, Live Preview and
+  Obsidian (which keeps inline styles) render it alike, while `<p
+  align="center">` would make Live Preview render an HTML block with no
+  image widget. Embeds have no alignment syntax in Obsidian, so aligning one
+  first turns it into an `<img>` (`embedAsHtml`: src relative to the note,
+  its size as width/height attributes, its alt text or else the file's
+  name as alt). Live Preview hides CodeMirror's widget buffers beside such
+  a block image (`80-live-preview.css`), which would add an empty line
+  above and below it. Size and alignment are one undoable change each on
+  the editor's document. Rename image... (the explorer's `PromptModal`, the
+  extension kept) and Move image to... (its `MoveModal`; both in
+  `ui/file-modals.ts`) save the note, then go through
+  `fileManager.renameFile`, so wikilinks, Markdown links and `<img>` srcs
+  follow (see Views, files and saving); they are disabled for an image that
+  is no vault file. Live Preview handles its own image widgets
+  (`.image-embed` and `.cm-html-embed` images outside rendered blocks; the
+  widget's `posAtDOM` finds the source): a press on one is taken from
+  CodeMirror, and a single click reveals the source only after 300 ms, or
+  the second click of a double click would land on revealed text. The
+  reading view finds the source of a double-clicked image in its section's
+  text by the URL each image loads and their order (`refForRenderedImage`),
+  skips images of embedded notes and anything whose source changed since
+  the render, edits like a task tick, re-renders and saves. Images inside
+  Live Preview's rendered blocks (callouts, tables, HTML blocks) get no
+  menu.
 - The frontmatter is a block widget holding a `MetadataEditor` (also in the
   reading view's `mod-header`), unless "Properties in document"
   (`propertiesInDocument`) is `source` (YAML) or `hidden`; Live Preview
@@ -915,6 +962,46 @@ plain style. Development notes belong in this file.
   handlers (from 6.4.12; recheck it when upgrading lang-html). Other types,
   such as `math/tex`, stay text. Fences match language-data by name or alias,
   not extension: `md` and `htm` fences stay plain.
+
+## Editor settings
+
+- The settings window's first tab, Editor, holds justnotes' own options
+  (`editorSettings(app)` reads them live, so a change applies at once);
+  Obsidian's editor options stay in app.json and are set in Obsidian.
+- Selection scroll speed (1 to 10, default 5; `selection-scroll.ts`): while
+  a drag-select is at or past the top or bottom edge of what scrolls
+  (counting from 10 px inside it, so a note reaching the bottom of the screen
+  still scrolls), a frame loop scrolls at `selectionScrollSpeed`: at 5 about
+  1100 px/s at the edge, 3100 at 30 px past, 12000 at 120 px past, linear in
+  the setting. CodeMirror's own is 160, 570 and 1800 (a 50 ms interval of
+  0.7 px per px past + 8), Chromium's in the reading view 1300, 4900 and
+  11800. In editors `editorSelectionScroll` takes over CodeMirror's vertical
+  scrolling: it reaches into the internal mouse selection
+  (`view.inputState.mouseSelection`, @codemirror/view 6: `setScrollSpeed`,
+  `select`, `lastEvent`, `dragging`, `scrollParents`), turns off its vertical
+  speed and extends the selection through its `select(lastEvent)` after each
+  step, as CodeMirror's own scroll does; recheck these names when upgrading
+  @codemirror/view (without them CodeMirror's scrolling is left alone). In
+  rendered Markdown outside editors (reading view, hover previews)
+  `installNativeSelectionScroll` (every window) does the same for the native
+  selection: once a press has dragged a selection, the scroller gets
+  `.is-selection-scrolling` (overflow-y hidden) until release, which is the
+  only way found to keep Chromium's autoscroll off it (cancelling mousemove
+  does not), and the selection's focus moves to the text at the edge
+  (`caretPositionFromPoint`) after each step. Measure with real CDP mouse
+  events (press, moves past the scroller's edge, scrollTop over a held
+  second); the frame loop needs the test window shown.
+- Pasted and dropped images as (`html` default, `wikilink`, `markdown`;
+  `imageLink` in `attachments.ts`): an image file pasted, dropped from
+  outside or dragged from the explorer into a note is written as Typora
+  writes it and as the owner's notes hold it, `<img src="<path>"
+  alt="<name>" style="zoom:100%;" />` with the src relative to the note,
+  forward slashes, spaces kept (only a `"` is %-escaped) and the file's
+  basename as alt; or `![[linktext]]`, or `![](linktext)` with the
+  destination encoded as `generateMarkdownLink` encodes it, both following
+  `newLinkFormat` whatever `useMarkdownLinks` says. Other files keep
+  `generateMarkdownLink`. Pasted files are still saved by `importFile` into
+  the attachment folder.
 
 ## CSS
 
