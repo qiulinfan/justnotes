@@ -3,13 +3,14 @@ import { EditorView, type ViewUpdate } from "@codemirror/view";
 import type { App } from "./app";
 import { bindEditorFields, Editor, editorLivePreviewField } from "./editor";
 import { markdownEditorExtensions } from "./editor-extensions";
-import { Component } from "./events";
+import type { Component } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import { Keymap } from "./keymap";
-import { MarkdownRenderer } from "./markdown";
+import { MarkdownPreviewRenderer, MarkdownRenderer } from "./markdown";
 import type { MarkdownView } from "./markdown-view";
 import type { CachedMetadata } from "./metadata";
 import { resolveSubpath } from "./metadata-utils";
+import type { HoverPopover } from "./ui/popover";
 import { debounce } from "./util";
 import type { TFile } from "./vault";
 import { mergeText, mirrorsOf, textChanges } from "./view";
@@ -193,18 +194,18 @@ export class MarkdownEditView implements MarkdownSubView {
 	}
 }
 
-// The reading mode: the note rendered as HTML, in Obsidian's reading view DOM
-// (.markdown-reading-view > .markdown-preview-view > .markdown-preview-sizer).
+// The reading mode: the note rendered by a MarkdownPreviewRenderer into
+// Obsidian's reading view DOM (.markdown-reading-view > .markdown-preview-view
+// > .markdown-preview-sizer > one div.el-* per top-level block). New text
+// re-renders only the sections whose output changed.
 export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSubView {
 	view: MarkdownView;
 	type = "preview" as const;
-	hoverPopover: Component | null = null;
+	hoverPopover: HoverPopover | null = null;
 	previewEl: HTMLElement;
-	sizerEl: HTMLElement;
-	#footerEl: HTMLElement;
-	#bodyEl: HTMLElement | null = null;
-	#renderer: Component | null = null;
+	renderer: MarkdownPreviewRenderer;
 	#data = "";
+	// The text whose render last finished; null until the file has one.
 	#rendered: string | null = null;
 	#rendering: Promise<void> | null = null;
 	#generation = 0;
@@ -222,11 +223,8 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 			cls: "markdown-preview-view markdown-rendered node-insert-event is-readable-line-width allow-fold-headings allow-fold-lists show-indentation-guide show-properties",
 			attr: { tabindex: -1 },
 		});
-		this.sizerEl = this.previewEl.createDiv("markdown-preview-sizer markdown-preview-section");
-		this.sizerEl.createDiv("markdown-preview-pusher");
-		this.#footerEl = this.sizerEl.createDiv("mod-footer");
-		this.previewEl.addEventListener("click", (evt) => this.#onClick(evt));
-		this.previewEl.addEventListener("auxclick", (evt) => this.#onClick(evt));
+		// It hands clicks, hovers and context menus in the sections to this view.
+		this.renderer = new MarkdownPreviewRenderer(this, this.previewEl);
 	}
 
 	get file(): TFile {
@@ -237,40 +235,54 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		return this.#data;
 	}
 
-	// A different file (`clear`) starts at the top.
+	// A different file (`clear`) starts at the top, rendered afresh.
 	set(data: string, clear: boolean) {
 		this.#data = data;
 		if (clear) {
+			this.#reset();
 			this.#scroll = 0;
 			this.#pendingScroll = 0;
 		}
 		if (!this.#shown) return;
-		if (clear) this.rerender(true);
+		if (clear) this.rerender();
 		else this.#renderSoon();
 	}
 
 	clear() {
-		this.#generation++;
-		this.#renderSoon.cancel();
 		this.#data = "";
-		this.#rendered = null;
-		this.#bodyEl?.detach();
-		this.#bodyEl = null;
-		if (this.#renderer) this.removeChild(this.#renderer);
-		this.#renderer = null;
+		this.#reset();
 	}
 
-	// Renders the whole note again (the renderer has no partial updates yet).
-	rerender(_full?: boolean) {
-		if (!this.#shown) return;
-		this.#rendering = this.#render();
+	// Drops the rendered sections, and with them what their post processors
+	// and embeds added; a render under way is abandoned.
+	#reset() {
+		this.#generation++;
+		this.#renderSoon.cancel();
+		this.#rendered = null;
+		this.renderer.clear();
+	}
+
+	// Renders the sections whose output changed, or, `full`, every section,
+	// keeping the reading position.
+	rerender(full = false) {
+		if (full) {
+			if (this.#shown && this.#rendered !== null) this.#pendingScroll ??= this.getScroll();
+			this.#reset();
+		}
+		if (this.#shown) this.#rendering = this.#render();
 	}
 
 	async show() {
 		this.#shown = true;
 		this.containerEl.show();
-		if (this.#rendered !== this.#data) this.rerender(true);
+		if (this.#rendered !== this.#data) this.rerender();
 		await this.#rendering;
+		// A position set while hidden over text already rendered.
+		const pending = this.#pendingScroll;
+		if (pending !== null && this.#rendered === this.#data) {
+			this.#pendingScroll = null;
+			this.applyScroll(pending);
+		}
 	}
 
 	hide() {
@@ -344,8 +356,8 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		if (!search) return;
 		const query = search.input.value.toLowerCase();
 		search.matches = [];
-		if (query && this.#bodyEl) {
-			const walker = document.createTreeWalker(this.#bodyEl, NodeFilter.SHOW_TEXT);
+		if (query && this.#rendered !== null) {
+			const walker = document.createTreeWalker(this.renderer.sizerEl, NodeFilter.SHOW_TEXT);
 			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
 				if (node.parentElement?.closest("mjx-container, style, script")) continue;
 				const text = (node.nodeValue ?? "").toLowerCase();
@@ -387,28 +399,16 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		this.#renderSoon.cancel();
 		const generation = ++this.#generation;
 		const data = this.#data;
-		const body = createDiv();
-		const renderer = this.addChild(new Component());
 		try {
-			await MarkdownRenderer.render(this.app, data, body, this.view.file?.path ?? "", renderer);
+			await this.renderer.set(data);
 		} catch (err) {
 			console.error(err);
 		}
-		if (generation !== this.#generation) {
-			this.removeChild(renderer);
-			return;
-		}
-		const top = this.previewEl.scrollTop;
-		if (this.#bodyEl) this.#bodyEl.replaceWith(body);
-		else this.sizerEl.insertBefore(body, this.#footerEl);
-		this.#bodyEl = body;
-		if (this.#renderer) this.removeChild(this.#renderer);
-		this.#renderer = renderer;
+		if (generation !== this.#generation) return;
 		this.#rendered = data;
 		const pending = this.#pendingScroll;
 		this.#pendingScroll = null;
 		if (pending !== null) this.applyScroll(pending);
-		else this.previewEl.scrollTop = top;
 		if (this.#search?.open) this.#find();
 	}
 
@@ -428,43 +428,48 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 	}
 
 	#lines() {
-		return (this.#rendered ?? "").split("\n").length;
+		return this.renderer.text.split("\n").length;
 	}
 
-	// Rendered headings matched in order to the source's heading lines, when
-	// both counts agree; otherwise none, and positions are proportional.
+	// Each rendered section's first line at its top and the line after it at
+	// its bottom, as offsets into the scrolled content.
 	#anchors(): [number, number][] {
-		if (!this.#bodyEl || this.#rendered === null) return [];
-		const lines = headingLines(this.#rendered);
-		const headings = this.#bodyEl.findAll("h1, h2, h3, h4, h5, h6").filter((el) => !el.closest(".internal-embed, .markdown-embed"));
-		if (lines.length !== headings.length) return [];
 		const origin = this.previewEl.getBoundingClientRect().top - this.previewEl.scrollTop;
 		const anchors: [number, number][] = [];
-		headings.forEach((el, i) => {
-			if (el.getClientRects().length) anchors.push([lines[i], el.getBoundingClientRect().top - origin]);
-		});
+		for (const section of this.renderer.sections) {
+			if (!section.el?.getClientRects().length) continue;
+			const r = section.el.getBoundingClientRect();
+			anchors.push([section.lineStart, r.top - origin], [section.lineEnd + 1, r.bottom - origin]);
+		}
 		return anchors;
 	}
 
-	// Links open in the workspace; nothing in a note may navigate the app page.
-	#onClick(evt: MouseEvent) {
-		if (evt.defaultPrevented || evt.button > 1) return;
-		const link = (evt.target as Element).closest("a");
-		if (!link) return;
+	// A link to a heading or block of this note (#Heading, #^block) moves
+	// within the view, which resolves it as openLinkText's subpath.
+	onInternalLinkClick(evt: MouseEvent, target: HTMLElement, linktext: string, sourcePath: string) {
+		if (!linktext.startsWith("#") || Keymap.isModEvent(evt)) return super.onInternalLinkClick(evt, target, linktext, sourcePath);
 		evt.preventDefault();
-		const href = link.getAttr("data-href") ?? link.getAttr("href") ?? "";
-		if (!href || link.hasClass("tag")) return;
-		if (/^[a-z][\w+.-]*:/i.test(href) && !link.hasClass("internal-link")) require("electron").shell.openExternal(href);
-		else this.app.workspace.openLinkText(safeDecode(href), this.view.file?.path ?? "", Keymap.isModEvent(evt));
+		this.view.setEphemeralState({ subpath: linktext });
+	}
+
+	// A task ticked here changes the note's text in the editor, which the view
+	// then saves: the file gets the tick together with any unsaved edits. The
+	// click answers what is rendered, so a line changed since is left alone.
+	onCheckboxClick(evt: MouseEvent, _target: HTMLInputElement, line: number | null) {
+		const editor = this.view.editor;
+		const text = line === null ? undefined : this.renderer.text.split("\n")[line];
+		const task = text === undefined ? null : toggledTask(text);
+		if (line === null || !task || !this.view.file || line >= editor.lineCount() || editor.getLine(line) !== text) return evt.preventDefault();
+		editor.replaceRange(task.status, { line, ch: task.ch }, { line, ch: task.ch + 1 });
+		this.view.save().catch((err) => console.error(err));
 	}
 }
 
-function safeDecode(href: string) {
-	try {
-		return decodeURI(href);
-	} catch {
-		return href;
-	}
+// Where a task line ("- [ ] a", "> 1. [x] b") keeps its status and what a
+// click makes it: an open task is done, any other opens again.
+export function toggledTask(line: string): { ch: number; status: string } | null {
+	const m = /^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[)(.)\]/.exec(line);
+	return m ? { ch: m[1].length, status: m[2] === " " ? "x" : " " } : null;
 }
 
 // 0-based lines of the headings in Markdown source, outside frontmatter,
