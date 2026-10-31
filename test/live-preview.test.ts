@@ -3,7 +3,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { type Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 import { obsidianMarkdown } from "../src/api/editor-extensions";
-import { editorLivePreviewField, type LivePreviewHost, livePreview, tableCellOffset } from "../src/api/live-preview";
+import { clickableTokenAt, editorLivePreviewField, type LivePreviewHost, livePreview, tableCellOffset } from "../src/api/live-preview";
 
 const host = {
 	app: {
@@ -180,6 +180,16 @@ describe("links", () => {
 			["Known", "cm-underline"],
 			["Missing", "cm-underline is-unresolved"],
 		]);
+	});
+
+	// [a](<path with spaces.md>) is how links to such paths are written; the
+	// brackets once stayed in the target, which then never resolved.
+	test("a destination in angle brackets links and embeds without its brackets", () => {
+		const doc = "[a](<Known>) ![x](<my pic.png>)\nend";
+		const decos = decorate(doc, doc.length);
+		expect(decos.find((d) => d.mark?.includes("cm-underline"))).toMatchObject({ mark: "cm-underline", attrs: { "data-href": "Known" } });
+		expect(decos.filter((d) => d.widget === "ImageWidget").map((d) => doc.slice(d.from, d.to))).toEqual(["![x](<my pic.png>)"]);
+		expect(clickableTokenAt(stateOf(doc, 0), 1)).toEqual({ type: "internal-link", text: "Known", from: 0, to: 12 });
 	});
 
 	// A README's badge, [![alt](img)](url), and formatted link text render
