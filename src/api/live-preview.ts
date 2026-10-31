@@ -6,7 +6,7 @@ import type { App } from "./app";
 import { AppResizeObserver } from "./dom";
 import type { Component } from "./events";
 import { setIcon } from "./icons";
-import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, onCodeBlockProcessorsChange, renderMath, resolveHtmlSrc } from "./markdown";
+import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, onCodeBlockProcessorsChange, renderMath, resolveHtmlSrc, toggledTask } from "./markdown";
 import { editorMetadataHost, MetadataEditor, type MetadataEditorHost, metadataEditorOf } from "./metadata-editor";
 import { getLinkpath } from "./metadata-utils";
 import type { TFile } from "./vault";
@@ -436,6 +436,19 @@ function dedent(line: string, indent: string) {
 
 // The title of a foldable callout, which folds it on a click.
 const FOLD_TITLE = ".callout.is-collapsible > .callout-title";
+// A task's box in a rendered callout, which ticks the task in place.
+const TASK_BOX = "input.task-list-item-checkbox";
+
+// Ticks or unticks the task whose box was pressed in a block rendered from
+// the lines starting at `firstLine`: the box's data-line counts from there.
+export function toggleRenderedTask(view: EditorView, firstLine: number, box: HTMLElement) {
+	const doc = view.state.doc;
+	const n = firstLine + Number(box.dataset.line);
+	if (!Number.isInteger(n) || n < 1 || n > doc.lines) return;
+	const line = doc.line(n);
+	const task = toggledTask(line.text);
+	if (task) view.dispatch({ changes: { from: line.from + task.ch, to: line.from + task.ch + 1, insert: task.status }, userEvent: "input" });
+}
 
 // A block rendered with MarkdownRenderer, as the reading view renders it:
 // tables (in .table-wrapper), callouts (.cm-callout > .callout) and HTML
@@ -473,9 +486,15 @@ class RenderedBlockWidget extends WidgetType {
 		else if (this.kind === "callout") {
 			editButton(view, el, (v) => v.posAtDOM(el));
 			// A press on a fold title must not put the caret beside the block,
-			// which would reveal its source; the click then folds it.
+			// which would reveal its source; the click then folds it. A press
+			// on a task's box ticks the task, as in the reading view.
 			el.addEventListener("mousedown", (evt) => {
-				if ((evt.target as HTMLElement).closest(FOLD_TITLE)) evt.preventDefault();
+				const target = evt.target as HTMLElement;
+				if (target.closest(FOLD_TITLE)) evt.preventDefault();
+				const box = evt.button === 0 ? target.closest<HTMLElement>(TASK_BOX) : null;
+				if (!box) return;
+				evt.preventDefault();
+				toggleRenderedTask(view, view.state.doc.lineAt(view.posAtDOM(el)).number, box);
 			});
 		} else el.addEventListener("mousedown", (evt) => this.#editCell(view, el, evt));
 		return el;
@@ -502,10 +521,11 @@ class RenderedBlockWidget extends WidgetType {
 	}
 
 	ignoreEvent(evt: Event) {
-		// Links inside follow and a foldable callout's title folds it; other
-		// clicks reveal the source (tables handle their own clicks).
+		// Links inside follow, a foldable callout's title folds it and a
+		// task's box ticks it; other clicks reveal the source (tables handle
+		// their own clicks).
 		const target = evt.target as HTMLElement;
-		return evt.type === "mousedown" && (this.kind === "table" || !!target.closest?.(`a, [data-href], ${FOLD_TITLE}`));
+		return evt.type === "mousedown" && (this.kind === "table" || !!target.closest?.(`a, [data-href], ${FOLD_TITLE}, ${TASK_BOX}`));
 	}
 }
 

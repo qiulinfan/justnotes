@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { toggledTask } from "../src/api/markdown-preview";
+import { toggledTask } from "../src/api/markdown";
 
 // A checkbox click in the reading view rewrites one character of the task's
 // line; the wrong column would corrupt the note.

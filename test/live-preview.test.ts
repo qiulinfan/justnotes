@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
 import { type Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 import { obsidianMarkdown } from "../src/api/editor-extensions";
-import { clickableTokenAt, editorLivePreviewField, type LivePreviewHost, livePreview, tableCellOffset } from "../src/api/live-preview";
+import { clickableTokenAt, editorLivePreviewField, type LivePreviewHost, livePreview, tableCellOffset, toggleRenderedTask } from "../src/api/live-preview";
+import { renderMarkdownSections } from "../src/api/markdown";
 
 const host = {
 	app: {
@@ -248,5 +249,24 @@ describe("tableCellOffset", () => {
 	test("handles rows without outer pipes and escaped pipes", () => {
 		expect(at("a | b\n--|--\n1 | 2", 1, 1)).toBe("2");
 		expect(at("| a \\| x | b |\n|-|-|", 0, 1)).toBe("b");
+	});
+});
+
+// A press on a task's box in a callout rendered in Live Preview ticks that
+// task in the note, as the reading view does; it once only revealed the
+// callout's source.
+describe("tasks in a rendered callout", () => {
+	test("the box's line, counted from the callout's first line, is the task toggled", () => {
+		const callout = "> [!todo] Tasks\n> - [ ] first\n> - [x] second";
+		const doc = `top\n\n${callout}\n\nend`;
+		const html = renderMarkdownSections(callout).sections.map((s) => s.html).join("");
+		const lines = [...html.matchAll(/<input data-line="(\d+)"/g)].map((m) => m[1]);
+		let state = EditorState.create({ doc });
+		const view = { get state() { return state; }, dispatch: (spec: TransactionSpec) => (state = state.update(spec).state) } as unknown as EditorView;
+		const box = (line: string) => ({ dataset: { line } }) as unknown as HTMLElement;
+		toggleRenderedTask(view, 3, box(lines[1]));
+		expect(state.doc.toString()).toBe("top\n\n> [!todo] Tasks\n> - [ ] first\n> - [ ] second\n\nend");
+		toggleRenderedTask(view, 3, box(lines[0]));
+		expect(state.doc.toString()).toBe("top\n\n> [!todo] Tasks\n> - [x] first\n> - [ ] second\n\nend");
 	});
 });

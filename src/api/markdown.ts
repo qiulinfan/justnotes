@@ -702,6 +702,13 @@ md.renderer.rules.task_checkbox = (tokens, idx, _options, env) => {
 	return `<input data-line="${line - (envOf(env).sectionLine ?? 0)}" class="task-list-item-checkbox" type="checkbox"${task === " " ? "" : " checked"}>`;
 };
 
+// Where a task line ("- [ ] a", "> 1. [x] b") keeps its status and what a
+// click makes it: an open task is done, any other opens again.
+export function toggledTask(line: string): { ch: number; status: string } | null {
+	const m = /^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[)(.)\]/.exec(line);
+	return m ? { ch: m[1].length, status: m[2] === " " ? "x" : " " } : null;
+}
+
 // Obsidian's attributes on block elements: dir="auto", data-heading for
 // heading anchors, data-line on list items (relative to the section).
 md.renderer.rules.paragraph_open = (tokens, idx, options, _env, self) => {
@@ -1590,9 +1597,9 @@ export class MarkdownRenderer extends MarkdownRenderChild {
 		if (line === null || !file) return;
 		this.app.vault.process(file, (data) => {
 			const lines = data.split("\n");
-			const m = /^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[)(.)\]/.exec(lines[line] ?? "");
-			if (!m) return data;
-			lines[line] = m[1] + (m[2] === " " ? "x" : " ") + lines[line].slice(m[1].length + 1);
+			const task = toggledTask(lines[line] ?? "");
+			if (!task) return data;
+			lines[line] = lines[line].slice(0, task.ch) + task.status + lines[line].slice(task.ch + 1);
 			return lines.join("\n");
 		});
 	}
