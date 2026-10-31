@@ -61,7 +61,7 @@ export const DEFAULT_CONFIG: Record<string, unknown> = {
 	showUnsupportedFiles: false,
 	showViewHeader: true,
 	smartIndentList: true,
-	spellcheck: false,
+	spellcheck: true,
 	strictLineBreaks: false,
 	tabSize: 4,
 	textFontFamily: "",

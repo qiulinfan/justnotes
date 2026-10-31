@@ -1,9 +1,10 @@
 import type { App } from "./app";
-import { editorSettings, type PastedImageFormat, setEditorSetting } from "./editor-settings";
+import type { EventRef } from "./events";
 import { setIcon } from "./icons";
 import { ALWAYS_ON, CORE_PLUGIN_INFO, implementedCorePlugins } from "./internal-plugins";
 import type { Hotkey } from "./keymap";
 import { type PluginManifest, SettingTab } from "./plugin";
+import { AppearanceTab, EditorTab, FilesAndLinksTab, GeneralTab } from "./setting-options";
 import { Modal } from "./ui/modal";
 import { SearchComponent, Setting, SettingGroup, type SettingPage } from "./ui/setting";
 import { findPage, openDefinitionPage, refreshTab, renderTab, searchDefinitions, tabUpdated, teardownTab } from "./ui/setting-definitions";
@@ -31,6 +32,7 @@ export class SettingModal extends Modal {
 	searchComponent: SearchComponent;
 	searchResultsEl: HTMLElement;
 	#groupsEl: HTMLElement;
+	#configRef: EventRef | null = null;
 
 	constructor(app: App) {
 		super(app);
@@ -50,7 +52,9 @@ export class SettingModal extends Modal {
 		this.searchResultsEl.hide();
 		this.#groupsEl = this.tabHeadersEl.createDiv("vertical-tab-header-group-container");
 		this.tabContentContainer = this.contentEl.createDiv("vertical-tab-content-container");
-		this.settingTabs = [new EditorTab(app), new HotkeysTab(app), new CorePluginsTab(app), new CommunityPluginsTab(app)];
+		// Obsidian's order: General, Editor, Files and links, Appearance, Hotkeys,
+		// then the plugin pages.
+		this.settingTabs = [new GeneralTab(app), new EditorTab(app), new FilesAndLinksTab(app), new AppearanceTab(app), new HotkeysTab(app), new CorePluginsTab(app), new CommunityPluginsTab(app)];
 		const escape = this.scope.keys.find((h) => h.key === "Escape");
 		if (escape) this.scope.unregister(escape);
 		this.scope.register([], "Escape", () => {
@@ -90,11 +94,24 @@ export class SettingModal extends Modal {
 	}
 
 	onOpen() {
+		// Settings changed on disk (Obsidian, git) show at once; a change made
+		// here (with a key) is already on screen, and redrawing would take the
+		// focus from the field being typed in.
+		this.#configRef = this.app.vault.on("config-changed", (key?: string) => {
+			if (key !== undefined) return;
+			const top = this.pageStack.last();
+			const scroll = this.tabContentContainer.scrollTop;
+			if (top) top.page.display();
+			else if (this.activeTab && this.settingTabs.includes(this.activeTab)) this.#display(this.activeTab);
+			this.tabContentContainer.scrollTop = scroll;
+		});
 		this.#renderNav();
 		this.openTab(this.activeTab ?? this.#find(this.lastTabId) ?? this.settingTabs[0] ?? null);
 	}
 
 	onClose() {
+		if (this.#configRef) this.app.vault.offref(this.#configRef);
+		this.#configRef = null;
 		this.clearPageStack();
 		if (this.activeTab) this.#hideTab(this.activeTab);
 		this.searchComponent.setValue("");
@@ -287,6 +304,8 @@ export class SettingModal extends Modal {
 		this.#groupsEl.toggle(q === "");
 		if (!q) return;
 		let found = 0;
+		// The built-in pages list what is there now (themes, snippets, filters).
+		for (const tab of this.settingTabs) tab.settingItems = tab.getSettingDefinitions();
 		for (const tab of [...this.settingTabs, ...this.pluginTabs]) {
 			const matches = searchDefinitions(tab.settingItems, q);
 			if (tab.name.toLowerCase().includes(q.toLowerCase())) matches.unshift({ name: tab.name, pagePath: [] });
@@ -308,42 +327,6 @@ export class SettingModal extends Modal {
 	#reveal(name: string) {
 		const names = this.tabContentContainer.findAll(".setting-item-name");
 		names.find((el) => el.getText() === name)?.scrollIntoView({ block: "center" });
-	}
-}
-
-// justnotes' own editor settings (editor-settings.ts); Obsidian's editor
-// options stay in app.json, set in Obsidian.
-class EditorTab extends SettingTab {
-	constructor(app: App) {
-		super(app);
-		this.id = "editor";
-		this.name = "Editor";
-		this.icon = "pencil";
-	}
-
-	display() {
-		this.containerEl.empty();
-		const settings = editorSettings(this.app);
-		const group = new SettingGroup(this.containerEl).setHeading("Editor");
-		new Setting(group.listEl)
-			.setName("Selection scroll speed")
-			.setDesc("How fast a note scrolls while you drag a selection past its top or bottom edge, in the editor and the reading view. It speeds up the farther the pointer goes past the edge; 1 is a little faster than Obsidian.")
-			.addSlider((slider) =>
-				slider
-					.setLimits(1, 10, 1)
-					.setValue(settings.selectionScrollSpeed)
-					.setInstant(true)
-					.onChange((value) => setEditorSetting(this.app, "selectionScrollSpeed", value)),
-			);
-		new Setting(group.listEl)
-			.setName("Pasted and dropped images as")
-			.setDesc("How an image pasted or dropped into a note is written: an HTML <img> with a zoom style, as Typora writes it, a wikilink embed, or a Markdown image link.")
-			.addDropdown((dropdown) =>
-				dropdown
-					.addOptions({ html: "HTML img", wikilink: "Wikilink embed", markdown: "Markdown link" })
-					.setValue(settings.pastedImageFormat)
-					.onChange((value) => setEditorSetting(this.app, "pastedImageFormat", value as PastedImageFormat)),
-			);
 	}
 }
 

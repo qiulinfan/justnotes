@@ -361,8 +361,8 @@
 .markdown-source-view.mod-cm6 .cm-indent::before {
 	content: "";
 	position: absolute;
-	top: -0.3em;
-	bottom: -0.3em;
+	top: -0.18em;
+	bottom: -0.18em;
 	inset-inline-start: 0.3em;
 	border-inline-start: var(--indentation-guide-width) solid var(--indentation-guide-color);
 }

@@ -7,30 +7,8 @@
 import { webFrame } from "electron";
 import type { App } from "../api/app";
 import { onWindowAdded } from "../api/dom";
+import { clampFontSize, fontFamilyList, storeZoom, ZOOM_MAX, ZOOM_MIN } from "../api/setting-options";
 import { Notice } from "../api/ui/notice";
-
-export const FONT_SIZE_MIN = 10;
-export const FONT_SIZE_MAX = 30;
-export const ZOOM_MIN = 0.5;
-export const ZOOM_MAX = 3;
-
-const GENERIC_FAMILIES = new Set(["serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui", "ui-serif", "ui-sans-serif", "ui-monospace", "ui-rounded", "emoji", "math", "fangsong"]);
-
-// A font setting ("Inter" or "Inter, Arial") as a CSS font-family list;
-// empty when unset. Names are quoted, generic families are not.
-export function fontFamilyList(value: unknown): string {
-	if (typeof value !== "string") return "";
-	return value
-		.split(",")
-		.map((name) => name.trim().replace(/^["']|["']$/g, ""))
-		.filter(Boolean)
-		.map((name) => (GENERIC_FAMILIES.has(name.toLowerCase()) ? name : `"${name.replace(/["\\]/g, "\\$&")}"`))
-		.join(", ");
-}
-
-export function clampFontSize(size: number) {
-	return Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(size)));
-}
 
 // The base theme follows "theme": "obsidian" is dark, "moonstone" light and
 // "system" follows the OS. A set accentColor replaces the theme's accent.
@@ -105,23 +83,6 @@ function installQuickFontSize(app: App) {
 	const install = (win: Window) => win.addEventListener("wheel", onWheel, { passive: false });
 	install(window);
 	onWindowAdded(install);
-}
-
-export function getZoomFactor() {
-	return webFrame.getZoomFactor();
-}
-
-export function setZoomFactor(factor: number) {
-	const value = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, factor));
-	webFrame.setZoomFactor(value);
-	storeZoom(value);
-}
-
-function storeZoom(value: number) {
-	try {
-		if (Math.abs(value - 1) < 0.001) localStorage.removeItem("zoom-factor");
-		else localStorage.setItem("zoom-factor", String(value));
-	} catch {}
 }
 
 // The saved zoom applies at boot; a zoom from the View menu (or a shortcut)

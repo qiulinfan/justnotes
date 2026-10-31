@@ -7,6 +7,8 @@ import { getIndentUnit, syntaxTree } from "@codemirror/language";
 import { EditorSelection, type Extension, Prec, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import type { App } from "./app";
+import { getElectron } from "./dom";
+import type { Menu } from "./ui/menu";
 
 export interface EditorOptions {
 	lineNumbers: boolean;
@@ -26,7 +28,7 @@ export function editorOptions(app: App): EditorOptions {
 		autoPairBrackets: notOff("autoPairBrackets"),
 		autoPairMarkdown: notOff("autoPairMarkdown"),
 		smartLists: notOff("smartIndentList"),
-		spellcheck: on("spellcheck"),
+		spellcheck: notOff("spellcheck"),
 		rightToLeft: on("rightToLeft"),
 		indentGuides: notOff("showIndentGuide"),
 	};
@@ -124,3 +126,33 @@ const indentGuides = ViewPlugin.fromClass(
 	},
 	{ decorations: (plugin) => plugin.decorations },
 );
+
+// With Spellcheck on, a right-click on a misspelled word offers Chromium's
+// suggestions and adding the word to the dictionary (the editor's menu is
+// justnotes' own, so Electron's context-menu event never sees it).
+export function addSpellingItems(app: App, menu: Menu, cm: EditorView, evt: MouseEvent) {
+	if (app.vault.getConfig("spellcheck") === false) return;
+	const pos = cm.posAtCoords({ x: evt.clientX, y: evt.clientY });
+	const range = pos === null ? null : cm.state.wordAt(pos);
+	if (!range) return;
+	const word = cm.state.sliceDoc(range.from, range.to);
+	const electron = getElectron();
+	if (!electron.webFrame?.isWordMisspelled(word)) return;
+	const suggestions: string[] = electron.webFrame.getWordSuggestions(word).slice(0, 5);
+	for (const suggestion of suggestions) {
+		menu.addItem((item) =>
+			item
+				.setTitle(suggestion)
+				.setSection("spellcheck")
+				.onClick(() => cm.dispatch({ changes: { from: range.from, to: range.to, insert: suggestion }, userEvent: "input.complete" })),
+		);
+	}
+	if (!suggestions.length) menu.addItem((item) => item.setTitle("No suggestions").setSection("spellcheck").setDisabled(true));
+	menu.addItem((item) =>
+		item
+			.setTitle("Add to dictionary")
+			.setIcon("book-plus")
+			.setSection("spellcheck")
+			.onClick(() => electron.remote.getCurrentWebContents().session.addWordToSpellCheckerDictionary(word)),
+	);
+}
