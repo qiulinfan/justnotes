@@ -31,8 +31,15 @@ function instance() {
 	return purify;
 }
 
+// justnotes: sanitizeHTMLToDom with a hook that may edit the fragment while
+// it is still inert, before images in it start loading.
+export function sanitizeHTML(html: string, prepare?: (fragment: DocumentFragment) => void): DocumentFragment {
+	const fragment = instance().sanitize(html, CONFIG);
+	prepare?.(fragment);
+	// Adopted, the fragment belongs to the page like any node a plugin creates.
+	return document.adoptNode(fragment);
+}
+
 export function sanitizeHTMLToDom(html: string): DocumentFragment {
-	// DOMPurify builds the fragment in an inert document; adopt it so it belongs
-	// to the page like any other node a plugin creates.
-	return document.adoptNode(instance().sanitize(html, CONFIG));
+	return sanitizeHTML(html);
 }

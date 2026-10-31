@@ -4,7 +4,7 @@ import { Component } from "./events";
 import { setIcon } from "./icons";
 import { Keymap } from "./keymap";
 import { getLinkpath, parseLinktext, stripHeading } from "./metadata-utils";
-import { sanitizeHTMLToDom } from "./sanitize";
+import { sanitizeHTML } from "./sanitize";
 import { Menu } from "./ui/menu";
 import { parseYaml } from "./util";
 import type { TFile } from "./vault";
@@ -987,9 +987,21 @@ function calloutIcon(callout: HTMLElement) {
 	return fromCss || CALLOUT_ICONS[callout.dataset.callout ?? ""] || CALLOUT_ICONS.note;
 }
 
+// Sanitized HTML for the page. Raw HTML may point at vault files relative to
+// the note; those sources become resource URLs before anything loads.
+function toDom(html: string, app: App, sourcePath: string) {
+	return sanitizeHTML(html, (fragment) => {
+		for (const el of Array.from(fragment.querySelectorAll("img[src], video[src], audio[src], source[src], iframe[src]"))) {
+			const src = el.getAttribute("src")!;
+			if (SCHEME.test(src) || src.startsWith("/") || src.startsWith("#")) continue;
+			const file = app.metadataCache.getFirstLinkpathDest(decodeLink(src), sourcePath);
+			if (file) el.setAttribute("src", app.vault.getResourcePath(file));
+		}
+	});
+}
+
 // Fills what the sanitized HTML leaves as placeholders in `root`: math,
-// callout icons, local media sources and embeds (whose loading joins
-// job.promises).
+// callout icons and embeds (whose loading joins job.promises).
 function enhance(root: HTMLElement, job: RenderJob) {
 	for (const el of root.findAllSelf(".math[data-tex]")) {
 		const tex = el.getAttribute("data-tex") ?? "";
@@ -1002,13 +1014,6 @@ function enhance(root: HTMLElement, job: RenderJob) {
 		if (icon && !icon.firstChild) setIcon(icon, calloutIcon(callout));
 		const fold = callout.find(":scope > .callout-title > .callout-fold") as HTMLElement | null;
 		if (fold && !fold.firstChild) setIcon(fold, "lucide-chevron-down");
-	}
-	// Raw HTML may point at vault files relative to the note.
-	for (const el of root.findAllSelf("img[src], video[src], audio[src], source[src], iframe[src]")) {
-		const src = el.getAttribute("src")!;
-		if (SCHEME.test(src) || src.startsWith("/") || src.startsWith("#") || el.closest(".internal-embed")) continue;
-		const file = job.app.metadataCache.getFirstLinkpathDest(decodeLink(src), job.sourcePath);
-		if (file) el.setAttribute("src", job.app.vault.getResourcePath(file));
 	}
 	for (const embed of root.findAllSelf("span.internal-embed:not(.is-loaded)") as HTMLElement[]) {
 		job.promises.push(loadEmbed(embed, job).catch((err) => console.error(err)));
@@ -1427,7 +1432,7 @@ async function renderStatic(app: App, markdown: string, el: HTMLElement, sourceP
 	const added: HTMLElement[] = [];
 	for (const section of toSections(markdown, tokens, env, breaksFor(app))) {
 		if (!section.html) continue;
-		const frag = sanitizeHTMLToDom(section.html);
+		const frag = toDom(section.html, app, sourcePath);
 		const info = { text: markdown, lineStart: section.lineStart, lineEnd: section.lineEnd };
 		for (const node of Array.from(frag.children) as HTMLElement[]) {
 			sectionInfo.set(node, info);
@@ -1603,7 +1608,7 @@ export class MarkdownPreviewRenderer {
 		const component = this.owner.addChild(new Component());
 		const info = { text, lineStart: section.lineStart, lineEnd: section.lineEnd };
 		if (!section.html) return { ...section, el: null, info, component };
-		const frag = sanitizeHTMLToDom(section.html);
+		const frag = toDom(section.html, this.owner.app, this.sourcePath);
 		const first = frag.firstElementChild;
 		const el = createDiv(first?.hasClass("frontmatter") ? "el-pre mod-frontmatter mod-ui" : `el-${first?.tagName.toLowerCase() ?? "div"}`);
 		el.appendChild(frag);
