@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseMetadata } from "../src/api/metadata";
 import { moment } from "../src/api/util";
 import { dailyNoteDate, dailyNotePath } from "../src/renderer/daily-notes";
-import { findMentions, headingTree, mentionSkips } from "../src/renderer/link-panes";
+import { findMentions, headingAt, headingTree, mentionSkips, outlineMatches } from "../src/renderer/link-panes";
 import { fillTemplate, templateEdits } from "../src/renderer/templates";
 import { countWords } from "../src/renderer/word-count";
 
@@ -43,6 +43,19 @@ describe("outline", () => {
 		const cache = parseMetadata(["# A", "### A.1", "## A.2", "#### A.2.1", "# B"].join("\n"));
 		const shape = (nodes: ReturnType<typeof headingTree>): unknown[] => nodes.map((n) => (n.children.length ? [n.heading.heading, shape(n.children)] : n.heading.heading));
 		expect(shape(headingTree(cache.headings ?? []))).toEqual([["A", ["A.1", ["A.2", ["A.2.1"]]]], "B"]);
+	});
+
+	test("the cursor is under the last heading at or above its line; above the first, under none", () => {
+		const headings = parseMetadata(["intro", "# A", "text", "## B", "# C"].join("\n")).headings ?? [];
+		expect([0, 1, 2, 3, 4].map((line) => headingAt(headings, line))).toEqual([-1, 0, 0, 1, 2]);
+	});
+
+	test("a search keeps matching headings and the headings above them, ignoring case", () => {
+		const roots = headingTree(parseMetadata(["# Limits", "## Squeeze", "## Uniqueness", "# Series", "## Limit tests"].join("\n")).headings ?? []);
+		const shown = outlineMatches(roots, "LIMIT");
+		const names = (nodes: typeof roots): string[] => nodes.flatMap((n) => [...(shown?.has(n) ? [n.heading.heading] : []), ...names(n.children)]);
+		expect(names(roots)).toEqual(["Limits", "Series", "Limit tests"]);
+		expect(outlineMatches(roots, "  ")).toBeNull();
 	});
 });
 
