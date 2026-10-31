@@ -4,8 +4,8 @@ import { Keymap } from "../api/keymap";
 import { Menu } from "../api/ui/menu";
 import { Modal } from "../api/ui/modal";
 import { Notice } from "../api/ui/notice";
-import { FuzzySuggestModal } from "../api/ui/suggest";
-import { debounce } from "../api/util";
+import { type FuzzyMatch, FuzzySuggestModal } from "../api/ui/suggest";
+import { debounce, prepareFuzzySearch } from "../api/util";
 import { type TAbstractFile, TFile, TFolder } from "../api/vault";
 import { ItemView } from "../api/view";
 import type { WorkspaceLeaf } from "../api/workspace";
@@ -376,6 +376,33 @@ export class QuickSwitcher extends FuzzySuggestModal<TFile> {
 
 	getItemText(file: TFile) {
 		return file.extension === "md" ? file.path.slice(0, -3) : file.path;
+	}
+
+	// Files whose name holds the query (spaces aside) rank above the rest,
+	// which match by their whole path as before: "resnet" finds 00-resnet before
+	// a long path that happens to hold its letters, while a folder's name still
+	// finds the files in it rather than names with its letters scattered. The
+	// highlights stay on the whole path.
+	getSuggestions(query: string) {
+		const search = prepareFuzzySearch(query.trim());
+		const typed = query.toLowerCase().replace(/\s+/g, "");
+		const byName: FuzzyMatch<TFile>[] = [];
+		const byPath: FuzzyMatch<TFile>[] = [];
+		for (const file of this.getItems()) {
+			const text = this.getItemText(file);
+			const name = file.extension === "md" ? file.basename : file.name;
+			const inName = name.toLowerCase().replace(/\s+/g, "").includes(typed) ? search(name) : null;
+			if (inName) {
+				const start = text.length - name.length;
+				const matches = inName.matches.map(([from, to]): [number, number] => [from + start, to + start]);
+				byName.push({ item: file, match: { score: inName.score, matches } });
+			} else {
+				const match = search(text);
+				if (match) byPath.push({ item: file, match });
+			}
+		}
+		if (typed) for (const list of [byName, byPath]) list.sort((a, b) => b.match.score - a.match.score);
+		return [...byName, ...byPath];
 	}
 
 	onChooseItem(file: TFile, evt: MouseEvent | KeyboardEvent) {
