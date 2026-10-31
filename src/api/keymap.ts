@@ -315,6 +315,17 @@ interface EditorContext {
 	getMode?: () => string;
 }
 
+// A key typed in a text field other than the active editor (a sidebar view's
+// input, a settings field, another editor) belongs to that field, so editor
+// commands do not take it to the note. A command chosen in the palette is not
+// such a key: the palette has closed and given focus back by then.
+function keyInOtherField(evt: Event | undefined, activeEditor: EditorContext | null) {
+	if (evt?.type !== "keydown") return false;
+	const el = evt.target as HTMLElement | null;
+	if (!el || el !== el.ownerDocument?.activeElement || el === activeEditor?.editor?.cm?.contentDOM) return false;
+	return el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA";
+}
+
 // Runs (or, when checking, only tests) a command with Obsidian's precedence:
 // editorCheckCallback over editorCallback over checkCallback over callback.
 // Editor callbacks need an active editor that is shown, so not one in reading
@@ -375,10 +386,14 @@ export class Commands {
 		}
 	}
 
+	// `evt` is what triggered the command. Plugins that run hotkeys themselves
+	// (Completr) pass none; the key being handled is then window.event.
 	executeCommand(cmd: Command, evt?: Event) {
 		if (evt) this.app.lastEvent = evt as UIEvent;
 		try {
 			const editor = this.app.workspace.activeEditor;
+			const trigger = evt ?? (globalThis as { event?: Event }).event;
+			if ((cmd.editorCallback || cmd.editorCheckCallback) && keyInOtherField(trigger, editor)) return false;
 			if (!runCommand(cmd, true, editor)) return false;
 			runCommand(cmd, false, editor);
 			return true;
