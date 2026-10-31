@@ -1,9 +1,12 @@
-// Bases in the app: the view for .base files and the Bases commands.
+// Bases in the app: the view for .base files, ```base blocks, ![[x.base]]
+// embeds and the Bases commands.
 import type { App } from "../api/app";
 import { QueryController } from "../api/bases/controller";
+import { renderBaseBlock, renderBaseEmbeds } from "../api/bases/embed";
 import { loadPropertyTypes } from "../api/bases/frontmatter";
 import { TABLE_VIEW } from "../api/bases/table-view";
 import { registerBasesViewType } from "../api/bases/view";
+import { MarkdownPreviewRenderer } from "../api/markdown";
 import type { Menu } from "../api/ui/menu";
 import { type TAbstractFile, type TFile, TFolder } from "../api/vault";
 import { FileView, TextFileView } from "../api/view";
@@ -133,6 +136,8 @@ export function installBases(app: App) {
 	registerBasesViewType("table", TABLE_VIEW);
 	app.viewRegistry.registerView("bases", (leaf) => new BasesFileView(leaf));
 	app.viewRegistry.registerExtensions(["base"], "bases");
+	MarkdownPreviewRenderer.registerCodeBlockPostProcessor("base", (source, el, ctx) => renderBaseBlock(app, source, el, ctx));
+	MarkdownPreviewRenderer.registerPostProcessor((el, ctx) => renderBaseEmbeds(app, el, ctx));
 	app.workspace.hoverLinkSources.bases = { display: "Bases", defaultMod: true };
 	app.commands.addCommand({ id: "bases:new-file", name: "Bases: Create new base", icon: "table", callback: () => createBase(app) });
 	app.commands.addCommand({
