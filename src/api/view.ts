@@ -450,7 +450,7 @@ const textLines = (text: string) => text.split("\n").filter((line) => line.trim(
 // again) passes when the text the write replaced is that version with lines
 // removed or emptied; the write's own edits, changed and added lines
 // included, then survive it.
-function mergeBase(doc: TextDoc, text: string) {
+function mergeBase(doc: TextDoc, text: string, merge: TextMerge["merge"]) {
 	const prior = doc.prior;
 	if (!prior || Date.now() - prior.at > 1000 || !addsLines(prior.text, text) || doc.seen.has(digest(text))) return doc.base;
 	// Made from the written text: it holds every line of it. But a change that
@@ -461,8 +461,28 @@ function mergeBase(doc: TextDoc, text: string) {
 	// appended right after a write that removed the final newline comes out
 	// without its own.
 	if (addsLines(doc.base, text) && addsLines(textLines(prior.text), doc.base) && !addsLines(doc.base, prior.text)) return doc.base;
-	const kept = mergeText(prior.text, doc.base, text);
+	const kept = merge(prior.text, doc.base, text);
 	return !kept.conflicts && kept.text !== text ? prior.text : doc.base;
+}
+
+// How a view's unsaved edits and a change on disk merge, and what a conflict
+// tells the user. Text merges line by line; a view whose text is structured
+// data (a canvas's JSON) registers its own merge with mergeWith, so the
+// result is still valid data.
+export interface TextMerge {
+	merge(base: string, ours: string, theirs: string): { text: string; conflicts: number };
+	conflictNotice(fileName: string): string;
+}
+
+const lineMerge: TextMerge = {
+	merge: (base, ours, theirs) => mergeText(base, ours, theirs),
+	conflictNotice: (name) => `${name} changed on disk while it had unsaved edits. Lines changed on both sides now appear twice: the file's version, then yours.`,
+};
+
+const merges = new WeakMap<TextFileView, TextMerge>();
+
+export function mergeWith(view: TextFileView, merge: TextMerge) {
+	merges.set(view, merge);
 }
 
 // A text file view keeps its own text (getViewData), `data` (Obsidian's
@@ -657,8 +677,9 @@ export abstract class TextFileView extends EditableFileView {
 	// result has edits the file lacks, which the caller saves.
 	#takeIn(doc: TextDoc, text: string) {
 		const ours = this.getViewData();
-		const base = mergeBase(doc, text);
-		const merge = mergeText(base, ours, text);
+		const merger = merges.get(this) ?? lineMerge;
+		const base = mergeBase(doc, text, merger.merge);
+		const merge = merger.merge(base, ours, text);
 		doc.keptCapture = merge.text !== text && (doc.keptCapture || base !== doc.base);
 		setBase(doc, text);
 		doc.prior = undefined;
@@ -671,9 +692,7 @@ export abstract class TextFileView extends EditableFileView {
 			view.requestSave.cancel();
 			view.dirty = false;
 		}
-		if (merge.conflicts) {
-			new Notice(`${doc.file.name} changed on disk while it had unsaved edits. Lines changed on both sides now appear twice: the file's version, then yours.`, 10000);
-		}
+		if (merge.conflicts) new Notice(merger.conflictNotice(doc.file.name), 10000);
 		return merge.text !== text;
 	}
 
@@ -695,7 +714,8 @@ export abstract class TextFileView extends EditableFileView {
 				if (isMissing(err)) return;
 				throw err;
 			}
-			if (disk !== doc.base) data = mergeText(mergeBase(doc, disk), data, disk).text;
+			const merge = (merges.get(this) ?? lineMerge).merge;
+			if (disk !== doc.base) data = merge(mergeBase(doc, disk, merge), data, disk).text;
 		}
 		this.requestSave.cancel();
 		this.dirty = false;
