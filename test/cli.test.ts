@@ -178,6 +178,20 @@ describe("command-line socket", () => {
 		}
 	});
 
+	// A profile deleted while the app runs (a test instance's, say) made the
+	// quit throw an uncaught ENOENT from chdir into the socket's folder.
+	test("quitting after the profile's socket folder is gone still closes the server", async () => {
+		const deep = path.join(scratch, "g".repeat(60), "h".repeat(60));
+		fs.mkdirSync(deep, { recursive: true });
+		const address = cliAddress(deep);
+		const server = await serveCli(address, echo);
+		fs.rmSync(deep, { recursive: true, force: true });
+		const cwd = process.cwd();
+		expect(() => closeCli(server!, address)).not.toThrow();
+		expect(process.cwd()).toBe(cwd);
+		expect(server!.listening).toBe(false);
+	});
+
 	test("a second instance leaves a live socket alone; a dead one's socket file is replaced", async () => {
 		const profile = fs.mkdtempSync(path.join(scratch, "p-"));
 		const address = cliAddress(profile);

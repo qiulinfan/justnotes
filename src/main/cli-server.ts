@@ -36,7 +36,14 @@ export async function serveCli(address: CliAddress, dispatch: (req: CliRequest) 
 // Closes the server and removes its socket file. libuv removes the file by
 // the name it was bound with, which for a long path is relative to its folder.
 export function closeCli(server: net.Server, address: CliAddress) {
-	inSocketDir(address, () => server.close());
+	try {
+		inSocketDir(address, () => server.close());
+	} catch (err) {
+		// The socket's folder is gone (a profile deleted while the app ran), and
+		// its socket file with it: the server still has to close.
+		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+		server.close();
+	}
 	if (address.dir) fs.rmSync(address.path, { force: true });
 }
 
