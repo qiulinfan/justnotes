@@ -689,7 +689,8 @@ plain style. Development notes belong in this file.
   parse to a map shows "Invalid properties", which opens the YAML.
   `fileManager.processFrontMatter` (QuickAdd, Bases cells) applies what its
   callback changed the same way, property by property, and throws on YAML
-  that is not a map rather than replacing it.
+  that is not a map rather than replacing it. A Bases cell edit it refuses
+  (`writeCell`) shows the reason in a Notice and puts the cell back.
 
 ## Live Preview and math
 
