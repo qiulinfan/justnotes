@@ -1,7 +1,26 @@
 import * as nodePath from "node:path";
+import * as YAML from "yaml";
 import type { App } from "./app";
-import { normalizePath, parseYaml, stringifyYaml } from "./util";
-import type { TAbstractFile, TFile, TFolder } from "./vault";
+import { parseMetadata, type Reference, type ReferenceCache } from "./metadata";
+import { getLinkpath, locateFrontMatter, parseLinktext } from "./metadata-utils";
+import { Modal } from "./ui/modal";
+import { normalizePath } from "./util";
+import { type DataWriteOptions, type TAbstractFile, TFile, TFolder, Vault } from "./vault";
+
+// Markdown link destinations: spaces and '#' in a path must be encoded; a
+// block subpath keeps its '^' readable.
+const encodePath = (path: string) => encodeURI(path).replace(/#/g, "%23");
+const encodeSubpath = (subpath: string) => encodeURI(subpath).replace(/%5E/g, "^");
+
+// Takes the ref written as `original` nearest to `offset` out of `refs`.
+function claim(refs: ReferenceCache[], original: string, offset: number) {
+	let best = -1;
+	const distance = (i: number) => Math.abs(refs[i].position.start.offset - offset);
+	for (let i = 0; i < refs.length; i++) {
+		if (refs[i].original === original && (best < 0 || distance(i) < distance(best))) best = i;
+	}
+	return best < 0 ? null : refs.splice(best, 1)[0];
+}
 
 export class FileManager {
 	app: App;
@@ -10,68 +29,240 @@ export class FileManager {
 		this.app = app;
 	}
 
-	getNewFileParent(_sourcePath: string, _newFilePath?: string): TFolder {
-		const location = this.app.vault.getConfig("newFileLocation");
-		const folder = this.app.vault.getConfig("newFileFolderPath");
-		if (location === "folder" && folder) return this.app.vault.getFolderByPath(folder) ?? this.app.vault.getRoot();
-		if (location === "current") {
-			const active = this.app.workspace.getActiveFile();
-			if (active?.parent) return active.parent;
-		}
-		return this.app.vault.getRoot();
+	// newFileLocation: 'root' (default), 'current' (the folder of sourcePath; an
+	// empty sourcePath means no active file) or 'folder' (newFileFolderPath).
+	// A non-Markdown newFilePath goes to the attachment folder when it exists.
+	getNewFileParent(sourcePath: string, newFilePath?: string): TFolder {
+		const vault = this.app.vault;
+		const root = vault.getRoot();
+		if (newFilePath && !/\.md$/i.test(newFilePath)) return this.#folder(this.#attachmentDir(sourcePath)) ?? root;
+		const location = vault.getConfig("newFileLocation");
+		if (location === "current") return vault.getAbstractFileByPath(sourcePath || "/")?.parent ?? root;
+		if (location === "folder") return this.#folder(vault.getConfig("newFileFolderPath") || "/") ?? root;
+		return root;
+	}
+
+	// A configured folder may differ in case from the one on a case-insensitive disk.
+	#find(path: string) {
+		const vault = this.app.vault;
+		return vault.adapter.insensitive ? vault.getAbstractFileByPathInsensitive(path) : vault.getAbstractFileByPath(path);
+	}
+
+	#folder(path: string) {
+		const found = this.#find(path);
+		return found instanceof TFolder ? found : null;
 	}
 
 	async createNewMarkdownFile(folder: TFolder, name = "Untitled", content = "") {
 		const base = folder.isRoot() ? "" : `${folder.path}/`;
-		let path = `${base}${name}.md`;
-		for (let i = 1; this.app.vault.getAbstractFileByPath(path); i++) path = `${base}${name} ${i}.md`;
-		return this.app.vault.create(path, content);
+		return this.app.vault.create(this.app.vault.getAvailablePath(`${base}${name}`, "md"), content);
 	}
 
 	async createNewMarkdownFileFromLinktext(linktext: string, sourcePath: string) {
 		const parent = this.getNewFileParent(sourcePath);
 		const dir = nodePath.posix.dirname(linktext);
 		const folderPath = dir === "." ? parent.path : normalizePath(`${parent.isRoot() ? "" : parent.path}/${dir}`);
-		const folder = this.app.vault.getFolderByPath(folderPath) ?? (await this.app.vault.createFolder(folderPath));
+		const folder = this.#folder(folderPath) ?? (await this.app.vault.createFolder(folderPath));
 		return this.createNewMarkdownFile(folder, nodePath.posix.basename(linktext));
 	}
 
+	// Moves the file or folder, then rewrites every link that no longer
+	// reaches its target: links to the moved files, and the moved notes' own
+	// links that depended on their old folder. Each link keeps its style,
+	// subpath and alias. With alwaysUpdateLinks off the user is asked first.
+	// The links come from the metadata cache, so it must have read every
+	// earlier write first, such as the notes a previous rename rewrote.
 	async renameFile(file: TAbstractFile, newPath: string) {
-		await this.app.vault.rename(file, newPath);
-	}
+		const vault = this.app.vault;
+		const cache = this.app.metadataCache;
+		newPath = normalizePath(newPath);
+		if (newPath === file.path) return;
+		await this.#cacheClean();
+		const moved: TFile[] = [];
+		if (file instanceof TFolder) Vault.recurseChildren(file, (f) => f instanceof TFile && moved.push(f));
+		else if (file instanceof TFile) moved.push(file);
 
-	async trashFile(file: TAbstractFile) {
-		await this.app.vault.trash(file, this.app.vault.getConfig("trashOption") !== "local");
-	}
-
-	generateMarkdownLink(file: TFile, sourcePath: string, subpath = "", alias?: string) {
-		const linktext = this.app.metadataCache.fileToLinktext(file, sourcePath, true) + subpath;
-		if (this.app.vault.getConfig("useMarkdownLinks")) {
-			return `[${alias ?? file.basename}](${encodeURI(linktext)}${file.extension === "md" && !linktext.endsWith(".md") ? ".md" : ""})`;
+		const candidates: { source: TFile; ref: Reference; target: TFile }[] = [];
+		for (const target of moved) {
+			for (const [path, refs] of cache.getBacklinksForFile(target).data) {
+				const source = vault.getFileByPath(path);
+				if (source) for (const ref of refs) candidates.push({ source, ref, target });
+			}
 		}
-		return alias ? `[[${linktext}|${alias}]]` : `[[${linktext}]]`;
+		for (const source of moved) {
+			const own = cache.getFileCache(source);
+			for (const ref of [...(own?.links ?? []), ...(own?.embeds ?? []), ...(own?.frontmatterLinks ?? [])]) {
+				const target = cache.getFirstLinkpathDest(getLinkpath(ref.link), source.path);
+				if (target) candidates.push({ source, ref, target });
+			}
+		}
+
+		await vault.rename(file, newPath);
+
+		const edits = new Map<TFile, Map<Reference, TFile>>();
+		let count = 0;
+		for (const { source, ref, target } of candidates) {
+			if (cache.getFirstLinkpathDest(getLinkpath(ref.link), source.path) === target) continue;
+			let refs = edits.get(source);
+			if (!refs) edits.set(source, (refs = new Map()));
+			if (!refs.has(ref)) count++;
+			refs.set(ref, target);
+		}
+		if (edits.size && (vault.getConfig("alwaysUpdateLinks") || (await this.#confirmUpdate(edits.size, count)))) {
+			for (const [source, refs] of edits) await this.#rewrite(source, refs);
+		}
+		await this.#cacheClean();
 	}
 
-	async processFrontMatter(file: TFile, fn: (frontmatter: any) => void) {
-		await this.app.vault.process(file, (text) => {
-			const m = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/.exec(text);
-			const data = (m ? parseYaml(m[1]) : null) ?? {};
-			fn(data);
-			const yaml = Object.keys(data).length ? `---\n${stringifyYaml(data)}---\n` : "";
-			return m ? yaml + text.slice(m[0].length) : yaml + text;
+	// Before its first index the cache has nothing to catch up with.
+	#cacheClean() {
+		const cache = this.app.metadataCache;
+		return cache.resolved ? new Promise<void>((resolve) => cache.onCleanCache(resolve)) : Promise.resolve();
+	}
+
+	#confirmUpdate(files: number, links: number) {
+		const notes = files === 1 ? "1 file" : `${files} files`;
+		return this.#confirm("Update links", `Update ${links === 1 ? "1 link" : `${links} links`} in ${notes} to the new location?`, "Update");
+	}
+
+	// Splices each new link over the old one, last first so offsets hold.
+	// Each link is looked up again in the current text, among the links
+	// written the same way, nearest its cached place: the note may have been
+	// edited since it was indexed.
+	async #rewrite(source: TFile, refs: Map<Reference, TFile>) {
+		await this.app.vault.process(source, (text) => {
+			const fm = locateFrontMatter(text);
+			const current = parseMetadata(text);
+			const unclaimed = [...(current.links ?? []), ...(current.embeds ?? [])];
+			const splices = new Map<number, { to: number; text: string }>();
+			for (const [ref, target] of refs) {
+				const replacement = this.#relink(ref, target, source.path);
+				const position = (ref as ReferenceCache).position;
+				if (position) {
+					const found = claim(unclaimed, ref.original, position.start.offset);
+					if (found) splices.set(found.position.start.offset, { to: found.position.end.offset, text: replacement });
+				} else if (fm) {
+					for (let at = text.indexOf(ref.original, fm.from); at >= 0 && at < fm.to; at = text.indexOf(ref.original, at + 1)) {
+						splices.set(at, { to: at + ref.original.length, text: replacement });
+					}
+				}
+			}
+			let out = text;
+			for (const [from, { to, text: replacement }] of [...splices].sort((a, b) => b[0] - a[0])) out = out.slice(0, from) + replacement + out.slice(to);
+			return out;
 		});
 	}
 
+	#relink(ref: Reference, target: TFile, sourcePath: string) {
+		const cache = this.app.metadataCache;
+		const { path, subpath } = parseLinktext(ref.link);
+		const keepMd = /\.md$/i.test(path);
+		const original = ref.original;
+		const embed = original.startsWith("!") ? "!" : "";
+		if (original.startsWith(`${embed}[[`)) {
+			const inner = original.slice(embed.length + 2, -2);
+			const pipe = inner.search(/\\?\|/);
+			const alias = pipe >= 0 ? inner.slice(pipe) : "";
+			return `${embed}[[${cache.fileToLinktext(target, sourcePath, !keepMd)}${subpath}${alias}]]`;
+		}
+		const m = /^(!?\[(?:[^[\]]|\[[^[\]]*\])*\]\(\s*)(<[^<>]*>|(?:[^\s()]|\([^\s()]*\))*)([\s\S]*)$/.exec(original);
+		if (!m) return original;
+		const linkpath = cache.fileToLinktext(target, sourcePath, !keepMd && target.extension === "md");
+		const dest = m[2].startsWith("<") ? `<${linkpath}${subpath}>` : encodePath(linkpath) + encodeSubpath(subpath);
+		return m[1] + dest + m[3];
+	}
+
+	#confirm(title: string, message: string, action: string, warning = false) {
+		return new Promise<boolean>((resolve) => {
+			const modal = new Modal(this.app);
+			let answer = false;
+			modal.setTitle(title);
+			modal.contentEl.createEl("p", { text: message });
+			const buttons = modal.contentEl.createDiv("modal-button-container");
+			const confirm = buttons.createEl("button", { text: action, cls: warning ? "mod-warning" : "mod-cta" });
+			confirm.addEventListener("click", () => {
+				answer = true;
+				modal.close();
+			});
+			buttons.createEl("button", { text: "Cancel" }).addEventListener("click", () => modal.close());
+			modal.onClose = () => resolve(answer);
+			modal.open();
+		});
+	}
+
+	// promptDelete (on by default) asks first; trashOption decides where it goes.
+	async promptForDeletion(file: TAbstractFile) {
+		if (this.app.vault.getConfig("promptDelete") !== false) {
+			const ok = await this.#confirm("Delete", `Are you sure you want to delete "${file.name}"?`, "Delete", true);
+			if (!ok) return false;
+		}
+		await this.trashFile(file);
+		return true;
+	}
+
+	// trashOption: 'system' (default) uses the OS trash, falling back to the
+	// vault's .trash; 'local' uses .trash; 'none' deletes permanently.
+	async trashFile(file: TAbstractFile) {
+		const option = this.app.vault.getConfig("trashOption");
+		if (option === "none") await this.app.vault.delete(file, true);
+		else await this.app.vault.trash(file, option !== "local");
+	}
+
+	// The link text follows useMarkdownLinks and newLinkFormat; a non-Markdown
+	// file is linked as an embed. An empty alias means the file name.
+	generateMarkdownLink(file: TFile, sourcePath: string, subpath = "", alias?: string) {
+		const cache = this.app.metadataCache;
+		const md = file.extension === "md";
+		const embed = md ? "" : "!";
+		if (this.app.vault.getConfig("useMarkdownLinks")) {
+			const text = alias || (md ? file.basename : "");
+			return `${embed}[${text}](${encodePath(cache.fileToLinktext(file, sourcePath, false))}${encodeSubpath(subpath)})`;
+		}
+		return `${embed}[[${cache.fileToLinktext(file, sourcePath, true)}${subpath}${alias ? `|${alias}` : ""}]]`;
+	}
+
+	// fn mutates the parsed frontmatter. Key order is kept, nothing is written
+	// when fn changes nothing, an emptied block is removed, and the note keeps
+	// its line endings. Invalid YAML throws before anything is written.
+	async processFrontMatter(file: TFile, fn: (frontmatter: any) => void, options?: DataWriteOptions) {
+		if (!(file instanceof TFile) || file.extension !== "md") throw new Error(`${file?.path ?? "File"} is not a Markdown file`);
+		await this.app.vault.process(
+			file,
+			(text) => {
+				const fm = locateFrontMatter(text);
+				const parsed = fm ? YAML.parse(text.slice(fm.from, fm.to)) : null;
+				const data = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+				const before = JSON.stringify(data);
+				fn(data);
+				if (JSON.stringify(data) === before) return text;
+				const eol = text.includes("\r\n") ? "\r\n" : "\n";
+				const body = fm ? text.slice(fm.end) : `${eol}${text}`;
+				if (!Object.keys(data).length) return body.replace(/^\r?\n/, "");
+				const yaml = YAML.stringify(data, { lineWidth: 0, nullStr: "" }).replace(/\n/g, eol);
+				return `---${eol}${yaml}---${body}`;
+			},
+			options,
+		);
+	}
+
+	// attachmentFolderPath: '/' is the vault root, './' the note's folder,
+	// './sub' a folder next to the note, anything else a fixed folder, which is
+	// created when missing. The name is deduplicated as 'name 1.ext', ...
 	async getAvailablePathForAttachment(filename: string, sourcePath?: string) {
-		const configured: string = this.app.vault.getConfig("attachmentFolderPath") ?? "/";
-		let dir = configured;
-		if (configured.startsWith("./")) dir = nodePath.posix.join(nodePath.posix.dirname(sourcePath ?? ""), configured.slice(2));
-		dir = normalizePath(dir);
+		const vault = this.app.vault;
+		const dir = this.#attachmentDir(sourcePath ?? this.app.workspace.getActiveFile()?.path ?? "");
+		if (dir !== "/" && !this.#find(dir)) await vault.createFolder(dir);
 		const ext = nodePath.posix.extname(filename);
 		const stem = filename.slice(0, filename.length - ext.length);
-		const prefix = dir === "/" ? "" : `${dir}/`;
-		let path = `${prefix}${filename}`;
-		for (let i = 1; this.app.vault.getAbstractFileByPath(path); i++) path = `${prefix}${stem} ${i}${ext}`;
-		return path;
+		return vault.getAvailablePath(dir === "/" ? stem : `${dir}/${stem}`, ext.slice(1));
+	}
+
+	#attachmentDir(sourcePath: string) {
+		const configured: string = this.app.vault.getConfig("attachmentFolderPath") || "/";
+		if (configured === "." || configured.startsWith("./")) {
+			const dir = nodePath.posix.join(nodePath.posix.dirname(sourcePath || "x"), configured.slice(2));
+			return dir === "." ? "/" : normalizePath(dir);
+		}
+		return normalizePath(configured);
 	}
 }
