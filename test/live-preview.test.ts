@@ -102,6 +102,29 @@ describe("line classes", () => {
 		expect(lineClass(decos, doc, 2)).toBe("HyperMD-footnote");
 	});
 
+	// Obsidian shows a footnote reference as a faint superscript of its source
+	// and a definition as a superscript number (the reading view's, counting
+	// inline notes) and its text.
+	test("footnote references are superscript source, definitions their number", () => {
+		const doc = "a[^x] b^[inline] c[^y] d[^x]\n\n[^y]: second\n[^x]: first\n[^z]: unused\nend";
+		const state = stateOf(doc, doc.length);
+		const shown: [string, string][] = [];
+		for (const set of state.facet(EditorView.decorations) as DecorationSet[]) {
+			set.between(0, doc.length, (from, to, value: Decoration) => {
+				if (value.spec.class === "cm-footref-rendered") shown.push([doc.slice(from, to), value.spec.tagName]);
+				if (value.spec.widget?.constructor.name === "FootnoteNumberWidget") shown.push([doc.slice(from, to), value.spec.widget.text]);
+			});
+		}
+		expect(shown.sort((a, b) => doc.indexOf(a[0]) - doc.indexOf(b[0]) || a[0].localeCompare(b[0]))).toEqual([
+			["[^x]", "sup"],
+			["[^x]", "sup"],
+			["[^y]", "sup"],
+			["[^y]: ", "3"],
+			["[^x]: ", "1"],
+			["[^z]: ", "z"],
+		]);
+	});
+
 	test("fenced code marks its first and last lines", () => {
 		const doc = "```js\nx\n```\n\nend";
 		const decos = decorate(doc, doc.length);

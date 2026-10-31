@@ -706,7 +706,10 @@ plain style. Development notes belong in this file.
   found in the same tree pass and applied after it, and a definition line
   shows its label small (`cm-link-ref-label`) and its destination as a link.
   Ordered tasks keep their number before the box (a bullet gives way to it),
-  in both views.
+  in both views. Footnote references (`[^1]`) show their source as a faint
+  superscript (`sup.cm-footref-rendered`); a definition's `[^id]: ` becomes
+  the footnote's number as the reading view counts it (references by first
+  use, inline `^[notes]` included; the label when nothing refers to it).
 - Raw HTML: an `<img>` alone or inline becomes an `HtmlImageWidget` (its src
   found as the reading view finds it); any other HTML block (`<p
   align="center">`, `<div>`, `<details>`, ...) renders through

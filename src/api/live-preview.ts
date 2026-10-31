@@ -288,6 +288,21 @@ class CheckboxWidget extends WidgetType {
 	}
 }
 
+// A footnote definition's label, shown as the footnote's number.
+class FootnoteNumberWidget extends WidgetType {
+	constructor(readonly text: string) {
+		super();
+	}
+
+	eq(other: FootnoteNumberWidget) {
+		return other.text === this.text;
+	}
+
+	toDOM() {
+		return createEl("sup", { cls: "footnote-def-number", text: this.text });
+	}
+}
+
 class RuleWidget extends WidgetType {
 	eq() {
 		return true;
@@ -790,6 +805,10 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 	// note, are known.
 	const definitions = new Map<string, string>();
 	const referenceLinks: { from: number; to: number; textFrom: number; textTo: number; key: string }[] = [];
+	// Footnotes in the order the reading view numbers them: a reference's label
+	// (its first reference counts), or null for an inline ^[note].
+	const footnoteOrder: (string | null)[] = [];
+	const footnoteDefinitions: { from: number; to: number; label: string }[] = [];
 
 	syntaxTree(state).iterate({
 		enter: (ref) => {
@@ -931,6 +950,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					return false;
 				}
 				case "Link": {
+					if (state.sliceDoc(from - 1, from) === "^") footnoteOrder.push(null);
 					if (touches(from, to)) return;
 					const marks = node.getChildren("LinkMark");
 					const href = destination(state, node);
@@ -1030,8 +1050,17 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					decos.push(hide.range(shown.to, to));
 					return false;
 				}
+				// A reference shows its source as a faint superscript; a definition's
+				// label becomes the footnote's number, as in Obsidian.
 				case "footref": {
-					if (doc.lineAt(from).from === from && state.sliceDoc(to, to + 1) === ":") addLine(from, "HyperMD-footnote");
+					const label = state.sliceDoc(from + 2, to - 1);
+					if (doc.lineAt(from).from === from && state.sliceDoc(to, to + 1) === ":") {
+						addLine(from, "HyperMD-footnote");
+						footnoteDefinitions.push({ from, to, label });
+						return;
+					}
+					footnoteOrder.push(label);
+					if (!touches(from, to)) decos.push(Decoration.mark({ tagName: "sup", class: "cm-footref-rendered" }).range(from, to));
 					return;
 				}
 				case "hashtag": {
@@ -1059,6 +1088,19 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 		},
 	});
 
+	if (footnoteDefinitions.length) {
+		const numbers = new Map<string, number>();
+		let count = 0;
+		for (const label of footnoteOrder) {
+			if (label === null) count++;
+			else if (!numbers.has(label)) numbers.set(label, ++count);
+		}
+		for (const def of footnoteDefinitions) {
+			if (touchesLines(def.from, def.to)) continue;
+			const end = state.sliceDoc(def.to + 1, def.to + 2) === " " ? def.to + 2 : def.to + 1;
+			decos.push(Decoration.replace({ widget: new FootnoteNumberWidget(String(numbers.get(def.label) ?? def.label)) }).range(def.from, end));
+		}
+	}
 	for (const link of referenceLinks) {
 		const href = definitions.get(link.key);
 		if (href !== undefined) renderLink(link.from, link.to, link.textFrom, link.textTo, href);
