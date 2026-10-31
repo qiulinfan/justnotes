@@ -264,7 +264,8 @@ plain style. Development notes belong in this file.
   at the pointer, several next to each other (`dropLayout`: a row of up to
   four, then a grid, centred on the drop point); a folder adds the files
   directly in it. Images and videos keep their aspect ratio inside the
-  400x400 card (`fitSize`), audio gets a short card. A dragged link adds a
+  400x400 card (`fitSize`), audio gets a short card. A PDF card shows its
+  pages as a PDF embed does (`renderPdfViewer`), scrolling inside the card. A dragged link adds a
   card for its file and subpath, an unresolved one a text card holding the
   link. Files from the OS go through `importFile` (`attachments.ts`, shared
   with the editor's paste and drop) into the attachment folder for the
@@ -274,8 +275,7 @@ plain style. Development notes belong in this file.
   step. Selecting a card brings it to the front of its layer (groups stay
   under the other cards) and last in the node list, which the next save
   writes; the click alone writes nothing. Not there yet: snapping, editing a
-  note card in place (double-click opens it in a tab), PDF cards (shown as a
-  file card), export.
+  note card in place (double-click opens it in a tab), export.
 - Keyboard: a capture-phase `keydown` listener walks the keymap scope stack
   before CodeMirror sees the key; the active scope follows keyboard focus. The
   root scope has one catch-all handler that runs command hotkeys; plugins may

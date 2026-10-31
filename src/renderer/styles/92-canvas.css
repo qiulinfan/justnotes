@@ -262,6 +262,19 @@
 	height: 100%;
 }
 
+/* A PDF card's pages scroll inside the card. */
+.canvas-node-content.pdf-embed {
+	display: flex;
+	flex-direction: column;
+}
+
+.canvas-node-content.pdf-embed .pdf-embed-viewer {
+	flex: 1;
+	height: auto;
+	min-height: 0;
+	border-radius: 0;
+}
+
 .canvas-file-card,
 .canvas-link-card,
 .canvas-node-placeholder {

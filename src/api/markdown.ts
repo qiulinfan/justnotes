@@ -1189,7 +1189,7 @@ async function loadEmbed(child: EmbedChild, job: RenderJob) {
 			embed.addClass("audio-embed");
 		});
 	} else if (ext === "pdf") {
-		await embedPdf(child, file, subpath, app);
+		await renderPdfViewer(child, embed, file, subpath, app);
 	} else if (ext === "md") {
 		await embedNote(child, file, subpath, job);
 	} else {
@@ -1280,9 +1280,9 @@ async function embedNote(child: EmbedChild, file: TFile, subpath: string, job: R
 }
 
 // A PDF embed shows its pages one under another, rendered by pdf.js when they
-// scroll into view. #page=N opens at that page, #height=N sets the viewer height.
-async function embedPdf(child: EmbedChild, file: TFile, subpath: string, app: App) {
-	const embed = child.containerEl;
+// scroll into view. #page=N opens at that page, #height=N sets the viewer
+// height. `child` owns the document; canvas file cards show PDFs this way too.
+export async function renderPdfViewer(child: Component, embed: HTMLElement, file: TFile, subpath: string, app: App) {
 	embed.addClass("pdf-embed");
 	const params = new URLSearchParams(subpath.replace(/^#/, ""));
 	const viewer = embed.createDiv("pdf-embed-viewer");

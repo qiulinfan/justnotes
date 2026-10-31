@@ -7,7 +7,7 @@ import { EditorView } from "@codemirror/view";
 import { embeddedMarkdownExtensions } from "../api/editor-extensions";
 import { Component } from "../api/events";
 import { setIcon } from "../api/icons";
-import { MarkdownRenderer } from "../api/markdown";
+import { MarkdownRenderer, renderPdfViewer } from "../api/markdown";
 import { resolveSubpath } from "../api/metadata-utils";
 import { TFile } from "../api/vault";
 import { textChanges } from "../api/view";
@@ -345,6 +345,9 @@ export class CanvasFileNode extends CanvasNode {
 		} else if (AUDIO.has(ext)) {
 			content.addClass("media-embed");
 			content.createEl("audio", { attr: { src, controls: true } });
+		} else if (ext === "pdf") {
+			// The pages, as a PDF embed shows them, filling the card.
+			renderPdfViewer(child, content, file, this.subpath, this.app).catch((err) => child._loaded && console.error(err));
 		} else {
 			content.addClass("canvas-file-card");
 			setIcon(content.createDiv("canvas-file-card-icon"), "file");
