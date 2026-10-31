@@ -219,7 +219,10 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 		});
 		this.tabHeaderEl.addEventListener("click", () => this.app.workspace.setActiveLeaf(this, { focus: true }));
 		this.tabHeaderEl.addEventListener("contextmenu", (evt) => this.#showTabMenu(evt));
+		// Clicking into a leaf, or focus moving into it (a view focusing its
+		// own input, as terminal does), makes it the active leaf.
 		this.containerEl.addEventListener("mousedown", () => this.app.workspace.setActiveLeaf(this), true);
+		this.containerEl.addEventListener("focusin", () => this.app.workspace.setActiveLeaf(this));
 		this.history = new LeafHistory(
 			() => this.#historyState(),
 			async (entry) => {
@@ -1104,12 +1107,13 @@ export class Workspace extends Events {
 		for (const el of document.querySelectorAll(".workspace-leaf.mod-active, .workspace-tabs.mod-active")) el.removeClass("mod-active");
 		leaf.containerEl.addClass("mod-active");
 		leaf.parent.containerEl.addClass("mod-active");
-		if (focus) this.#focus(leaf);
 		if (changed) {
 			this.#embeddedEditor = null;
 			this.trigger("active-leaf-change", leaf);
 		}
 		this.#updateActiveFile();
+		// Last, so the focusin it causes finds this leaf already active.
+		if (focus) this.#focus(leaf);
 	}
 
 	#focus(leaf: WorkspaceLeaf) {
