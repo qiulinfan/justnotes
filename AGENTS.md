@@ -45,7 +45,9 @@ plain style. Development notes belong in this file.
     `markdown-preview.ts` (reading view), `markdown.ts` (MarkdownRenderer, post
     processors, code-block registry, the math grammar, MathJax/pdf.js/Prism/
     Mermaid loaders), `live-preview.ts` and `editor-*.ts` (CodeMirror 6),
-    `vault.ts`, `metadata*.ts`, `file-manager.ts`, `keymap.ts`,
+    `vault.ts`, `metadata*.ts` (the cache; `metadata-types.ts`, the
+    `metadataTypeManager`; `metadata-editor.ts` and `metadata-widgets.ts`,
+    the Properties block), `frontmatter-edit.ts`, `file-manager.ts`, `keymap.ts`,
     `internal-plugins.ts`, `secret-storage.ts`, `sanitize.ts` (DOMPurify),
     `setting-modal.ts`, `ui/` (menus, modals, notices, settings, suggests,
     tooltips), `bases/` (Bases: formulas, queries, table/cards/list views).
@@ -80,7 +82,10 @@ plain style. Development notes belong in this file.
   (`findMentions`: whole words ignoring case, a name next to a Chinese or
   Japanese character counts, links, frontmatter and code blocks skipped).
   Templates insert a template's frontmatter at the top, adding only the
-  properties the note lacks. Not there yet: backlinks at the bottom of a note,
+  properties the note lacks. `properties` is the All properties pane
+  (`all-properties`, `properties:open`): names with type and note count,
+  unfolding to their notes; its menu sets the type or renames the property in
+  every note (each note's YAML changed only at that key). Not there yet: backlinks at the bottom of a note,
   the outline's search and cursor following, the other core plugins (graph,
   canvas, note composer, tag pane, file recovery, ...).
 - Keyboard: a capture-phase `keydown` listener walks the keymap scope stack
@@ -109,6 +114,15 @@ plain style. Development notes belong in this file.
 - `Plugin.load()` awaits an async `onload` before children load and before the
   next plugin, as Obsidian does. `Component.load()` stays synchronous.
 - `registerCodeMirror` is a no-op: it only ran in Obsidian's legacy editor.
+- `app.metadataTypeManager` has Obsidian's private members: `properties`
+  and `getAllProperties()` (lowercased name to `{name, type, widget, count,
+  occurrences}`), `types` (assigned), `getPropertyInfo`, `getAssignedType`,
+  `getTypeInfo(name, value?)` (`{expected, inferred}` widgets; QuickAdd calls
+  it without a value and reads `.type`), `getWidget`, `setType`, `unsetType`,
+  `registeredTypeWidgets` and the `changed` event. Assignments are Obsidian's
+  defaults (`tags`, `aliases`, `cssclasses`), then `types.json` (re-read when
+  it changes), then the `property-types` localStorage key. Widgets render with
+  `render(el, value, ctx)`; Bases types its values through the same manager.
 - A code-block language has one handler, the latest registration, in both
   views. Live Preview re-renders when processors change; the reading view keeps
   what it rendered until it re-renders.
@@ -147,11 +161,13 @@ plain style. Development notes belong in this file.
   Obsidian's does (terminal reads `adapter.fs`).
 - Never write Obsidian's own config files (`workspace.json`,
   `community-plugins.json`, `app.json`, `appearance.json`, `hotkeys.json`,
-  `core-plugins.json`). justnotes state lives in localStorage through
+  `core-plugins.json`, `types.json`). justnotes state lives in localStorage through
   `app.saveLocalStorage` (keys prefixed with the vault id): `justnotes-layout`
   (the layout, in `workspace.json`'s shape, with leaf ids), `enabled-plugins`
   (the Settings toggles, applied over `community-plugins.json`), `custom-css`
-  (theme and snippets), `justnotes-expanded` (explorer folders). The language
+  (theme and snippets), `justnotes-expanded` (explorer folders),
+  `property-types` (property type changes made in justnotes, layered over
+  `types.json`; an empty type unassigns one). The language
   is localStorage `language`, else `en`; never the OS locale.
 
 ## Views, files and saving
@@ -212,6 +228,14 @@ plain style. Development notes belong in this file.
   swallow the moves and the pointerup (omp-sidebar's webview).
 - Before the window closes, main asks the renderer to save open views, the
   layout and plugins' quit tasks, and waits for the reply.
+- Properties edits (Live Preview and reading view alike) are transactions on
+  the note's CodeMirror document (`editorMetadataHost`), so they save, merge,
+  undo and reach other panes like typing. `frontmatter-edit.ts` rewrites only
+  the changed property's lines: the others keep their bytes (order, quotes,
+  comments), and the changed one keeps its flow or block list style, item
+  indentation, quotes and a trailing comment. A flow-style map is rewritten
+  whole. Removing the last property removes the block. YAML that does not
+  parse to a map shows "Invalid properties", which opens the YAML.
 
 ## Live Preview and math
 
@@ -222,6 +246,22 @@ plain style. Development notes belong in this file.
   line syntax (heading marks, quote marks, list bullets, tasks, rules, block
   math) shows while the selection is on those lines.
 - `editorLivePreviewField` false means Source mode: no decorations at all.
+- The frontmatter is a block widget holding a `MetadataEditor` (also in the
+  reading view's `mod-header`), unless "Properties in document"
+  (`propertiesInDocument`) is `source` (YAML) or `hidden`; Live Preview
+  rebuilds on `config-changed`. The widget's `updateDOM` syncs rows in place,
+  so a field being edited keeps its focus; rows move only when out of place.
+  Its text fields are `<input>`/`<textarea>`, never contenteditable: inside
+  `.cm-content` a nested editing host lets select-all and the selection
+  escape into the note. Keys typed in the block never run editor commands
+  (`keyInOtherField`). Keyboard as in Obsidian: on a row, Up/Down or Tab move,
+  Shift+Up/Down extend the selection, Left edits the name, Right or Enter the
+  value, Escape returns to the row, Mod+Backspace deletes, Mod+Z undoes,
+  Alt+Down goes to the note; ArrowUp from the note's first line enters the
+  block. `markdown:add-metadata-property` (Mod+;) adds a row, writing an empty
+  block first when the note has none; a property reaches the YAML once named.
+  A type change converts the current note's value only when the conversion is
+  faithful; otherwise the value stays and its row shows a type mismatch.
 - Callouts, tables, embeds and plugin code blocks render with the reading
   view's `MarkdownRenderer`, each widget owning a Component (unloaded when
   CodeMirror destroys it) and a ResizeObserver that asks CodeMirror to
@@ -303,7 +343,7 @@ paid: only within the owner's small test budget), background, kgdistiller
 quickadd, terminal and obsidian-tinymist (0.1.0, its YOLO bridge against a
 local mock provider). Known gaps: popout windows, a canvas view (QuickAdd's
 capture into the active canvas), a CLI transport for `registerCliHandler`,
-`app.metadataTypeManager`, editable properties, tab drag and drop.
+tab drag and drop.
 
 ## Verify
 
