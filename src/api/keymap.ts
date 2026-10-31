@@ -323,7 +323,8 @@ function keyInOtherField(evt: Event | undefined, activeEditor: EditorContext | n
 	if (evt?.type !== "keydown") return false;
 	const el = evt.target as HTMLElement | null;
 	if (!el || el !== el.ownerDocument?.activeElement || el === activeEditor?.editor?.cm?.contentDOM) return false;
-	return el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA";
+	// The Properties block inside a note is a form of its own.
+	return el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA" || !!el.closest?.(".metadata-container");
 }
 
 // Runs (or, when checking, only tests) a command with Obsidian's precedence:

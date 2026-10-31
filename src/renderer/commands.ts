@@ -63,6 +63,18 @@ export function registerCoreCommands(app: App) {
 		const file = await app.fileManager.createNewMarkdownFile(app.fileManager.getNewFileParent(app.workspace.getActiveFile()?.path ?? ""));
 		await app.workspace.getLeaf(false).openFile(file);
 	});
+	// Also from inside the Properties block, so not an editor command.
+	app.commands.addCommand({
+		id: "markdown:add-metadata-property",
+		name: "Add file property",
+		hotkeys: [{ modifiers: ["Mod"], key: ";" }],
+		checkCallback: (checking) => {
+			const view = app.workspace.getActiveViewOfType(MarkdownView);
+			if (!view?.file) return false;
+			if (!checking) view.addProperty();
+			return true;
+		},
+	});
 	registerEditorCommands(app);
 }
 

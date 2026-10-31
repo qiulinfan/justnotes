@@ -1,0 +1,280 @@
+/* The Properties block above a note, in Live Preview and the reading view,
+   with Obsidian's class names and --metadata-* variables. */
+.metadata-container {
+	margin-bottom: var(--metadata-margin-bottom, 12px);
+	padding: var(--metadata-padding, 6px 0);
+	font-family: var(--font-interface);
+	font-size: var(--metadata-input-font-size, var(--font-ui-small));
+	white-space: normal;
+	cursor: default;
+}
+
+.markdown-preview-view:not(.show-properties) .metadata-container {
+	display: none;
+}
+
+.markdown-preview-view.show-frontmatter pre.frontmatter {
+	display: block !important;
+}
+
+.metadata-properties-heading {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-bottom: 4px;
+	width: fit-content;
+	padding: 2px 4px 2px 0;
+	border-radius: var(--radius-s);
+	font-weight: var(--font-semibold, 600);
+	color: var(--metadata-title-color, var(--text-muted));
+	cursor: pointer;
+	outline: none;
+}
+
+.metadata-properties-heading:hover,
+.metadata-properties-heading:focus-visible {
+	color: var(--text-normal);
+}
+
+.metadata-properties-heading .collapse-indicator {
+	opacity: 0;
+	transition: transform 100ms ease;
+}
+
+.metadata-properties-heading:hover .collapse-indicator,
+.metadata-container.is-collapsed .collapse-indicator {
+	opacity: 1;
+}
+
+.metadata-container.is-collapsed .collapse-indicator .svg-icon {
+	transform: rotate(-90deg);
+}
+
+.metadata-container.is-collapsed .metadata-content {
+	display: none;
+}
+
+.metadata-property {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--metadata-gap, 4px);
+	padding: var(--metadata-property-padding, 0);
+	border-radius: var(--metadata-property-radius, var(--radius-s));
+	outline: none;
+}
+
+.metadata-property:focus-visible,
+.metadata-property:focus {
+	box-shadow: 0 0 0 2px var(--background-modifier-border-focus, var(--interactive-accent));
+}
+
+.metadata-property.is-selected {
+	background-color: var(--text-selection, var(--background-modifier-hover));
+}
+
+.metadata-property:hover {
+	background-color: var(--metadata-property-background-hover, var(--background-modifier-hover));
+}
+
+.metadata-property-key {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex-shrink: 0;
+	width: var(--metadata-label-width, 9em);
+	min-height: var(--input-height, 28px);
+	padding: 0 4px;
+	color: var(--metadata-label-text-color, var(--text-muted));
+}
+
+.metadata-property-icon {
+	display: inline-flex;
+	flex-shrink: 0;
+	padding: 2px;
+	border-radius: var(--radius-s);
+	color: var(--text-faint);
+	cursor: pointer;
+}
+
+.metadata-property-icon:hover {
+	color: var(--text-normal);
+	background-color: var(--background-modifier-hover);
+}
+
+.metadata-property.has-type-mismatch .metadata-property-icon {
+	color: var(--text-warning, var(--color-orange));
+}
+
+.metadata-property-icon .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.metadata-property-key input.metadata-property-key-input {
+	flex: 1;
+	min-width: 0;
+	padding: 0;
+	border: none;
+	background: transparent;
+	font: inherit;
+	color: inherit;
+	outline: none;
+	text-overflow: ellipsis;
+}
+
+.metadata-property-value {
+	display: flex;
+	align-items: center;
+	flex: 1;
+	min-width: 0;
+	min-height: var(--input-height, 28px);
+	padding: 0 4px;
+	color: var(--metadata-input-text-color, var(--text-normal));
+	overflow-wrap: anywhere;
+}
+
+.metadata-property-value > * {
+	flex: 1;
+	min-width: 0;
+}
+
+.metadata-property-value textarea.metadata-input-longtext,
+.multi-select-container input.multi-select-input {
+	display: block;
+	width: 100%;
+	padding: 2px 0;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	font: inherit;
+	color: inherit;
+	outline: none;
+	resize: none;
+	overflow: hidden;
+}
+
+.metadata-property-value textarea.metadata-input-longtext {
+	min-height: 1.5em;
+	line-height: 1.5;
+}
+
+div.metadata-input-longtext {
+	padding: 2px 0;
+	white-space: pre-wrap;
+}
+
+.metadata-property-value input.metadata-input {
+	width: 100%;
+	border-radius: 0;
+	color-scheme: inherit;
+	padding: 2px 0;
+	border: none;
+	background: transparent;
+	font: inherit;
+	color: inherit;
+	outline: none;
+}
+
+.metadata-input-checkbox {
+	flex: 0 0 auto;
+	margin: 0;
+}
+
+.metadata-link-inner {
+	cursor: pointer;
+	color: var(--link-color);
+	text-decoration: var(--link-decoration, underline);
+}
+
+.multi-select-container {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 0;
+}
+
+.multi-select-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	padding: 0 4px 0 8px;
+	border-radius: var(--pill-radius, 2em);
+	background: var(--pill-background, var(--background-modifier-hover));
+	color: var(--pill-color, var(--text-normal));
+	outline: none;
+}
+
+.multi-select-pill:focus {
+	box-shadow: 0 0 0 2px var(--background-modifier-border-focus, var(--interactive-accent));
+}
+
+.multi-select-pill-content .tag,
+.multi-select-pill-content.tag,
+.multi-select-pill-content > .internal-link,
+.multi-select-pill-content > .external-link {
+	cursor: pointer;
+}
+
+.multi-select-pill-content > .tag {
+	color: var(--text-accent);
+}
+
+.multi-select-pill-remove-button {
+	display: inline-flex;
+	color: var(--text-faint);
+	cursor: pointer;
+}
+
+.multi-select-pill-remove-button:hover {
+	color: var(--text-normal);
+}
+
+.multi-select-pill-remove-button .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.multi-select-container input.multi-select-input {
+	flex: 1;
+	width: auto;
+	min-width: 4em;
+}
+
+.metadata-add-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 2px;
+	padding: 2px 4px;
+	border-radius: var(--radius-s);
+	color: var(--text-faint);
+	cursor: pointer;
+	outline: none;
+}
+
+.metadata-add-button:hover,
+.metadata-add-button:focus-visible {
+	color: var(--text-normal);
+	background-color: var(--background-modifier-hover);
+}
+
+.metadata-add-button .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.metadata-error {
+	color: var(--text-error);
+	cursor: pointer;
+}
+
+/* Native date pickers and checkboxes follow the theme. */
+body.theme-dark .metadata-container {
+	color-scheme: dark;
+}
+
+body.theme-dark .metadata-container input::-webkit-calendar-picker-indicator {
+	filter: invert(1);
+	opacity: 0.6;
+}

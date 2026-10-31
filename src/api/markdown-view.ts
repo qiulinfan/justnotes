@@ -3,8 +3,10 @@ import { EditorSelection, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { Editor, EditorPosition } from "./editor";
 import { setIcon, setTooltip } from "./icons";
+import { locateFrontmatter } from "./frontmatter-edit";
 import { Keymap, Scope } from "./keymap";
 import { MarkdownEditView, MarkdownPreviewView, type MarkdownSubView, subpathLine } from "./markdown-preview";
+import { editorMetadataHost, metadataEditorOf } from "./metadata-editor";
 import { Menu } from "./ui/menu";
 import type { HoverPopover } from "./ui/popover";
 import { mirrorEdits, TextFileView, type ViewStateResult } from "./view";
@@ -241,6 +243,13 @@ export class MarkdownView extends TextFileView {
 			}
 			menu.addItem((i) =>
 				i
+					.setTitle("Add file property")
+					.setIcon("plus-circle")
+					.setSection("action")
+					.onClick(() => this.addProperty()),
+			);
+			menu.addItem((i) =>
+				i
 					.setTitle("Find...")
 					.setIcon("search")
 					.setSection("find")
@@ -280,6 +289,25 @@ export class MarkdownView extends TextFileView {
 		this.editMode.clear();
 		this.previewMode.clear();
 		this.#pristine = null;
+	}
+
+	// "Add file property": a new row in the Properties block, which a note
+	// without frontmatter gets first. Where the block does not show (source
+	// mode, or properties shown as source or hidden) the caret goes to a new
+	// line at the end of the YAML.
+	addProperty() {
+		const cm = this.editor.cm;
+		const host = editorMetadataHost(cm, this.app, () => this.file?.path ?? "");
+		if (host.getYaml() === null) cm.dispatch({ changes: { from: 0, insert: "---\n---\n" }, userEvent: "input.properties" });
+		const preview = this.getMode() === "preview";
+		const visible = (this.app.vault.getConfig("propertiesInDocument") ?? "visible") === "visible";
+		const editor = !visible ? undefined : preview ? this.previewMode.metadataEditor : metadataEditorOf(cm.contentDOM.querySelector(".metadata-container"));
+		if (editor) return editor.addProperty();
+		if (preview) return;
+		const fm = locateFrontmatter(cm.state.doc.toString());
+		if (!fm) return;
+		cm.dispatch({ changes: { from: fm.yamlTo, insert: "\n" }, selection: { anchor: fm.yamlTo }, scrollIntoView: true });
+		cm.focus();
 	}
 
 	showSearch(replace = false) {
