@@ -1093,6 +1093,13 @@ export class Vault extends Events {
 		return this.fileMap[p] ?? this.#lower.get(p.toLowerCase()) ?? null;
 	}
 
+	// justnotes' own: the path as the file system spells it, on a
+	// case-insensitive volume through the existing folders and file it names
+	// in another case, as creating or writing there would.
+	getDiskPath(path: string) {
+		return this.#respell(normalizePath(path));
+	}
+
 	getFileByPath(path: string) {
 		const f = this.getAbstractFileByPath(path);
 		return f instanceof TFile ? f : null;

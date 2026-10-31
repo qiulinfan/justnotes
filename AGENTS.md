@@ -136,7 +136,10 @@ plain style. Development notes belong in this file.
   one waiting for the interval, follow a renamed file; deleting a file with
   one waiting saves its last text at once. Templates insert a
   template's frontmatter at the top, adding only the properties the note
-  lacks. `properties` is the All properties pane
+  lacks. On a case-insensitive volume the Daily notes and Templates folders
+  are found as the disk spells them (`vault.getDiskPath`, justnotes' own), so
+  a setting naming `daily` for `Daily` opens, creates and steps between the
+  notes there. `properties` is the All properties pane
   (`all-properties`, `properties:open`): names with type and note count,
   unfolding to their notes; its menu sets the type or renames the property in
   every note (each note's YAML changed only at that key). Slides

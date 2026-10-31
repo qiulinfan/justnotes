@@ -3,7 +3,7 @@ import type { App } from "../api/app";
 import { Editor } from "../api/editor";
 import { FuzzySuggestModal } from "../api/ui/suggest";
 import { Notice } from "../api/ui/notice";
-import { moment, normalizePath } from "../api/util";
+import { moment } from "../api/util";
 import { TFile, TFolder } from "../api/vault";
 
 export interface TemplateVars {
@@ -107,7 +107,7 @@ export const timeFormat = (app: App) => options(app).timeFormat?.trim() || "HH:m
 export function findTemplatesFolder(app: App): TFolder | string {
 	const path = options(app).folder?.trim();
 	if (!path) return "Set the templates folder in Obsidian's Templates settings first; justnotes only reads them.";
-	const folder = app.vault.getAbstractFileByPath(normalizePath(path));
+	const folder = app.vault.getAbstractFileByPath(app.vault.getDiskPath(path));
 	if (!(folder instanceof TFolder)) return `The templates folder "${path}" does not exist.`;
 	return folder;
 }

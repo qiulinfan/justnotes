@@ -8,7 +8,7 @@ import { getAllTags, parseFrontMatterAliases } from "../../api/metadata-utils";
 import type { CliData } from "../../api/plugin";
 import { apiVersion, moment, normalizePath } from "../../api/util";
 import { TFile, TFolder } from "../../api/vault";
-import { dailyNoteOptions, dailyNotePath } from "../../renderer/daily-notes";
+import { dailyNotePathIn } from "../../renderer/daily-notes";
 import { compileSearch, isTag, type SearchMatch, tagMatches, tagQuery, textMatches } from "../../renderer/search";
 import { fillTemplate, findTemplatesFolder, templateFiles, dateFormat, timeFormat } from "../../renderer/templates";
 import { countWords } from "../../renderer/word-count";
@@ -337,7 +337,7 @@ async function tasksOf(app: App, f: TFile): Promise<Task[]> {
 }
 
 function dailyFile(app: App): TFile {
-	const path = dailyNotePath(dailyNoteOptions(app), moment());
+	const path = dailyNotePathIn(app, moment());
 	const found = app.vault.getFileByPath(path);
 	if (!found) throw new CliError(`Today's daily note (${path}) does not exist yet.`);
 	return found;
@@ -471,7 +471,7 @@ const aliases: Handler = (ctx, params) => {
 // ---- Daily notes and templates
 
 const dailyPath: Handler = (ctx) => {
-	const path = dailyNotePath(dailyNoteOptions(ctx.app), moment());
+	const path = dailyNotePathIn(ctx.app, moment());
 	return result({ path, exists: !!ctx.app.vault.getFileByPath(path) }, path);
 };
 
