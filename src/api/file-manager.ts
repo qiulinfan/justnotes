@@ -199,12 +199,23 @@ export class FileManager {
 	}
 
 	// Points every link to `file` at `target` instead, each keeping its style,
-	// subpath and alias (Note composer's merge, before `file` goes).
-	async redirectLinks(file: TFile, target: TFile) {
+	// subpath and alias (Note composer's merge, before `file` goes). With
+	// `subpaths`, only the links whose subpath it maps go, given the mapped
+	// subpath (Note composer's extracted heading).
+	async redirectLinks(file: TFile, target: TFile, subpaths?: Map<string, string>) {
 		await this.#cacheClean();
 		for (const [path, refs] of this.app.metadataCache.getBacklinksForFile(file).data) {
 			const source = this.app.vault.getFileByPath(path);
-			if (source) await this.#rewrite(source, new Map(refs.map((ref) => [ref, target])));
+			if (!source) continue;
+			const moved = new Map<Reference, TFile>();
+			const given = new Map<Reference, string>();
+			for (const ref of refs) {
+				const subpath = parseLinktext(ref.link).subpath;
+				if (subpaths && !subpaths.has(subpath)) continue;
+				moved.set(ref, target);
+				if (subpaths) given.set(ref, subpaths.get(subpath)!);
+			}
+			if (moved.size) await this.#rewrite(source, moved, given);
 		}
 		await this.#cacheClean();
 	}
@@ -224,19 +235,19 @@ export class FileManager {
 	// Each link is looked up again in the current text, among the links
 	// written the same way, nearest its cached place: the note may have been
 	// edited since it was indexed.
-	async #rewrite(source: TFile, refs: Map<Reference, TFile>) {
-		await this.app.vault.process(source, (text) => this.#relinkText(text, refs, source.path));
+	async #rewrite(source: TFile, refs: Map<Reference, TFile>, subpaths?: Map<Reference, string>) {
+		await this.app.vault.process(source, (text) => this.#relinkText(text, refs, source.path, subpaths));
 	}
 
 	// `text` (a note, or Markdown held in `sourcePath`) with each ref pointed
-	// at its target.
-	#relinkText(text: string, refs: Map<Reference, TFile>, sourcePath: string) {
+	// at its target, keeping its subpath unless `subpaths` gives another.
+	#relinkText(text: string, refs: Map<Reference, TFile>, sourcePath: string, subpaths?: Map<Reference, string>) {
 		const fm = locateFrontMatter(text);
 		const current = parseMetadata(text);
 		const unclaimed = [...(current.links ?? []), ...(current.embeds ?? [])];
 		const splices = new Map<number, { to: number; text: string }>();
 		for (const [ref, target] of refs) {
-			const replacement = this.#relink(ref, target, sourcePath);
+			const replacement = this.#relink(ref, target, sourcePath, subpaths?.get(ref));
 			const position = (ref as ReferenceCache).position;
 			if (position) {
 				const found = claim(unclaimed, ref.original, position.start.offset);
@@ -252,9 +263,10 @@ export class FileManager {
 		return out;
 	}
 
-	#relink(ref: Reference, target: TFile, sourcePath: string) {
+	#relink(ref: Reference, target: TFile, sourcePath: string, newSubpath?: string) {
 		const cache = this.app.metadataCache;
-		const { path, subpath } = parseLinktext(ref.link);
+		const { path, subpath: oldSubpath } = parseLinktext(ref.link);
+		const subpath = newSubpath ?? oldSubpath;
 		const keepMd = /\.md$/i.test(path);
 		const original = ref.original;
 		const embed = original.startsWith("!") ? "!" : "";

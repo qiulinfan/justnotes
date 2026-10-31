@@ -7,7 +7,7 @@ import { embedText, recordingFormat, recordingName } from "../src/renderer/audio
 import { dailyNoteDate, dailyNotePath } from "../src/renderer/daily-notes";
 import { lineDiff, snapshotDue } from "../src/renderer/file-recovery";
 import { findMentions, headingAt, headingTree, mentionSkips, outlineMatches } from "../src/renderer/link-panes";
-import { addText, composeText, headingSection, mergeText, noteName, sectionReplacement } from "../src/renderer/note-composer";
+import { addText, composeText, headingSection, mergeText, movedSubpaths, noteName, sectionReplacement } from "../src/renderer/note-composer";
 import { contentScale, slideSources } from "../src/renderer/slides";
 import { sortTags, type TagNode, tagTree } from "../src/renderer/tag-pane";
 import { FrontmatterNotMapError, fillTemplate, templateEdits } from "../src/renderer/templates";
@@ -137,6 +137,23 @@ describe("note composer", () => {
 		const replace = (link: string) => text.slice(0, section.from) + sectionReplacement(text, section, link) + text.slice(section.to);
 		expect(replace("[[A]]")).toBe("[[A]]\n\n## B\n");
 		expect(replace("")).toBe("## B\n");
+	});
+
+	// Obsidian points links into an extracted heading at the note it went to.
+	test("links into an extracted section get their subpath in the destination; others stay", () => {
+		const doc = ["# Top", "## Part", "text ^blk", "### Sub", "## Part2", "### Sub", "## Next ^out"].join("\n");
+		const section = headingSection(doc, 2)!;
+		const links = ["#Part", "#Top#Part#Sub", "#Sub", "#^blk", "#Next", "#Part2", "", "#Missing"];
+		expect([...movedSubpaths(doc, section, links, true)]).toEqual([
+			["#Part", ""],
+			["#Top#Part#Sub", "#Sub"],
+			["#Sub", "#Sub"],
+			["#^blk", "#^blk"],
+		]);
+		expect([...movedSubpaths(doc, section, ["#Part", "#Top#Part#Sub"], false)]).toEqual([
+			["#Part", "#Part"],
+			["#Top#Part#Sub", "#Top#Part#Sub"],
+		]);
 	});
 
 	test("a note name drops what links and file systems reject", () => {

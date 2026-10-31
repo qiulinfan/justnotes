@@ -134,6 +134,19 @@ describe("FileManager.renameFile", () => {
 	});
 });
 
+describe("FileManager.redirectLinks", () => {
+	// Note composer's extract heading moves only the links into the section.
+	test("with subpaths, only the links whose subpath is mapped go, given the new subpath", async () => {
+		const { vault, fm, read } = await setup({
+			"src.md": "# Part\n\n# Keep\n",
+			"new.md": "",
+			"ref.md": "[[src#Part]] [[src#Part|alias]] [p](src.md#Part) [[src#Keep]] [[src]]",
+		});
+		await fm.redirectLinks(vault.getFileByPath("src.md")!, vault.getFileByPath("new.md")!, new Map([["#Part", ""]]));
+		expect(read("ref.md")).toBe("[[new]] [[new|alias]] [p](new.md) [[src#Keep]] [[src]]");
+	});
+});
+
 describe("FileManager.generateMarkdownLink", () => {
 	test("wikilinks carry the subpath and a non-empty alias; attachments are embeds", async () => {
 		const { vault, fm } = await setup({ "foo/bar.md": "", "img.png": "" });

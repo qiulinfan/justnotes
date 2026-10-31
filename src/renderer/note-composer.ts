@@ -3,7 +3,7 @@ import type { App } from "../api/app";
 import { Editor } from "../api/editor";
 import { MarkdownView } from "../api/markdown-view";
 import { type HeadingCache, parseMetadata } from "../api/metadata";
-import { locateFrontMatter } from "../api/metadata-utils";
+import { locateFrontMatter, parseLinktext, resolveSubpath } from "../api/metadata-utils";
 import type { Menu } from "../api/ui/menu";
 import { Modal } from "../api/ui/modal";
 import { Notice } from "../api/ui/notice";
@@ -105,6 +105,24 @@ export function headingSection(text: string, line: number): HeadingSection | nul
 	const lineEnd = text.indexOf("\n", heading.position.end.offset);
 	const body = lineEnd < 0 || lineEnd >= to ? "" : text.slice(lineEnd + 1, to);
 	return { heading, from, to, body: body.replace(/^\n+/, "").replace(/\s+$/, "") };
+}
+
+// Where links into an extracted section go: each of `subpaths` (of links to
+// the note `doc`) that resolves inside the section, mapped to its subpath in
+// the destination. A note made from the section holds only its body, so a
+// link to the section's heading loses its subpath and one to a heading
+// under it names that heading alone; in another note the section keeps its
+// heading, so subpaths stay as written. Block references stay as written.
+export function movedSubpaths(doc: string, section: { from: number; to: number; heading: HeadingCache }, subpaths: Iterable<string>, created: boolean) {
+	const cache = parseMetadata(doc);
+	const moved = new Map<string, string>();
+	for (const subpath of subpaths) {
+		const found = subpath ? resolveSubpath(cache, subpath) : null;
+		if (!found || found.start.offset < section.from || found.start.offset >= section.to) continue;
+		if (!created || found.type !== "heading") moved.set(subpath, subpath);
+		else moved.set(subpath, found.current.position.start.offset === section.heading.position.start.offset ? "" : `#${found.current.heading}`);
+	}
+	return moved;
 }
 
 // What replaces a section moved out of a note: the link (or nothing) on its
@@ -270,8 +288,18 @@ export function mergeFile(app: App, source: TFile) {
 	}).open();
 }
 
-// Moves the editor's [from, to) to the chosen note, leaving the replacement.
-function extract(app: App, editor: Editor, source: TFile, range: { from: number; to: number }, take: (target: Target) => string, initial: string, replace: (link: string) => string) {
+// Moves the editor's [from, to) to the chosen note, leaving the replacement;
+// `moved` then runs with the destination and whether it was created.
+function extract(
+	app: App,
+	editor: Editor,
+	source: TFile,
+	range: { from: number; to: number },
+	take: (target: Target) => string,
+	initial: string,
+	replace: (link: string) => string,
+	moved?: (dest: TFile, created: boolean) => Promise<void>,
+) {
 	const original = editor.getValue().slice(range.from, range.to);
 	new ComposerModal(app, source, "Extract into...", initial, async (target) => {
 		try {
@@ -287,6 +315,7 @@ function extract(app: App, editor: Editor, source: TFile, range: { from: number;
 				return;
 			}
 			editor.replaceRange(replace(replacementFor(app, dest, source.path)), editor.offsetToPos(range.from), editor.offsetToPos(range.to), "note-composer");
+			await moved?.(dest, "create" in target);
 		} catch (err) {
 			console.error(err);
 			new Notice(`Could not extract: ${err instanceof Error ? err.message : err}`);
@@ -299,6 +328,18 @@ function extractSelection(app: App, editor: Editor, source: TFile) {
 	const { from, to } = cm.state.selection.main;
 	const text = cm.state.sliceDoc(from, to);
 	extract(app, editor, source, { from, to }, () => text, "", (link) => link);
+}
+
+// Links to the extracted heading, the headings under it and its blocks go to
+// the new note, as in Obsidian: the subpaths are judged in the text before
+// the extraction, the links rewritten once the note is saved without it.
+async function redirectSection(app: App, source: TFile, doc: string, section: HeadingSection, dest: TFile, created: boolean) {
+	const subpaths = new Set<string>();
+	for (const refs of app.metadataCache.getBacklinksForFile(source).data.values()) for (const ref of refs) subpaths.add(parseLinktext(ref.link).subpath);
+	const moved = movedSubpaths(doc, section, subpaths, created);
+	if (!moved.size) return;
+	await saveViews(app, source);
+	await app.fileManager.redirectLinks(source, dest, moved);
 }
 
 function extractHeading(app: App, editor: Editor, source: TFile, section: HeadingSection) {
@@ -314,6 +355,7 @@ function extractHeading(app: App, editor: Editor, source: TFile, section: Headin
 		(target) => ("create" in target ? section.body : whole),
 		noteName(section.heading.heading),
 		(link) => sectionReplacement(doc, section, link),
+		(dest, created) => redirectSection(app, source, doc, section, dest, created),
 	);
 }
 

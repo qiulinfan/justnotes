@@ -129,7 +129,11 @@ plain style. Development notes belong in this file.
   Enter with no match) creates a note named as typed; a merged note's
   frontmatter adds only missing properties, links to it are redirected
   (`FileManager.redirectLinks`) and it goes to the trash. Text added to a
-  CRLF note gets CRLF line breaks. File recovery keeps
+  CRLF note gets CRLF line breaks. Extracting a heading redirects the links
+  into the section (`movedSubpaths`, judged in the text before): to a note
+  made from it `[[Note#Heading]]` becomes `[[New]]` and a heading under it
+  `[[New#Sub]]`; into another note, where the heading stays, subpaths are
+  kept; block references keep theirs. File recovery keeps
   whole-text snapshots of `.md` and `.canvas` files in the profile's IndexedDB
   (`<appId>-file-recovery`), one when a file is opened and then at most one
   per `intervalMinutes` (default 5) after edits, pruned after `keepDays`
@@ -185,8 +189,7 @@ plain style. Development notes belong in this file.
   refused), after `systemPreferences.askForMediaAccess` on macOS when the
   system has not decided yet; with `--use-fake-device-for-media-stream` it
   skips the system check. Not there yet: the other core plugins,
-  the Tags view's Mod-click to add a tag to the search, links to an
-  extracted heading (`[[Note#Heading]]`) are not redirected to the new note.
+  the Tags view's Mod-click to add a tag to the search.
 - Bookmarks (`bookmarks-data.ts`: format, merge, rename/delete following,
   tested; `bookmarks.ts`: instance, view, dialog, commands, menus). The
   instance (`app.internalPlugins.plugins.bookmarks.instance`, created in
