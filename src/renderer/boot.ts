@@ -9,6 +9,7 @@ import { MarkdownView } from "../api/markdown-view";
 import { installNativeSelectionScroll } from "../api/selection-scroll";
 import { Notice } from "../api/ui/notice";
 import { installTooltips } from "../api/ui/tooltip";
+import { installAppearance } from "./appearance";
 import { installBases } from "./bases-view";
 import { installCli } from "./cli";
 import { registerCoreCommands } from "./commands";
@@ -29,35 +30,6 @@ const DEFAULT_LAYOUT = {
 		children: [{ type: "tabs", children: [{ type: "leaf", state: { type: "file-explorer" } }, { type: "leaf", state: { type: "search" } }] }],
 	},
 };
-
-// The base theme follows the vault's "theme" setting (appearance.json is part
-// of the vault config): "obsidian" is dark, "moonstone" light and "system"
-// follows the OS. A set accentColor replaces the theme's accent. Both apply
-// again when the config changes.
-function applyTheme(app: App) {
-	const media = window.matchMedia("(prefers-color-scheme: dark)");
-	let dark: boolean | null = null;
-	let accent = "";
-	const apply = () => {
-		const theme = app.vault.getConfig("theme");
-		const next = theme === "obsidian" || (theme !== "moonstone" && media.matches);
-		if (next !== dark) {
-			dark = next;
-			document.body.toggleClass("theme-dark", dark);
-			document.body.toggleClass("theme-light", !dark);
-			app.workspace.trigger("css-change");
-		}
-		const value = app.vault.getConfig("accentColor");
-		const color = typeof value === "string" ? value : "";
-		if (color !== accent) {
-			accent = color;
-			app.setAccentColor(color || null);
-		}
-	};
-	media.addEventListener("change", apply);
-	app.vault.on("config-changed", apply);
-	apply();
-}
 
 function buildShell(app: App) {
 	const root = document.body.createDiv("app-container");
@@ -138,7 +110,7 @@ async function boot() {
 	// Indexing overlaps the rest of boot and is done before plugins load, so
 	// getFileCache() works in their onload, as in Obsidian.
 	const indexed = app.metadataCache.initialize();
-	applyTheme(app);
+	installAppearance(app);
 	await app.hotkeyManager.load();
 	await loadMathJax().catch((err) => console.error(err));
 	registerCoreCommands(app);

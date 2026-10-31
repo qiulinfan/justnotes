@@ -2096,6 +2096,7 @@ export class Workspace extends Events {
 			this.iterateAllLeaves((leaf) => {
 				if (leaf.view instanceof TextFileView) saves.push(leaf.view.save());
 			});
+			saves.push(this.app.vault.saveConfig());
 			await withTimeout(Promise.allSettled(saves), timeout);
 			const tasks = new Tasks();
 			this.trigger("quit", tasks);

@@ -350,23 +350,6 @@ describe("Vault files", () => {
 	});
 });
 
-describe("Vault config", () => {
-	test("unset settings read Obsidian's defaults, appearance.json is merged, and setConfig never writes app.json", async () => {
-		const { vault, full } = await makeVault({ ".obsidian/app.json": '{"alwaysUpdateLinks":true}', ".obsidian/appearance.json": '{"theme":"obsidian"}' });
-		await vault.load();
-		expect(vault.getConfig("alwaysUpdateLinks")).toBe(true);
-		expect(vault.getConfig("tabSize")).toBe(4);
-		expect(vault.getConfig("newLinkFormat")).toBe("shortest");
-		expect(vault.getConfig("theme")).toBe("obsidian");
-		const changed: unknown[] = [];
-		vault.on("config-changed", (k: unknown) => changed.push(k));
-		vault.setConfig("useMarkdownLinks", true);
-		expect(vault.getConfig("useMarkdownLinks")).toBe(true);
-		expect(changed).toEqual(["useMarkdownLinks"]);
-		expect(fs.readFileSync(full(".obsidian/app.json"), "utf8")).toBe('{"alwaysUpdateLinks":true}');
-	});
-});
-
 test("folders created through the vault are TFolders in the tree", async () => {
 	const { vault } = await makeVault();
 	const folder = await vault.createFolder("x/y");

@@ -147,16 +147,27 @@ class CustomCss {
 		return `${this.getThemeFolder()}/${name}`;
 	}
 
+	// The theme and the enabled snippets are appearance.json's `cssTheme` and
+	// `enabledCssSnippets`, followed when the file changes.
 	async load() {
-		let appearance: { cssTheme?: string; enabledCssSnippets?: string[] } = {};
-		try {
-			appearance = JSON.parse(await this.app.vault.adapter.read(`${this.app.vault.configDir}/appearance.json`));
-		} catch {}
-		const saved = this.app.loadLocalStorage("custom-css");
-		this.enabledSnippets = new Set(saved?.enabledSnippets ?? appearance.enabledCssSnippets ?? []);
-		this.theme = saved?.theme ?? appearance.cssTheme ?? "";
+		await this.app.vault.loadConfig();
+		this.#fromConfig();
+		this.app.vault.on("config-changed", () => {
+			const theme = this.theme;
+			const snippets = [...this.enabledSnippets].join("\n");
+			this.#fromConfig();
+			if (this.theme !== theme) this.requestLoadTheme();
+			if ([...this.enabledSnippets].join("\n") !== snippets) this.requestLoadSnippets();
+		});
 		await Promise.all([this.readSnippets(), this.readThemes()]);
 		this.#watchFolders();
+	}
+
+	#fromConfig() {
+		const theme = this.app.vault.getConfig("cssTheme");
+		const snippets = this.app.vault.getConfig("enabledCssSnippets");
+		this.theme = typeof theme === "string" ? theme : "";
+		this.enabledSnippets = new Set(Array.isArray(snippets) ? snippets.filter((s): s is string => typeof s === "string") : []);
 	}
 
 	// Each folder is watched while it exists. The config folder's own watcher
@@ -226,26 +237,20 @@ class CustomCss {
 		this.#applyStyles();
 	}
 
+	// Saved in appearance.json, whose config-changed reloads the styles.
 	setCssEnabledStatus(name: string, enabled: boolean) {
-		if (enabled) this.enabledSnippets.add(name);
-		else this.enabledSnippets.delete(name);
-		this.#save();
-		this.requestLoadSnippets();
+		const snippets = (this.app.vault.getConfig("enabledCssSnippets") as unknown[]).filter((s) => s !== name);
+		if (enabled) snippets.push(name);
+		this.app.vault.setConfig("enabledCssSnippets", snippets);
 	}
 
 	setTheme(name: string) {
-		this.theme = name;
-		this.#save();
-		this.requestLoadTheme();
+		this.app.vault.setConfig("cssTheme", name);
 	}
 
 	// Inserts plugin styles before the theme and snippets.
 	insertPluginStyle(style: HTMLStyleElement) {
 		document.head.insertBefore(style, this.styleEl.isConnected ? this.styleEl : (this.extraStyleEls.find((el) => el.isConnected) ?? null));
-	}
-
-	#save() {
-		this.app.saveLocalStorage("custom-css", { enabledSnippets: [...this.enabledSnippets], theme: this.theme });
 	}
 
 	async #readCss(folder: string, wanted: (name: string) => boolean) {

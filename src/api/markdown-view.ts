@@ -1,4 +1,5 @@
 import { openSearchPanel } from "@codemirror/search";
+import { addSpellingItems } from "./editor-options";
 import { EditorSelection, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { Editor, EditorPosition } from "./editor";
@@ -63,6 +64,9 @@ export class MarkdownView extends TextFileView {
 		this.#modeButton = this.addAction("book-open", "", () => this.toggleMode());
 		if (this.app.vault.getConfig("defaultViewMode") === "preview") this.#showMode(this.previewMode);
 		this.#syncModeUi();
+		const readable = () => this.sourceEl.toggleClass("is-readable-line-width", this.app.vault.getConfig("readableLineLength") !== false);
+		readable();
+		this.registerEvent(this.app.vault.on("config-changed", readable));
 	}
 
 	getViewType() {
@@ -212,8 +216,9 @@ export class MarkdownView extends TextFileView {
 
 	showContextMenu(evt: MouseEvent) {
 		const menu = new Menu();
-		menu.addSections(["selection-link", "selection", "selection.format", "clipboard", "action", "info", "view", "system"]);
+		menu.addSections(["spellcheck", "selection-link", "selection", "selection.format", "clipboard", "action", "info", "view", "system"]);
 		const editor = this.editor;
+		if (this.getMode() === "source") addSpellingItems(this.app, menu, editor.cm, evt);
 		// A link under the pointer: a note link gets the workspace's link menu,
 		// a URL its own items and the 'url-menu' event.
 		const href = (evt.target as Element | null)?.closest?.("[data-href]")?.getAttribute("data-href");

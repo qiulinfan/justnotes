@@ -351,6 +351,22 @@
 	cursor: pointer;
 }
 
+/* "Show indentation guides" in the editor: each indent of a list line
+   (`cm-indent`, editor-options.ts) draws a line at its start, tall enough to
+   meet the next line's. */
+.markdown-source-view.mod-cm6 .cm-indent {
+	position: relative;
+}
+
+.markdown-source-view.mod-cm6 .cm-indent::before {
+	content: "";
+	position: absolute;
+	top: -0.18em;
+	bottom: -0.18em;
+	inset-inline-start: 0.3em;
+	border-inline-start: var(--indentation-guide-width) solid var(--indentation-guide-color);
+}
+
 /* A link reference definition: its label small and faint before the link. */
 .markdown-source-view.mod-cm6 .cm-link-ref-label {
 	font-size: var(--font-smaller, 0.875em);
