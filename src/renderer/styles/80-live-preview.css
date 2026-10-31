@@ -393,10 +393,6 @@
 	height: var(--icon-xs);
 }
 
-.markdown-source-view.mod-cm6 .collapse-icon.is-collapsed .svg-icon {
-	transform: rotate(-90deg);
-}
-
 .markdown-source-view.mod-cm6 .cm-foldPlaceholder {
 	margin: 0 4px;
 	padding: 0 4px;

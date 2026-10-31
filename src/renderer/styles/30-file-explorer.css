@@ -59,6 +59,12 @@
 	height: var(--icon-xs);
 }
 
+/* Obsidian's collapse icon points down and turns to the side when collapsed;
+   plugin trees (obsidian-git's views) rely on that. */
+.collapse-icon.is-collapsed .svg-icon {
+	transform: rotate(-90deg);
+}
+
 .tree-item-children {
 	padding-left: 12px;
 	margin-left: 10px;
