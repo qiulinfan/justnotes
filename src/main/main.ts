@@ -4,6 +4,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell
 import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
+import { microphoneRequest, systemMicrophoneAccess } from "./media";
 import { isPopoutOpen } from "./popout";
 import { handleSchemes, registerSchemes } from "./protocol";
 
@@ -100,17 +101,26 @@ ipcMain.handle("justnotes:open-in-vault", (evt, url: string, target: string) => 
 // navigation (from an iframe, say), makes Electron ask the page's session for
 // the openExternal permission and then hand the URL to the OS. openUrl decides
 // instead, in every session: a <webview> guest can have a session of its own
-// (omp-sidebar's partition), and its links count as its embedder's. Every
-// other permission keeps Electron's default (granted).
-function routeExternalLinks(ses: Session) {
+// (omp-sidebar's partition), and its links count as its embedder's. Media
+// (microphone and camera) is granted only as media.ts decides: the
+// microphone, to a vault page, once macOS lets the app use it. Every other
+// permission keeps Electron's default (granted).
+function handlePermissions(ses: Session) {
 	ses.setPermissionRequestHandler((contents, permission, callback, details) => {
+		if (permission === "media") {
+			const vaultPage = [...vaultWindows.values()].some((win) => win.webContents === contents);
+			const media = "mediaTypes" in details ? details : null;
+			if (!microphoneRequest(vaultPage, details.isMainFrame, media?.mediaTypes)) return callback(false);
+			systemMicrophoneAccess().then(callback, () => callback(false));
+			return;
+		}
 		if (permission !== "openExternal") return callback(true);
 		callback(false);
 		const url = "externalURL" in details ? details.externalURL : undefined;
 		if (url) openUrl(url, contents.hostWebContents ?? contents);
 	});
 }
-app.on("session-created", routeExternalLinks);
+app.on("session-created", handlePermissions);
 
 app.on("open-url", (evt, url) => {
 	evt.preventDefault();
@@ -293,7 +303,7 @@ registerSchemes();
 registerIpc();
 app.whenReady().then(() => {
 	handleSchemes();
-	routeExternalLinks(session.defaultSession);
+	handlePermissions(session.defaultSession);
 	setApplicationMenu();
 	startCli(vaultWindows, openVault).catch((err) => console.error("The command line socket could not start", err));
 	return openFirstVaults();
