@@ -16,13 +16,14 @@ export interface SearchMatch {
 }
 
 // Builds a line matcher: `/re/` is a regex, anything else a plain string,
-// case-sensitive only when it contains an uppercase letter.
-function compile(query: string): RegExp | null {
+// case-sensitive only when it contains an uppercase letter, unless
+// `caseSensitive` says (the command line's `case` flag).
+export function compileSearch(query: string, caseSensitive?: boolean): RegExp | null {
 	const re = /^\/(.+)\/([a-z]*)$/.exec(query);
 	try {
 		if (re) return new RegExp(re[1], re[2].includes("g") ? re[2] : `${re[2]}g`);
 		const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		return new RegExp(escaped, /[A-Z]/.test(query) ? "g" : "gi");
+		return new RegExp(escaped, (caseSensitive ?? /[A-Z]/.test(query)) ? "g" : "gi");
 	} catch {
 		return null;
 	}
@@ -36,7 +37,7 @@ export function tagQuery(query: string) {
 
 // Whether `name` (with or without '#') is `tag` or a tag nested under it
 // (#tag/sub), ignoring case.
-function isTag(name: string, tag: string) {
+export function isTag(name: string, tag: string) {
 	const t = name.replace(/^#/, "").toLowerCase();
 	return t === tag || t.startsWith(`${tag}/`);
 }
@@ -69,7 +70,7 @@ export function tagMatches(cache: CachedMetadata | null, text: string, tag: stri
 }
 
 // The matches of `re` on each line, one per line.
-function textMatches(text: string, re: RegExp): SearchMatch[] {
+export function textMatches(text: string, re: RegExp): SearchMatch[] {
 	const matches: SearchMatch[] = [];
 	for (const [line, content] of text.split("\n").entries()) {
 		re.lastIndex = 0;
@@ -125,7 +126,7 @@ export class SearchView extends ItemView {
 		this.#summaryEl.empty();
 		if (!query) return;
 		const tag = tagQuery(query);
-		const re = tag === null ? compile(query) : null;
+		const re = tag === null ? compileSearch(query) : null;
 		if (tag === null && !re) {
 			this.#summaryEl.setText("Invalid regular expression");
 			return;

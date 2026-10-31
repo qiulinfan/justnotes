@@ -33,7 +33,7 @@ export function dailyNoteDate(options: DailyNoteOptions, path: string): moment.M
 	return date.isValid() ? date : null;
 }
 
-function options(app: App): DailyNoteOptions {
+export function dailyNoteOptions(app: App): DailyNoteOptions {
 	return app.internalPlugins.getPluginById("daily-notes")?.instance.options ?? {};
 }
 
@@ -48,7 +48,7 @@ async function ensureFolders(app: App, path: string) {
 // The daily note for `date`, made from the configured template when it does
 // not exist yet.
 export async function dailyNote(app: App, date: moment.Moment) {
-	const opts = options(app);
+	const opts = dailyNoteOptions(app);
 	const path = dailyNotePath(opts, date);
 	const existing = app.vault.getFileByPath(path);
 	if (existing) return existing;
@@ -76,7 +76,7 @@ export async function openDailyNote(app: App, date = moment()) {
 
 // The existing daily note before (-1) or after (1) the active one.
 function adjacent(app: App, file: TFile, step: -1 | 1) {
-	const opts = options(app);
+	const opts = dailyNoteOptions(app);
 	const day = dailyNoteDate(opts, file.path);
 	if (!day) return null;
 	let best: { file: TFile; date: moment.Moment } | null = null;
@@ -93,7 +93,7 @@ export function installDailyNotes(app: App, host: CorePluginHost) {
 	host.addCommand({ id: "daily-notes", name: "Daily notes: Open today's daily note", callback: () => openDailyNote(app) });
 	const go = (step: -1 | 1) => (checking: boolean) => {
 		const file = app.workspace.getActiveFile();
-		if (!file || !dailyNoteDate(options(app), file.path)) return false;
+		if (!file || !dailyNoteDate(dailyNoteOptions(app), file.path)) return false;
 		if (checking) return true;
 		const next = adjacent(app, file, step);
 		if (next) app.workspace.getLeaf(false).openFile(next, { active: true });
@@ -103,5 +103,5 @@ export function installDailyNotes(app: App, host: CorePluginHost) {
 	host.addCommand({ id: "daily-notes:goto-prev", name: "Daily notes: Open previous daily note", checkCallback: go(-1) });
 	host.addCommand({ id: "daily-notes:goto-next", name: "Daily notes: Open next daily note", checkCallback: go(1) });
 	host.addRibbonIcon("daily-notes", "calendar-days", "Open today's daily note", () => openDailyNote(app));
-	if (options(app).autorun && !host.userEnabled) app.workspace.onLayoutReady(() => openDailyNote(app));
+	if (dailyNoteOptions(app).autorun && !host.userEnabled) app.workspace.onLayoutReady(() => openDailyNote(app));
 }

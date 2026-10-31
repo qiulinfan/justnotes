@@ -60,10 +60,15 @@ function frontmatterEntries(body: string) {
 // their values, as Obsidian does.
 export function templateEdits(doc: string, from: number, to: number, template: string): TextEdit[] {
 	const fm = FRONTMATTER.exec(template);
-	if (!fm) return [{ from, to, insert: template }];
+	const own = FRONTMATTER.exec(doc);
+	if (!fm) {
+		// The body never goes inside the note's frontmatter.
+		const at = own ? Math.max(from, own[0].length) : from;
+		const gap = own && at === own[0].length && !own[0].endsWith("\n") ? "\n" : "";
+		return [{ from: at, to: Math.max(to, at), insert: gap + template }];
+	}
 	const body = template.slice(fm[0].length);
 	const lines = (fm[1] ?? "").replace(/\r?\n$/, "");
-	const own = FRONTMATTER.exec(doc);
 	if (!own) {
 		if (!lines.trim()) return [{ from, to, insert: body }];
 		const block = `---\n${lines}\n---\n`;
@@ -94,25 +99,29 @@ function options(app: App): TemplatesOptions {
 	return app.internalPlugins.getPluginById("templates")?.instance.options ?? {};
 }
 
-const dateFormat = (app: App) => options(app).dateFormat?.trim() || "YYYY-MM-DD";
-const timeFormat = (app: App) => options(app).timeFormat?.trim() || "HH:mm";
+export const dateFormat = (app: App) => options(app).dateFormat?.trim() || "YYYY-MM-DD";
+export const timeFormat = (app: App) => options(app).timeFormat?.trim() || "HH:mm";
 
-// The templates folder from templates.json, which Obsidian's settings set.
-function templatesFolder(app: App) {
+// The templates folder from templates.json, which Obsidian's settings set,
+// or why there is none.
+export function findTemplatesFolder(app: App): TFolder | string {
 	const path = options(app).folder?.trim();
-	if (!path) {
-		new Notice("Set the templates folder in Obsidian's Templates settings first; justnotes only reads them.");
-		return null;
-	}
+	if (!path) return "Set the templates folder in Obsidian's Templates settings first; justnotes only reads them.";
 	const folder = app.vault.getAbstractFileByPath(normalizePath(path));
-	if (!(folder instanceof TFolder)) {
-		new Notice(`The templates folder "${path}" does not exist.`);
+	if (!(folder instanceof TFolder)) return `The templates folder "${path}" does not exist.`;
+	return folder;
+}
+
+function templatesFolder(app: App) {
+	const folder = findTemplatesFolder(app);
+	if (typeof folder === "string") {
+		new Notice(folder);
 		return null;
 	}
 	return folder;
 }
 
-function templateFiles(folder: TFolder): TFile[] {
+export function templateFiles(folder: TFolder): TFile[] {
 	return folder.children.flatMap((child) => (child instanceof TFolder ? templateFiles(child) : child instanceof TFile && child.extension === "md" ? [child] : []));
 }
 

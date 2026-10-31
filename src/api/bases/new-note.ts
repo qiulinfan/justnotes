@@ -1,3 +1,5 @@
+import type { App } from "../app";
+import type { TFile } from "../vault";
 import { type Node, parseExpression } from "./expression";
 import { PrimitiveValue } from "./values";
 
@@ -43,4 +45,29 @@ function impliedByNode(node: Node, out: NewNote) {
 		if (node.callee.name === "hasTag") out.tags.push(arg.replace(/^#/, ""));
 		else if (node.callee.name === "inFolder") out.folder = arg.replace(/^\/+|\/+$/g, "");
 	}
+}
+
+// A new note for a base whose filters are `filters` (the base's and the
+// view's): in the folder they imply, else where new notes go from
+// `sourcePath`, with the properties and tags they imply.
+export async function createBaseNote(
+	app: App,
+	filters: unknown[],
+	sourcePath: string,
+	name = "Untitled",
+	content = "",
+	frontmatterProcessor?: (frontmatter: any, file: TFile) => void,
+) {
+	const implied: NewNote = { frontmatter: {}, tags: [] };
+	impliedByFilters(filters, implied);
+	const folder = (implied.folder && app.vault.getFolderByPath(implied.folder)) || app.fileManager.getNewFileParent(sourcePath);
+	const file = await app.fileManager.createNewMarkdownFile(folder, name, content);
+	if (Object.keys(implied.frontmatter).length || implied.tags.length || frontmatterProcessor) {
+		await app.fileManager.processFrontMatter(file, (fm) => {
+			Object.assign(fm, implied.frontmatter);
+			if (implied.tags.length) fm.tags = [...new Set([...(Array.isArray(fm.tags) ? fm.tags : []), ...implied.tags])];
+			frontmatterProcessor?.(fm, file);
+		});
+	}
+	return file;
 }

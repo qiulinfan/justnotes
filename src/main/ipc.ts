@@ -6,6 +6,9 @@ import * as zlib from "node:zlib";
 // A namespace import, so tests can load this module outside Electron.
 import * as electron from "electron";
 import type { RawResponse } from "../api/util";
+import { readKnownVaults, realPathOf } from "../cli/vaults";
+
+export { realPathOf, vaultOf } from "../cli/vaults";
 
 // IPC handlers the renderer calls into.
 export function registerIpc() {
@@ -272,17 +275,6 @@ async function setSecret(vaultId: string, id: string, secret: string) {
 	}
 }
 
-// The real path of a file that may not exist yet: its nearest existing
-// folder's real path, with the rest of the path.
-export function realPathOf(file: string): string {
-	try {
-		return fs.realpathSync(file);
-	} catch {
-		const parent = path.dirname(file);
-		return parent === file ? file : path.join(realPathOf(parent), path.basename(file));
-	}
-}
-
 // The vaults opened on purpose, with --vault or the folder picker, by real
 // path. Only these open for an obsidian:// link (main.ts), because a vault's
 // window runs its community plugins. Kept in the app's user data folder.
@@ -291,12 +283,7 @@ function vaultsFile() {
 }
 
 export function knownVaults(): string[] {
-	try {
-		const vaults = JSON.parse(fs.readFileSync(vaultsFile(), "utf8"));
-		return Array.isArray(vaults) ? vaults.filter((vault) => typeof vault === "string") : [];
-	} catch {
-		return [];
-	}
+	return readKnownVaults(electron.app.getPath("userData"));
 }
 
 export function rememberVault(vault: string) {
@@ -308,28 +295,4 @@ export function rememberVault(vault: string) {
 	} catch (err) {
 		console.error("Could not remember the vault", vault, err);
 	}
-}
-
-// The vault that holds an absolute path, for obsidian:// URLs that name a file
-// by path: the most specific of `vaults` that contains it, as Obsidian picks
-// among the vaults it knows. Paths compare as real paths, so a symlinked
-// spelling (/tmp for /private/tmp) finds its vault, and the file need not
-// exist yet; a vault folder since moved or deleted holds nothing. Returns the
-// vault's real path, or null for a relative path or one in none of them.
-export function vaultOf(target: string, vaults: string[]) {
-	if (!path.isAbsolute(target)) return null;
-	const file = realPathOf(path.resolve(target));
-	let found: string | null = null;
-	for (const vault of vaults) {
-		let root: string;
-		try {
-			root = fs.realpathSync(vault);
-		} catch {
-			continue;
-		}
-		const rel = path.relative(root, file);
-		const inside = rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
-		if (inside && (found === null || root.length > found.length)) found = root;
-	}
-	return found;
 }

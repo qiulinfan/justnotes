@@ -168,6 +168,13 @@ describe("inserting a template", () => {
 		expect(insert("ab", 1, "X")).toBe("aXb");
 	});
 
+	// The cursor of a note just opened (justnotes template:insert) is at 0,
+	// before the note's properties; inserting there broke the frontmatter.
+	test("a template without frontmatter never goes inside or above the note's frontmatter", () => {
+		expect(insert("---\na: 1\n---\nText\n", 0, "# T\n")).toBe("---\na: 1\n---\n# T\nText\n");
+		expect(insert("---\na: 1\n---", 2, "X")).toBe("---\na: 1\n---\nX");
+	});
+
 	test("a template's frontmatter goes to the top of a note without any", () => {
 		expect(insert("Intro\n", 6, "---\ntags: lecture\n---\nBody\n")).toBe("---\ntags: lecture\n---\nIntro\nBody\n");
 	});

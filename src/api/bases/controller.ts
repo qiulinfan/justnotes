@@ -7,7 +7,7 @@ import { type TAbstractFile, TFile } from "../vault";
 import { BaseDocument, type BasesConfigFileView, BasesViewConfig, type ViewConfigHooks, viewData } from "./config";
 import { type BasesEntry, QueryRun } from "./entry";
 import { invalidateLinkIndex } from "./file-fields";
-import { impliedByFilters, type NewNote } from "./new-note";
+import { createBaseNote } from "./new-note";
 import type { BasesPropertyId } from "./property";
 import { BasesQueryResult, executeQuery } from "./query";
 import { BasesToolbar } from "./toolbar";
@@ -278,17 +278,8 @@ export class QueryController extends Component {
 
 	async createFileForView(baseFileName?: string, frontmatterProcessor?: (frontmatter: any, file: TFile) => void) {
 		const config = this.configs[this.viewIndex];
-		const implied: NewNote = { frontmatter: {}, tags: [] };
-		impliedByFilters([this.document.config.filters, config ? viewData(config).filters : undefined], implied);
-		const folder = (implied.folder && this.app.vault.getFolderByPath(implied.folder)) || this.app.fileManager.getNewFileParent(this.source.sourcePath);
-		const file = await this.app.fileManager.createNewMarkdownFile(folder, baseFileName ?? "Untitled");
-		if (Object.keys(implied.frontmatter).length || implied.tags.length || frontmatterProcessor) {
-			await this.app.fileManager.processFrontMatter(file, (fm) => {
-				Object.assign(fm, implied.frontmatter);
-				if (implied.tags.length) fm.tags = [...new Set([...(Array.isArray(fm.tags) ? fm.tags : []), ...implied.tags])];
-				frontmatterProcessor?.(fm, file);
-			});
-		}
+		const filters = [this.document.config.filters, config ? viewData(config).filters : undefined];
+		const file = await createBaseNote(this.app, filters, this.source.sourcePath, baseFileName ?? "Untitled", "", frontmatterProcessor);
 		await this.app.workspace.getLeaf("tab").openFile(file);
 	}
 }

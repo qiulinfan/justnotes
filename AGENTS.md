@@ -55,10 +55,15 @@ plain style. Development notes belong in this file.
     `internal-plugins.ts`, `secret-storage.ts`, `sanitize.ts` (DOMPurify),
     `setting-modal.ts`, `ui/` (menus, modals, notices, settings, suggests,
     tooltips), `bases/` (Bases: formulas, queries, table/cards/list views).
-- `src/cli/`: the `justnotes` command (`justnotes.ts`, run with `bun run cli
-  -- ...` or as the package's bin) and the socket protocol it shares with the
-  app (`protocol.ts`). `src/main/cli.ts` and `cli-server.ts` serve it,
-  `src/renderer/cli.ts` runs the request in the vault window.
+- `src/cli/`: the `justnotes` command (see Command line below):
+  `justnotes.ts` (the command, run with `bun run cli -- ...` or as the
+  package's bin), `protocol.ts` (the socket), `args.ts` (Obsidian's syntax),
+  `spec.ts` (the built-in command table: names, flags, where each runs, help),
+  `commands/vault.ts` and `commands/app.ts` (the built-ins), `run.ts`,
+  `output.ts` (results and formats), `offline.ts` (a vault read without the
+  app), `vaults.ts` (which vault a command means, shared with main) and
+  `completion.ts`. `src/main/cli.ts` and `cli-server.ts` serve the socket,
+  `src/renderer/cli.ts` runs a request in the vault window.
 - `src/renderer/`: host UI (boot, core commands, file explorer, search, view
   and workspace commands, bases view, the core plugins in `core-plugins.ts`
   and the modules it installs) and `styles/NN-*.css`, which keep
@@ -251,29 +256,6 @@ plain style. Development notes belong in this file.
   passes an origin; untagged edits must not look like typing.
 - `Plugin.load()` awaits an async `onload` before children load and before the
   next plugin, as Obsidian does. `Component.load()` stays synchronous.
-- `registerCliHandler` handlers run from a terminal: `justnotes [--profile
-  <dir>] [vault=<name|path>] <command> [key=value ...] [flag ...]`, Obsidian's
-  CLI syntax (bare flags are `"true"`, `\n`, `\t` and `\\` unescape in
-  values). `--key value` also works: it takes the next word for a flag
-  declared with a value or an undeclared key, never for a declared switch.
-  Undeclared keys pass through, because QuickAdd (the only owner's plugin that
-  registers handlers) reads `value-<id>=...` and other keys as variables. The
-  handler's string goes to stdout with status 0, whatever it says (QuickAdd
-  reports `"ok":false` in its JSON); a throw, or no instance running on the
-  profile, is status 1; an unknown command, unknown `vault=` or a missing or
-  valueless flag is 2. `help [<command>]` lists the window's handlers or one
-  command's flags.
-  Without `vault=` the request goes to the open vault holding the working
-  folder, else the focused window. Main serves one socket per profile at
-  `<profile>/cli/justnotes-cli.sock` (folder 0700, socket 0600; a named pipe
-  keyed by the profile on Windows), never a network port. A socket path past
-  sockaddr_un's limit (a deep `--profile`) is bound and connected relative to
-  its folder after a `chdir`, which main undoes at once (Node binds
-  synchronously). A window takes requests after `installCli` (end of boot)
-  says it is ready; earlier requests wait up to a minute, and a reload, crash
-  or close answers pending ones with an error. A socket file left by a killed
-  instance is replaced on the next start; a live one (another instance on the
-  same profile) is left alone and that instance serves no CLI.
 - `registerCodeMirror` is a no-op: it only ran in Obsidian's legacy editor.
 - `app.metadataTypeManager` has Obsidian's private members: `properties`
   and `getAllProperties()` (lowercased name to `{name, type, widget, count,
@@ -345,6 +327,95 @@ plain style. Development notes belong in this file.
   `property-types` (property type changes made in justnotes, layered over
   `types.json`; an empty type unassigns one). The language
   is localStorage `language`, else `en`; never the OS locale.
+
+## Command line
+
+- `justnotes [--profile <dir>] [--offline] [vault=<name|path>] <command>
+  [key=value ...] [flag ...] [--json] [--copy]` has Obsidian's built-in CLI
+  commands with their names, flags and syntax (docs.obsidian.md, "Obsidian
+  CLI"; the source is `en/Extending Obsidian/Obsidian CLI.md` in
+  obsidianmd/obsidian-help), justnotes' own, and the handlers plugins register
+  with `registerCliHandler`. A built-in wins over a plugin handler of the same
+  name. `justnotes help` lists them by group; `help <command>` shows flags.
+- Syntax (`args.ts`): bare flags are `"true"`, `\n`, `\t` and `\\` unescape in
+  values, `--key value` takes the next word for a flag declared with a value
+  or an undeclared key, never for a declared switch. Undeclared keys pass
+  through, because QuickAdd (the only owner's plugin with handlers) reads
+  `value-<id>=...` and other keys as variables. `content=-` and `code=-` read
+  stdin byte for byte (the command escapes backslashes before sending, never
+  `status=-`, which is a task status). `--copy` (anywhere) also copies stdout
+  with pbcopy, clip or wl-copy/xclip/xsel; `--json` (anywhere) prints any
+  built-in's result as JSON.
+- Output (`output.ts`): every built-in returns data plus text. Lists take
+  `format=tsv|csv|json|md|yaml|paths` and `total`: tsv has no header (for
+  `cut`), csv and md have one. A handler's string goes to stdout with status
+  0, whatever it says (QuickAdd reports `"ok":false` in its JSON); a failure
+  is status 1; an unknown command, an unknown `vault=`, a bad value or a
+  missing flag is 2. Obsidian commands justnotes leaves out answer why, with
+  status 2 (`missingReason`): Publish, Sync, `web`, `plugin:install`,
+  `theme:install`, `dev:mobile`, and `workspace:save`/`delete` (they would
+  write workspaces.json).
+- Where a built-in runs (`spec.ts`): `vault` (marked `*` in help) and `app`
+  commands run in the vault window; `main` ones (`vaults`, `vault:open`,
+  `restart`, `quit`) in main; `completion` in the command. With no app
+  running, a `vault` command reads the vault folder itself: `offline.ts`
+  loads the app's own Vault, MetadataCache, MetadataTypeManager and
+  InternalPlugins (core plugin options) in Bun, after
+  `installLanguageExtensions()`, and writes nothing. When that cannot answer
+  (no `file=` for an active-file default, a change such as `task toggle`) the
+  handler throws `NeedsApp` and the command asks the app instead; every other
+  command starts the app when none runs (`electron <repo> --vault <v>
+  [--profile <dir>]`, detached, needing `bun run build`) and waits for its
+  socket, as Obsidian's first command launches Obsidian. `--offline` never
+  asks or starts the app. A running app that has no window for the vault of
+  a `vault` command (`read: true` in the request) answers `unopened` and the
+  command reads the folder; for any other command main opens the vault's
+  window (and records it in `vaults.json`) first.
+- Which vault (`vaults.ts`, the same in main and the command): a leading
+  `vault=` by folder name (open vaults, then the profile's `vaults.json`) or
+  path; else the vault holding the working folder (open, known, or the nearest
+  folder above with `.obsidian`); else the focused window's. `file=` resolves
+  like a wikilink (base commands also try `<name>.base`), `path=` is exact;
+  with neither a command acts on the active file.
+- In the window `renderer/cli.ts` waits for `metadataCache.onCleanCache`
+  before and after a built-in, so a command sees what the previous one wrote.
+  Writes go through the app: `vault.process` (open editors merge them),
+  `frontmatter-edit.ts` for properties (only the property's lines change; a
+  `type=` is recorded through `metadataTypeManager.setType`, never
+  types.json), `fileManager.renameFile` for `move`/`rename` (links follow
+  `alwaysUpdateLinks`), trash per `trashOption` for `delete` and the
+  uninstall commands. Core plugins cannot be toggled (core-plugins.json is
+  Obsidian's); `bookmark` goes through the Bookmarks instance's `addItem`
+  when that core plugin exists; history commands read File recovery's
+  snapshots (`fileRecoveryOf`), only while it is enabled; `workspace:load`
+  applies a layout from workspaces.json. `dev:console` and `dev:errors` read
+  buffers `dev-capture.ts` fills from boot (console methods wrapped, window
+  `error` and `unhandledrejection`).
+- justnotes' own additions: `--json` everywhere, read-only commands without
+  a running app, starting the app on demand, `vault:open` (opens a vault
+  window, starting the app; Obsidian's is TUI-only), `quit`, `neighbours`
+  (the local graph's nodes to a depth, by direction), `command name=` (a
+  palette name, exact or the one containing it), `commands verbose`, stdin
+  content and `completion zsh|fish|bash` (static: built-ins and their flags,
+  with enumerated values; plugin commands are not completed).
+- The socket: main serves one per profile at
+  `<profile>/cli/justnotes-cli.sock` (folder 0700, socket 0600; a named pipe
+  keyed by the profile on Windows), never a network port. A socket path past
+  sockaddr_un's limit (a deep `--profile`) is bound and connected relative to
+  its folder after a `chdir`, which main undoes at once (Node binds
+  synchronously). A window takes requests after `installCli` (end of boot)
+  says it is ready; earlier requests wait up to a minute, and a reload, crash
+  or close answers pending ones with an error. A socket file left by a killed
+  instance is replaced on the next start; a live one (another instance on the
+  same profile) is left alone and that instance serves no CLI.
+- On PATH (not done by the repo): the bin is `src/cli/justnotes.ts`, an
+  executable Bun script that finds the repo through its real path, so a
+  symlink works: `ln -s <repo>/src/cli/justnotes.ts ~/.local/bin/justnotes`
+  (with `~/.local/bin` and `bun` on PATH), or `bun link` in the repo. Shell
+  completion: `justnotes completion zsh > ~/.zfunc/_justnotes` (with
+  `~/.zfunc` in `fpath` before `compinit`), `justnotes completion fish >
+  ~/.config/fish/completions/justnotes.fish`, `source <(justnotes completion
+  bash)`.
 
 ## Views, files and saving
 
