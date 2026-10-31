@@ -52,17 +52,19 @@ export function parseFrontMatterEntry(frontmatter: any, key: string | RegExp) {
 	return null;
 }
 
-// Every value under the matching keys, as trimmed non-empty strings.
-function stringValues(frontmatter: any, key: string | RegExp, split?: RegExp) {
+// Every value under the matching keys, as trimmed non-empty strings. `split`
+// divides a single string value, and list entries too with `splitEntries`.
+function stringValues(frontmatter: any, key: string | RegExp, split?: RegExp, splitEntries = false) {
 	if (!frontmatter || typeof frontmatter !== "object") return null;
 	const keys = typeof key === "string" ? (key in frontmatter ? [key] : []) : Object.keys(frontmatter).filter((k) => key.test(k));
 	if (!keys.length) return null;
 	const out: string[] = [];
 	for (const k of keys) {
 		const value = frontmatter[k];
-		for (const item of Array.isArray(value) ? value : [value]) {
+		const list = Array.isArray(value);
+		for (const item of list ? value : [value]) {
 			if (typeof item !== "string") continue;
-			for (const part of split ? item.split(split) : [item]) if (part.trim()) out.push(part.trim());
+			for (const part of split && (!list || splitEntries) ? item.split(split) : [item]) if (part.trim()) out.push(part.trim());
 		}
 	}
 	return out.length ? out : null;
@@ -73,10 +75,11 @@ export function parseFrontMatterStringArray(frontmatter: any, key: string | RegE
 }
 
 export function parseFrontMatterTags(frontmatter: any) {
-	const tags = stringValues(frontmatter, /^tags?$/i, /[,\s]+/);
+	const tags = stringValues(frontmatter, /^tags?$/i, /[,\s]+/, true);
 	return tags ? tags.map((t) => (t.startsWith("#") ? t : `#${t}`)) : null;
 }
 
+// 'aliases: a, b' is two aliases; a list entry is one alias, commas and all.
 export function parseFrontMatterAliases(frontmatter: any) {
 	return stringValues(frontmatter, /^alias(es)?$/i, /,/);
 }

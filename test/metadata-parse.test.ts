@@ -189,6 +189,7 @@ describe("metadata helpers", () => {
 		expect(parseFrontMatterStringArray({ foo: "bar baz" }, "foo")).toEqual(["bar baz"]);
 		expect(parseFrontMatterStringArray({ foo: [" a ", null, "b"] }, "foo")).toEqual(["a", "b"]);
 		expect(parseFrontMatterAliases({ aliases: "Machine Learning, ML" })).toEqual(["Machine Learning", "ML"]);
+		expect(parseFrontMatterAliases({ aliases: ["Smith, John", "JS"] })).toEqual(["Smith, John", "JS"]);
 		expect(parseFrontMatterTags({ tag: "x", tags: ["foo", "#bar"] })).toEqual(["#x", "#foo", "#bar"]);
 		expect(parseFrontMatterStringArray({}, "foo")).toBeNull();
 		expect(getAllTags(parseMetadata("no tags"))).toBeNull();
