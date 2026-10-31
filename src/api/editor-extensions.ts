@@ -18,6 +18,7 @@ import { DragManager } from "./drag-manager";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
 import { editorSettings } from "./editor-settings";
 import { setIcon } from "./icons";
+import { imageZoom } from "./image-zoom";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
 import { inlineMathEnd, mathBlockClose } from "./markdown";
 import { parseLinktext } from "./metadata-utils";
@@ -806,6 +807,7 @@ export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
 		livePreview(host),
 		livePreviewState,
 		editorSelectionScroll(() => editorSettings(host.app).selectionScrollSpeed),
+		imageZoom(),
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),
 		highlightedCode,
@@ -849,6 +851,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		livePreview(host),
 		livePreviewState,
 		editorSelectionScroll(() => editorSettings(app).selectionScrollSpeed),
+		imageZoom(),
 		activeLine,
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),

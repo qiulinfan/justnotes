@@ -51,7 +51,8 @@ plain style. Development notes belong in this file.
     `markdown-preview.ts` (reading view), `markdown.ts` (MarkdownRenderer, post
     processors, code-block registry, the math grammar, MathJax/pdf.js/Prism/
     Mermaid loaders), `live-preview.ts` and `editor-*.ts` (CodeMirror 6),
-    `selection-scroll.ts` (drag-select scrolling), `editor-settings.ts`
+    `selection-scroll.ts` (drag-select scrolling), `image-zoom.ts` (the
+    image zoom menu), `editor-settings.ts`
     (justnotes' own Editor tab), `attachments.ts` (pasted and dropped files),
     `vault.ts`, `metadata*.ts` (the cache; `metadata-types.ts`, the
     `metadataTypeManager`; `metadata-editor.ts` and `metadata-widgets.ts`,
@@ -695,6 +696,23 @@ plain style. Development notes belong in this file.
   align="center">`, `<div>`, `<details>`, ...) renders through
   `MarkdownRenderer`, sanitized like the reading view, as a block widget
   (`.cm-html-embed`) until the selection enters its lines.
+- Double-clicking an image (`image-zoom.ts`) opens a menu of zoom presets
+  (100, 75, 67, 50, 33, 25%) and Reset, which rewrite the image's source as
+  one undoable change on the editor's document: an `<img>`'s `zoom` style
+  (only its value, keeping its spacing, the other declarations and
+  attributes; a missing style is added before the tag's end; Reset removes
+  the zoom and an emptied style attribute), a wikilink's `|W` or a Markdown
+  image's `alt|W` (W from the image's `naturalWidth`, replacing a `WxH`;
+  Reset removes it). Live Preview handles its own image widgets
+  (`.image-embed` and `.cm-html-embed` images outside rendered blocks; the
+  widget's `posAtDOM` finds the source): a press on one is taken from
+  CodeMirror, and a single click reveals the source only after 300 ms, or
+  the second click of a double click would land on revealed text. The
+  reading view finds the source of a double-clicked image in its section's
+  text by the URL each image loads and their order (`refForRenderedImage`),
+  skips images of embedded notes and anything whose source changed since
+  the render, edits like a task tick, re-renders and saves. Images inside
+  Live Preview's rendered blocks (callouts, tables, HTML blocks) get no menu.
 - The frontmatter is a block widget holding a `MetadataEditor` (also in the
   reading view's `mod-header`), unless "Properties in document"
   (`propertiesInDocument`) is `source` (YAML) or `hidden`; Live Preview
