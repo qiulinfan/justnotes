@@ -16,7 +16,7 @@
 
 .modal {
 	position: relative;
-	background: var(--background-primary);
+	background: var(--modal-background);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-l);
 	box-shadow: var(--shadow-l);
