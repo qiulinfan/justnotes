@@ -89,6 +89,19 @@ views:
 		expect(out.errors[0]).toContain("status ==");
 	});
 
+	// A misspelt function or a type error makes every entry fail; the message
+	// bar must explain the empty result without flagging filters that work.
+	test("a filter that errs and lets nothing through is reported, one that errs on some entries is not", () => {
+		const base = (filter: string) => query(`filters: '${filter}'\nviews:\n  - type: table\n    name: T\n`);
+		const misspelt = base('file.hasTagz("work")');
+		expect(misspelt.paths).toEqual([]);
+		expect(misspelt.errors).toEqual(['Filter "file.hasTagz("work")": Unknown function "hasTagz" for file']);
+		expect(base("file.inFolder()").errors).toEqual(['Filter "file.inFolder()": inFolder() takes 1 argument']);
+		const partly = base('date(due) < date("2025-01-07")');
+		expect(partly.paths).toEqual(["tasks/b.md"]);
+		expect(partly.errors).toEqual([]);
+	});
+
 	test("sort applies each key in turn with empty values last, and limit cuts after sorting", () => {
 		const yaml = `
 filters: file.ext == "md"

@@ -8,32 +8,59 @@ import { inferValue } from "./frontmatter";
 import { type BasesPropertyId, FILE_PROPERTIES } from "./property";
 import { BooleanValue, DateValue, DurationValue, ErrorValue, ListValue, NullValue, NumberValue, Value } from "./values";
 
+// What a query's filters ran into: messages for the user, and for each filter
+// formula whether any entry passed it and the first error it gave.
+export class FilterLog {
+	errors = new Set<string>();
+	#outcomes = new Map<string, { passed: boolean; error: string | null }>();
+
+	record(src: string, value: Value) {
+		let outcome = this.#outcomes.get(src);
+		if (!outcome) this.#outcomes.set(src, (outcome = { passed: false, error: null }));
+		if (value instanceof ErrorValue) outcome.error ??= value.message;
+		else if (value.isTruthy()) outcome.passed = true;
+	}
+
+	// A formula that gave errors and let no entry through is broken rather than
+	// strict, such as a misspelt function, so the empty result is explained.
+	// One that errs only on some entries, as `date(due)` does where due is
+	// empty, is working.
+	messages(): string[] {
+		const out = new Set(this.errors);
+		for (const [src, { passed, error }] of this.#outcomes) if (error && !passed) out.add(`Filter "${src}": ${error}`);
+		return [...out];
+	}
+}
+
 // A filter is a formula string or an and/or/not list of filters. A formula
-// that does not parse matches nothing and is reported once.
-export function testFilter(filter: unknown, run: QueryRun, entry: BasesEntry, errors: Set<string>): boolean {
+// that does not parse matches nothing and is reported once; an error while
+// evaluating one is false for that entry.
+export function testFilter(filter: unknown, run: QueryRun, entry: BasesEntry, log: FilterLog): boolean {
 	if (filter === null || filter === undefined) return true;
 	if (typeof filter === "boolean") return filter;
 	if (typeof filter === "string" || typeof filter === "number") {
 		const src = String(filter);
 		const parsed = parseExpression(src);
 		if (!parsed.node) {
-			errors.add(`Filter "${src}": ${parsed.error}`);
+			log.errors.add(`Filter "${src}": ${parsed.error}`);
 			return false;
 		}
-		return run.evaluate(src, entry).isTruthy();
+		const value = run.evaluate(src, entry);
+		log.record(src, value);
+		return value.isTruthy();
 	}
-	if (Array.isArray(filter)) return filter.every((f) => testFilter(f, run, entry, errors));
+	if (Array.isArray(filter)) return filter.every((f) => testFilter(f, run, entry, log));
 	if (typeof filter === "object") {
 		const f = filter as Record<string, unknown>;
 		const list = (v: unknown) => (Array.isArray(v) ? v : v === null || v === undefined ? [] : [v]);
-		if ("and" in f) return list(f.and).every((x) => testFilter(x, run, entry, errors));
+		if ("and" in f) return list(f.and).every((x) => testFilter(x, run, entry, log));
 		if ("or" in f) {
 			const any = list(f.or);
-			return any.length === 0 || any.some((x) => testFilter(x, run, entry, errors));
+			return any.length === 0 || any.some((x) => testFilter(x, run, entry, log));
 		}
-		if ("not" in f) return !list(f.not).some((x) => testFilter(x, run, entry, errors));
+		if ("not" in f) return !list(f.not).some((x) => testFilter(x, run, entry, log));
 	}
-	errors.add(`Unrecognised filter: ${JSON.stringify(filter)}`);
+	log.errors.add(`Unrecognised filter: ${JSON.stringify(filter)}`);
 	return false;
 }
 
@@ -52,12 +79,12 @@ function matchesSearch(entry: BasesEntry, columns: BasesPropertyId[], search: st
 }
 
 export function executeQuery(run: QueryRun, config: BasesConfigFile, view: BasesViewConfig, files: TFile[], search = ""): QueryOutput {
-	const errors = new Set<string>();
+	const log = new FilterLog();
 	const filters = viewData(view).filters;
 	const matching: BasesEntry[] = [];
 	for (const file of files) {
 		const entry = new BasesEntry(run, file);
-		if (testFilter(config.filters, run, entry, errors) && testFilter(filters, run, entry, errors)) matching.push(entry);
+		if (testFilter(config.filters, run, entry, log) && testFilter(filters, run, entry, log)) matching.push(entry);
 	}
 	const query = search.trim().toLowerCase();
 	const columns = view.getOrder();
@@ -73,7 +100,7 @@ export function executeQuery(run: QueryRun, config: BasesConfigFile, view: Bases
 	});
 	const limit = limitOf(view);
 	const data = keyed.slice(0, limit ?? keyed.length).map((k) => k.entry);
-	return { result: new BasesQueryResult(data, run, config, view), allProperties: collectProperties(matching, run), errors: [...errors] };
+	return { result: new BasesQueryResult(data, run, config, view), allProperties: collectProperties(matching, run), errors: log.messages() };
 }
 
 function collectProperties(entries: BasesEntry[], run: QueryRun): BasesPropertyId[] {
