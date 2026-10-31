@@ -14,7 +14,7 @@
 	border-top: 1px solid var(--background-modifier-border);
 	border-left: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m) 0 0 0;
-	z-index: 10;
+	z-index: var(--layer-status-bar);
 }
 
 .status-bar:empty {

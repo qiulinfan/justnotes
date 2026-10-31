@@ -88,7 +88,8 @@ body {
 	--color-pink: rgb(var(--color-pink-rgb));
 	--shadow-s: 0 1px 2px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(0, 0, 0, 0.1);
 	--shadow-l: 0 8px 32px rgba(0, 0, 0, 0.25);
-	/* Stacking layers, lowest first. */
+	/* Stacking layers, lowest first. Host overlays sit on them too, so a
+	   plugin overlay on a layer stacks against them as in Obsidian. */
 	--layer-cover: 5;
 	--layer-sidedock: 10;
 	--layer-status-bar: 15;
