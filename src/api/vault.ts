@@ -110,6 +110,16 @@ const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const missing = (err: any) => err?.code === "ENOENT" || err?.code === "ENOTDIR" || err?.code === "ELOOP";
 const birth = (s: fs.Stats) => s.birthtimeMs || s.ctimeMs;
 
+// Rewrites each segment of a path in the spelling of the existing entry it
+// names regardless of case; `find` maps a lowercased path to that entry's
+// path. With `keepName` the last segment stays as given: a rename target.
+function respell(path: string, find: (lower: string) => string | undefined, keepName: boolean): string {
+	const i = path.lastIndexOf("/");
+	const parent = i < 0 ? "" : respell(path.slice(0, i), find, false);
+	const joined = join(parent, path.slice(i + 1));
+	return keepName ? joined : (find(joined.toLowerCase()) ?? joined);
+}
+
 // A watcher-reported deletion waits this long, so a file that an editor or git
 // replaces by delete-then-create reads as one modification.
 const DELETE_GRACE = 100;
@@ -125,7 +135,9 @@ export class FileSystemAdapter {
 	watchers: Record<string, Watcher> = {};
 	insensitive = false;
 	#handler: AdapterChange | null = null;
-	#queues = new Map<string, Promise<unknown>>();
+	#queue: Promise<unknown> = Promise.resolve();
+	// Lowercased path to its key in `files`, for case-insensitive volumes.
+	#lower = new Map<string, string>();
 	#written = new Map<string, DataWriteOptions>();
 	#pendingDeletes = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -186,6 +198,28 @@ export class FileSystemAdapter {
 		return nodePath.join(this.basePath, realPath);
 	}
 
+	// On a case-insensitive volume a path names the entry it matches
+	// regardless of case, so each segment takes the file table's spelling.
+	#respell(norm: string, keepName = false) {
+		if (!this.insensitive) return norm;
+		const find = (lower: string) => {
+			const found = this.#lower.get(lower);
+			return found !== undefined && this.files[found] ? found : undefined;
+		};
+		return respell(norm, find, keepName);
+	}
+
+	#add(norm: string, entry: FileEntry) {
+		this.files[norm] = entry;
+		this.#lower.set(norm.toLowerCase(), norm);
+	}
+
+	#drop(norm: string) {
+		delete this.files[norm];
+		const lower = norm.toLowerCase();
+		if (this.#lower.get(lower) === norm) this.#lower.delete(lower);
+	}
+
 	async exists(normalizedPath: string, sensitive?: boolean) {
 		const norm = key(normalizedPath);
 		try {
@@ -193,24 +227,20 @@ export class FileSystemAdapter {
 		} catch {
 			return false;
 		}
-		if (!sensitive || !this.insensitive || !norm) return true;
-		// Every segment must exist with exactly this case.
-		const real = this.#realPath(norm).split("/");
-		for (let i = 0; i < real.length; i++) {
-			if (!(await this.#hasName(real.slice(0, i + 1).join("/")))) return false;
-		}
-		return true;
+		return !sensitive || !this.insensitive || !norm || this.#spelled(this.#realPath(norm));
 	}
 
-	// Whether the folder holds an entry spelled exactly like the path's last segment.
-	async #hasName(realPath: string) {
-		try {
-			const names = await fs.promises.readdir(this.#abs(parentOf(realPath)));
-			const want = nameOf(realPath).normalize("NFC");
-			return names.some((n) => n.normalize("NFC") === want);
-		} catch {
-			return false;
-		}
+	// Whether every segment of the path appears spelled exactly so in its folder.
+	async #spelled(realPath: string) {
+		const parts = realPath.split("/");
+		const found = await Promise.all(
+			parts.map(async (name, i) => {
+				const names = await fs.promises.readdir(this.#abs(parts.slice(0, i).join("/"))).catch(() => [] as string[]);
+				const want = name.normalize("NFC");
+				return names.some((n) => n.normalize("NFC") === want);
+			}),
+		);
+		return found.every(Boolean);
 	}
 
 	async stat(normalizedPath: string): Promise<Stat | null> {
@@ -272,11 +302,11 @@ export class FileSystemAdapter {
 		return this.#mutate(normalizedPath, (full) => fs.promises.appendFile(full, new Uint8Array(data)), options);
 	}
 
-	// Serialized with every other write to the path, so no write lands between
-	// the read and the save. An unchanged result is not written.
+	// Serialized with every other change, so no write lands between the read
+	// and the save. An unchanged result is not written.
 	process(normalizedPath: string, fn: (data: string) => string, options?: DataWriteOptions) {
-		const norm = key(normalizedPath);
-		return this.#serial(norm, async () => {
+		return this.#serial(async () => {
+			const norm = this.#respell(key(normalizedPath));
 			const full = this.getFullPath(norm);
 			const before = await fs.promises.readFile(full, "utf8");
 			const data = fn(before);
@@ -289,8 +319,8 @@ export class FileSystemAdapter {
 	}
 
 	#mutate(normalizedPath: string, write: (full: string) => Promise<void>, options?: DataWriteOptions) {
-		const norm = key(normalizedPath);
-		return this.#serial(norm, async () => {
+		return this.#serial(async () => {
+			const norm = this.#respell(key(normalizedPath));
 			const full = this.getFullPath(norm);
 			await fs.promises.mkdir(nodePath.dirname(full), { recursive: true });
 			await write(full);
@@ -310,24 +340,24 @@ export class FileSystemAdapter {
 	}
 
 	mkdir(normalizedPath: string) {
-		const norm = key(normalizedPath);
-		return this.#serial(norm, async () => {
+		return this.#serial(async () => {
+			const norm = this.#respell(key(normalizedPath));
 			await fs.promises.mkdir(this.getFullPath(norm), { recursive: true });
 			await this.reconcileFile(this.#realPath(norm), norm, true);
 		});
 	}
 
 	remove(normalizedPath: string) {
-		const norm = key(normalizedPath);
-		return this.#serial(norm, async () => {
+		return this.#serial(async () => {
+			const norm = this.#respell(key(normalizedPath));
 			await fs.promises.unlink(this.getFullPath(norm));
 			await this.reconcileFile(this.#realPath(norm), norm, true);
 		});
 	}
 
 	rmdir(normalizedPath: string, recursive: boolean) {
-		const norm = key(normalizedPath);
-		return this.#serial(norm, async () => {
+		return this.#serial(async () => {
+			const norm = this.#respell(key(normalizedPath));
 			const full = this.getFullPath(norm);
 			if (recursive) await fs.promises.rm(full, { recursive: true });
 			else await fs.promises.rmdir(full);
@@ -335,10 +365,11 @@ export class FileSystemAdapter {
 		});
 	}
 
+	// The target keeps its own last segment, so a case-only rename stays one.
 	rename(normalizedPath: string, normalizedNewPath: string) {
-		const from = key(normalizedPath);
-		const to = key(normalizedNewPath);
-		return this.#serial(from, async () => {
+		return this.#serial(async () => {
+			const from = this.#respell(key(normalizedPath));
+			const to = this.#respell(key(normalizedNewPath), true);
 			if (from === to) return;
 			const src = this.getFullPath(from);
 			const dst = this.getFullPath(to);
@@ -353,9 +384,9 @@ export class FileSystemAdapter {
 	}
 
 	copy(normalizedPath: string, normalizedNewPath: string) {
-		const from = key(normalizedPath);
-		const to = key(normalizedNewPath);
-		return this.#serial(to, async () => {
+		return this.#serial(async () => {
+			const from = this.#respell(key(normalizedPath));
+			const to = this.#respell(key(normalizedNewPath));
 			const dst = this.getFullPath(to);
 			await this.#assertFree(dst);
 			await fs.promises.mkdir(nodePath.dirname(dst), { recursive: true });
@@ -379,19 +410,19 @@ export class FileSystemAdapter {
 	}
 
 	async trashSystem(normalizedPath: string) {
-		const norm = key(normalizedPath);
+		const norm = this.#respell(key(normalizedPath));
 		try {
 			await require("electron").shell.trashItem(this.getFullPath(norm));
 		} catch {
 			return false;
 		}
-		await this.#serial(norm, () => this.reconcileFile(this.#realPath(norm), norm, true));
+		await this.#serial(() => this.reconcileFile(this.#realPath(norm), norm, true));
 		return true;
 	}
 
 	// Moves the item into .trash at the vault root under a free name.
 	async trashLocal(normalizedPath: string) {
-		const norm = key(normalizedPath);
+		const norm = this.#respell(key(normalizedPath));
 		const name = nameOf(norm);
 		const folder = (await fs.promises.lstat(this.getFullPath(norm))).isDirectory();
 		const dot = folder ? -1 : name.lastIndexOf(".");
@@ -411,18 +442,12 @@ export class FileSystemAdapter {
 		}
 	}
 
-	// Runs tasks for one path one after another: watcher events, writes and
-	// their reconciliation never interleave on the same path.
-	#serial<T>(norm: string, task: () => Promise<T>): Promise<T> {
-		const run = (this.#queues.get(norm) ?? Promise.resolve()).then(task, task);
-		const tail = run.then(
-			() => {},
-			() => {},
-		);
-		this.#queues.set(norm, tail);
-		tail.then(() => {
-			if (this.#queues.get(norm) === tail) this.#queues.delete(norm);
-		});
+	// Runs changes one at a time in call order: watcher events, writes and
+	// their reconciliation never interleave, so moving a folder cannot race a
+	// write inside it.
+	#serial<T>(task: () => Promise<T>): Promise<T> {
+		const run = this.#queue.then(task);
+		this.#queue = run.catch(() => {});
 		return run;
 	}
 
@@ -458,7 +483,7 @@ export class FileSystemAdapter {
 		const norm = key(realPath);
 		this.trigger("raw", norm);
 		if (isHidden(norm) && !Object.keys(this.watchers).some((w) => w && (norm === w || norm.startsWith(`${w}/`)))) return;
-		this.#serial(norm, () => this.reconcileFile(realPath, norm)).catch((err) => console.error("Vault: could not reconcile", norm, err));
+		this.#serial(() => this.reconcileFile(realPath, norm)).catch((err) => console.error("Vault: could not reconcile", norm, err));
 	}
 
 	#onWatchError(watcher: Watcher, dir: string, err: unknown) {
@@ -528,8 +553,9 @@ export class FileSystemAdapter {
 		else await this.reconcileDeletion(realPath, normalizedPath, skipTimeout);
 	}
 
-	// On a case-insensitive volume a stat also finds the old name after a
-	// case-only rename, so the exact name must be in its folder.
+	// On a case-insensitive volume a stat also finds a path under another
+	// case, such as a name the watcher reports after a case-only rename of the
+	// file or of a folder above it, so every segment must be spelled exactly.
 	async #present(realPath: string) {
 		try {
 			await fs.promises.stat(this.#abs(realPath));
@@ -537,7 +563,7 @@ export class FileSystemAdapter {
 			if (missing(err)) return false;
 			throw err;
 		}
-		return !this.insensitive || this.#hasName(realPath);
+		return !this.insensitive || this.#spelled(realPath);
 	}
 
 	async reconcileFileInternal(realPath: string, normalizedPath: string) {
@@ -560,7 +586,7 @@ export class FileSystemAdapter {
 		const entry = this.files[normalizedPath];
 		if (!entry) {
 			const stat = { ctime: written?.ctime ?? birth(s), mtime: s.mtimeMs, size: s.size };
-			this.files[normalizedPath] = { type: "file", realpath: realPath, ...stat };
+			this.#add(normalizedPath, { type: "file", realpath: realPath, ...stat });
 			this.trigger("file-created", normalizedPath, undefined, { ...stat });
 		} else if ((written && entry === before) || entry.mtime !== s.mtimeMs || entry.size !== s.size) {
 			const stat = { ctime: written?.ctime ?? entry.ctime, mtime: s.mtimeMs, size: s.size };
@@ -591,7 +617,7 @@ export class FileSystemAdapter {
 			throw err;
 		}
 		if (!s.isDirectory() || this.files[normalizedPath]) return;
-		this.files[normalizedPath] = { type: "folder", realpath: realPath, ctime: birth(s), mtime: s.mtimeMs, size: 0 };
+		this.#add(normalizedPath, { type: "folder", realpath: realPath, ctime: birth(s), mtime: s.mtimeMs, size: 0 });
 		this.trigger("folder-created", normalizedPath);
 		// The vault watcher does not follow links, so a linked folder needs its own.
 		if (target) this.#watchDir(normalizedPath, target);
@@ -625,7 +651,7 @@ export class FileSystemAdapter {
 		for (const p of doomed) {
 			const entry = this.files[p];
 			if (!entry) continue;
-			delete this.files[p];
+			this.#drop(p);
 			this.#cancelDelete(p);
 			if (p && this.watchers[p]) this.stopWatchPath(p);
 			this.trigger(entry.type === "folder" ? "folder-removed" : "file-removed", p);
@@ -636,7 +662,7 @@ export class FileSystemAdapter {
 		if (this.#pendingDeletes.has(normalizedPath)) return;
 		const timer = setTimeout(() => {
 			this.#pendingDeletes.delete(normalizedPath);
-			this.#serial(normalizedPath, async () => {
+			this.#serial(async () => {
 				if (await this.#present(realPath)) await this.reconcileFileInternal(realPath, normalizedPath);
 				else await this.reconcileDeletion(realPath, normalizedPath, true);
 			}).catch((err) => console.error("Vault: could not reconcile", normalizedPath, err));
@@ -672,9 +698,9 @@ export class FileSystemAdapter {
 		for (const p of Object.keys(this.files)) {
 			if (p !== from && !p.startsWith(prefix)) continue;
 			const entry = this.files[p];
-			delete this.files[p];
+			this.#drop(p);
 			entry.realpath = toReal + entry.realpath.slice(fromReal.length);
-			this.files[to + p.slice(from.length)] = entry;
+			this.#add(to + p.slice(from.length), entry);
 		}
 		for (const p of Object.keys(this.watchers)) {
 			if (p !== from && !p.startsWith(prefix)) continue;
@@ -982,8 +1008,9 @@ export class Vault extends Events {
 	// A free path 'name.ext', 'name 1.ext', 'name 2.ext', ...; `path` has no extension.
 	getAvailablePath(path: string, extension: string) {
 		const ext = extension ? `.${extension}` : "";
-		let candidate = normalizePath(`${path}${ext}`);
-		for (let i = 1; this.#taken(candidate); i++) candidate = normalizePath(`${path} ${i}${ext}`);
+		const at = (suffix: string) => this.#respell(normalizePath(`${path}${suffix}${ext}`), true);
+		let candidate = at("");
+		for (let i = 1; this.#taken(candidate); i++) candidate = at(` ${i}`);
 		return candidate;
 	}
 
@@ -991,8 +1018,15 @@ export class Vault extends Events {
 		return !!this.fileMap[path] || (this.adapter.insensitive && this.#lower.has(path.toLowerCase()));
 	}
 
+	// On a case-insensitive volume a path lies in the existing folders it
+	// names in another case, as the file system puts it there.
+	#respell(path: string, keepName = false) {
+		if (!this.adapter.insensitive || path === "/") return path;
+		return respell(path, (lower) => this.#lower.get(lower)?.path, keepName);
+	}
+
 	#newPath(path: string, message: string) {
-		path = normalizePath(path);
+		path = this.#respell(normalizePath(path));
 		if (this.#taken(path)) throw new Error(message);
 		return path;
 	}
@@ -1100,7 +1134,7 @@ export class Vault extends Events {
 	}
 
 	async rename(file: TAbstractFile, newPath: string) {
-		newPath = normalizePath(newPath);
+		newPath = this.#respell(normalizePath(newPath), true);
 		if (newPath === file.path) return;
 		const existing = this.fileMap[newPath] ?? (this.adapter.insensitive ? this.#lower.get(newPath.toLowerCase()) : undefined);
 		if (existing && existing !== file) throw new Error("Destination file already exists!");

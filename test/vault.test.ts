@@ -34,6 +34,13 @@ async function until(check: () => boolean, ms = 3000) {
 	return check();
 }
 
+// Every path in the vault's file tree, sorted.
+function tree(vault: Vault) {
+	const paths: string[] = [];
+	Vault.recurseChildren(vault.getRoot(), (f) => paths.push(f.path));
+	return paths.sort();
+}
+
 describe("FileSystemAdapter listing", () => {
 	// Plugins.loadManifests reads only `folders`; a plugin symlinked into the
 	// vault (the usual dev setup) must be found.
@@ -131,6 +138,36 @@ describe("Vault collisions", () => {
 		expect(vault.getFileByPath("Note.md")).toBeNull();
 		expect(await vault.adapter.exists("NOTE.md", true)).toBe(false);
 		expect(await vault.adapter.exists("NOTE.md")).toBe(true);
+	});
+
+	// The owner's APFS volume ignores case: 'Daily/x.md' is a file in 'daily'.
+	// A second spelling of the folder would list its files twice, and deleting
+	// one of those copies would delete the real file.
+	test("on a case-insensitive volume a new path goes into the folder spelled in another case", async () => {
+		const { vault, events } = await makeVault({ "daily/old.md": "o" });
+		if (!vault.adapter.insensitive) return;
+		expect((await vault.create("Daily/new.md", "n")).path).toBe("daily/new.md");
+		expect((await vault.createFolder("DAILY/sub")).path).toBe("daily/sub");
+		await vault.adapter.write("Daily/sub/w.md", "w");
+		expect(vault.getAvailablePath("DAILY/sub/w", "md")).toBe("daily/sub/w 1.md");
+		await Bun.sleep(300);
+		expect(tree(vault)).toEqual(["/", "daily", "daily/new.md", "daily/old.md", "daily/sub", "daily/sub/w.md"]);
+		expect(events).toEqual(["create daily/new.md", "create daily/sub", "create daily/sub/w.md"]);
+	});
+
+	test("a case-only folder rename leaves no copy under the old spelling", async () => {
+		const { vault, events, full } = await makeVault({ "CaseThree/a.md": "a", "CaseThree/b.md": "b" });
+		if (!vault.adapter.insensitive) return;
+		const write = vault.modify(vault.getFileByPath("CaseThree/a.md")!, "edited");
+		await Promise.all([write, vault.rename(vault.getFolderByPath("CaseThree")!, "casethree")]);
+		// The watcher may still report the old spelling afterwards.
+		await vault.adapter.reconcileFile("CaseThree/b.md", "CaseThree/b.md");
+		const renamed = ["/", "casethree", "casethree/a.md", "casethree/b.md"];
+		expect(tree(vault)).toEqual(renamed);
+		await Bun.sleep(300);
+		expect(tree(vault)).toEqual(renamed);
+		expect(events.filter((e) => !e.startsWith("rename"))).toEqual(["modify CaseThree/a.md"]);
+		expect(fs.readFileSync(full("casethree/a.md"), "utf8")).toBe("edited");
 	});
 
 	test("copy refuses an existing destination and vault.copy keeps binary bytes", async () => {

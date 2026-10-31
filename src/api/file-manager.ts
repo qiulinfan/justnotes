@@ -25,14 +25,22 @@ export class FileManager {
 	getNewFileParent(sourcePath: string, newFilePath?: string): TFolder {
 		const vault = this.app.vault;
 		const root = vault.getRoot();
-		if (newFilePath && !/\.md$/i.test(newFilePath)) {
-			const dir = this.#attachmentDir(sourcePath);
-			return vault.getFolderByPath(dir) ?? root;
-		}
+		if (newFilePath && !/\.md$/i.test(newFilePath)) return this.#folder(this.#attachmentDir(sourcePath)) ?? root;
 		const location = vault.getConfig("newFileLocation");
 		if (location === "current") return vault.getAbstractFileByPath(sourcePath || "/")?.parent ?? root;
-		if (location === "folder") return vault.getFolderByPath(vault.getConfig("newFileFolderPath") || "/") ?? root;
+		if (location === "folder") return this.#folder(vault.getConfig("newFileFolderPath") || "/") ?? root;
 		return root;
+	}
+
+	// A configured folder may differ in case from the one on a case-insensitive disk.
+	#find(path: string) {
+		const vault = this.app.vault;
+		return vault.adapter.insensitive ? vault.getAbstractFileByPathInsensitive(path) : vault.getAbstractFileByPath(path);
+	}
+
+	#folder(path: string) {
+		const found = this.#find(path);
+		return found instanceof TFolder ? found : null;
 	}
 
 	async createNewMarkdownFile(folder: TFolder, name = "Untitled", content = "") {
@@ -44,7 +52,7 @@ export class FileManager {
 		const parent = this.getNewFileParent(sourcePath);
 		const dir = nodePath.posix.dirname(linktext);
 		const folderPath = dir === "." ? parent.path : normalizePath(`${parent.isRoot() ? "" : parent.path}/${dir}`);
-		const folder = this.app.vault.getFolderByPath(folderPath) ?? (await this.app.vault.createFolder(folderPath));
+		const folder = this.#folder(folderPath) ?? (await this.app.vault.createFolder(folderPath));
 		return this.createNewMarkdownFile(folder, nodePath.posix.basename(linktext));
 	}
 
@@ -218,7 +226,7 @@ export class FileManager {
 	async getAvailablePathForAttachment(filename: string, sourcePath?: string) {
 		const vault = this.app.vault;
 		const dir = this.#attachmentDir(sourcePath ?? this.app.workspace.getActiveFile()?.path ?? "");
-		if (dir !== "/" && !vault.getAbstractFileByPath(dir)) await vault.createFolder(dir);
+		if (dir !== "/" && !this.#find(dir)) await vault.createFolder(dir);
 		const ext = nodePath.posix.extname(filename);
 		const stem = filename.slice(0, filename.length - ext.length);
 		return vault.getAvailablePath(dir === "/" ? stem : `${dir}/${stem}`, ext.slice(1));

@@ -135,6 +135,12 @@ describe("FileManager paths", () => {
 		expect(vault.getFolderByPath("notes/附件")).not.toBeNull();
 	});
 
+	test("an attachment folder configured in another case than on disk is the folder on disk", async () => {
+		const { vault, fm } = await setup({ "attachments/x.png": "" }, { attachmentFolderPath: "Attachments" });
+		if (!vault.adapter.insensitive) return;
+		expect(await fm.getAvailablePathForAttachment("img.png", "note.md")).toBe("attachments/img.png");
+	});
+
 	test("newFileLocation 'current' uses the source path's folder; an empty source is the root", async () => {
 		const { vault, fm } = await setup({ "a/b/n.md": "" }, { newFileLocation: "current" });
 		expect(fm.getNewFileParent("a/b/n.md").path).toBe("a/b");
