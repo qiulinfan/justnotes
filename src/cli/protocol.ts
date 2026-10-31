@@ -12,11 +12,15 @@ import * as path from "node:path";
 // folder it ran in (it picks the vault when no vault= is given). `read`
 // marks a command that can read the vault folder itself: the app runs it
 // only in a vault it shows, and otherwise answers with `unopened` instead of
-// opening a window.
+// opening a window. `complete` asks, for shell completion, which plugin
+// commands the vault named by `argv` (only a leading vault=) has registered:
+// the app runs nothing, opens no window and waits for none, and answers a
+// CompletionAnswer as JSON.
 export interface CliRequest {
 	argv: string[];
 	cwd: string;
 	read?: boolean;
+	complete?: boolean;
 }
 
 // What the app answers: text for stdout and stderr, and the exit status.
@@ -62,6 +66,12 @@ export function cliAddress(profile: string): CliAddress {
 }
 
 export const SOCKET_NAME = "justnotes-cli.sock";
+
+// The plugin commands each vault's window last registered, which the app
+// keeps for completion while no app runs (complete.ts), next to the socket.
+export function completionCacheFile(profile: string) {
+	return path.join(profile, "cli", "completion.json");
+}
 
 // The socket's folder belongs to this user and only they may enter it; a
 // folder someone else owns, or a symlink in its place, is refused.

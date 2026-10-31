@@ -1,156 +1,83 @@
 import { usage } from "./output";
-import { BUILTINS, type CommandSpec, flagsOf } from "./spec";
 
-// Shell completion for `justnotes`, generated from the command table:
-// command names, then each command's flags (key= for a parameter, the bare
-// word for a switch, key=value for each choice of an enumerated parameter).
-// Plugin commands are not included: they exist only while the app runs.
+// The scripts `justnotes completion zsh|fish|bash` prints. They hold no
+// command list: on every completion they run `justnotes __complete` with the
+// words before the cursor and the current word, and offer the lines it
+// prints (`word<TAB>description`, complete.ts). So plugin commands, their
+// flags and the vault's notes appear without regenerating the script. A
+// candidate ending in = or / (a parameter, a folder) takes no space after it.
+// The shell completes --profile's folder itself.
 
-const GLOBAL = ["--profile", "--offline", "--copy", "--json", "vault="];
-
-interface Word {
-	word: string;
-	description: string;
+const zsh = `#compdef justnotes
+# justnotes completion for zsh: justnotes completion zsh > ~/.zfunc/_justnotes
+# (with ~/.zfunc in fpath before compinit), or source <(justnotes completion zsh).
+_justnotes() {
+  if [[ \${words[CURRENT-1]} == --profile ]]; then
+    _files -/
+    return
+  fi
+  local -a lines spaced unspaced
+  local line word item ret=1
+  lines=("\${(@f)$(justnotes __complete "\${(@Q)words[2,CURRENT-1]}" "\${(Q)PREFIX}" 2>/dev/null)}")
+  for line in $lines; do
+    [[ -n $line ]] || continue
+    word=\${line%%$'\\t'*}
+    item=\${word//\\\\/\\\\\\\\}
+    item=\${item//:/\\\\:}
+    [[ $line == *$'\\t'* ]] && item+=":\${line#*$'\\t'}"
+    if [[ $word == *[=/] ]]; then unspaced+=("$item"); else spaced+=("$item"); fi
+  done
+  (( $#unspaced )) && _describe -t parameters 'parameter' unspaced -S '' && ret=0
+  (( $#spaced )) && _describe -t values 'justnotes' spaced && ret=0
+  return ret
 }
+if [[ \${funcstack[1]} == _justnotes ]]; then
+  _justnotes "$@"
+else
+  compdef _justnotes justnotes
+fi`;
 
-function choices(value: string | undefined) {
-	return value && /^[A-Za-z]+(\|[A-Za-z]+)+$/.test(value) ? value.split("|") : null;
+const fish = `# justnotes completion for fish: justnotes completion fish > ~/.config/fish/completions/justnotes.fish
+function __justnotes_complete
+    set -l words (commandline -xpc)
+    set -e words[1]
+    justnotes __complete $words (commandline -ct | string unescape) 2>/dev/null
+end
+complete -c justnotes -f
+complete -c justnotes -n '__fish_prev_arg_in --profile' -F -a '(__fish_complete_directories)'
+complete -c justnotes -n 'not __fish_prev_arg_in --profile' -a '(__justnotes_complete)'`;
+
+// bash 3.2 (macOS) has no compopt, so the function is registered with
+// nospace and adds the space itself. bash splits words at = and :, so
+// replies drop what the current word holds up to its last one.
+const bash = `# justnotes completion for bash: source <(justnotes completion bash)
+_justnotes() {
+  local line=\${COMP_LINE:0:COMP_POINT} cur="" word wb
+  local -a parts
+  read -a parts <<< "$line"
+  if [[ $line != *" " || $line == *"\\\\ " ]]; then
+    cur=\${parts[\${#parts[@]}-1]}
+    unset "parts[\${#parts[@]}-1]"
+  fi
+  COMPREPLY=()
+  if [[ \${parts[\${#parts[@]}-1]} == --profile ]]; then
+    while IFS= read -r word; do COMPREPLY+=("$(printf '%q' "$word")/"); done < <(compgen -d -- "$cur")
+    return
+  fi
+  wb=\${cur%"\${cur##*[=:]}"}
+  while IFS= read -r word; do
+    word=\${word%%$'\\t'*}
+    [[ -n $word && $word == "$cur"* ]] || continue
+    word=$(printf '%q' "\${word#"$wb"}")
+    [[ $word == *[=/] ]] || word="$word "
+    COMPREPLY+=("$word")
+  done < <(justnotes __complete "\${parts[@]:1}" "$cur" 2>/dev/null)
 }
-
-function flagWords(spec: CommandSpec): Word[] {
-	return Object.entries(flagsOf(spec)).flatMap(([key, flag]) => {
-		const values = choices(flag.value);
-		if (values) return values.map((v) => ({ word: `${key}=${v}`, description: flag.description }));
-		return [{ word: flag.value ? `${key}=` : key, description: flag.description }];
-	});
-}
-
-const commands = () => [...BUILTINS.values()];
-
-const single = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-
-function zsh() {
-	const escape = (s: string) => s.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
-	const lines = [
-		"#compdef justnotes",
-		"# justnotes completion for zsh: justnotes completion zsh > ~/.zfunc/_justnotes",
-		"_justnotes() {",
-		"  local cmd i",
-		"  for (( i = 2; i < CURRENT; i++ )); do",
-		"    case ${words[i]} in",
-		"      --profile) (( i++ )) ;;",
-		"      --*|vault=*) ;;",
-		"      *) cmd=${words[i]}; break ;;",
-		"    esac",
-		"  done",
-		"  local -a items spaced",
-		'  if [[ -z $cmd ]]; then',
-		"    items=(",
-		...commands().map((s) => `      ${single(`${escape(s.name)}:${s.description}`)}`),
-		"    )",
-		`    spaced=(${GLOBAL.filter((g) => !g.endsWith("=")).join(" ")})`,
-		"    _describe 'command' items",
-		"    compadd -a spaced",
-		"    compadd -S '' vault=",
-		"    return",
-		"  fi",
-		"  local -a valued switches",
-		"  case $cmd in",
-		...commands().map((spec) => {
-			const words = flagWords(spec);
-			const valued = words.filter((w) => w.word.endsWith("="));
-			const switches = words.filter((w) => !w.word.endsWith("="));
-			const list = (ws: Word[]) => ws.map((w) => single(`${escape(w.word)}:${w.description}`)).join(" ");
-			return `    (${spec.name.replace(/:/g, "\\:")}) valued=(${list(valued)}); switches=(${list(switches)}) ;;`;
-		}),
-		"  esac",
-		"  _describe 'parameter' valued -S ''",
-		"  _describe 'flag' switches",
-		"  compadd -- --copy",
-		"}",
-		'compdef _justnotes justnotes',
-	];
-	return lines.join("\n");
-}
-
-function fish() {
-	const escape = (s: string) => s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-	const lines = [
-		"# justnotes completion for fish: justnotes completion fish > ~/.config/fish/completions/justnotes.fish",
-		"function __justnotes_command",
-		"    set -l words (commandline -opc)",
-		"    set -e words[1]",
-		"    while set -q words[1]",
-		"        switch $words[1]",
-		"            case --profile",
-		"                set -e words[1]",
-		"            case '--*' 'vault=*'",
-		"            case '*'",
-		"                echo $words[1]",
-		"                return",
-		"        end",
-		"        set -e words[1]",
-		"    end",
-		"end",
-		"function __justnotes_is",
-		"    set -l cmd (__justnotes_command)",
-		'    test "$cmd" = "$argv[1]"',
-		"end",
-		"complete -c justnotes -f",
-		"complete -c justnotes -n '__justnotes_is \"\"' -l profile -r -F -d 'Profile folder of the instance'",
-		"complete -c justnotes -n '__justnotes_is \"\"' -l offline -d 'Read the vault folder, never the app'",
-		"complete -c justnotes -n '__justnotes_is \"\"' -a 'vault=' -d 'Vault name or path'",
-		"complete -c justnotes -l copy -d 'Also copy the output'",
-		...commands().map((s) => `complete -c justnotes -n '__justnotes_is \"\"' -a '${escape(s.name)}' -d '${escape(s.description)}'`),
-		...commands().flatMap((spec) =>
-			flagWords(spec).map((w) => `complete -c justnotes -n '__justnotes_is ${escape(spec.name)}' -a '${escape(w.word)}' -d '${escape(w.description)}'`),
-		),
-	];
-	return lines.join("\n");
-}
-
-function bash() {
-	const cases = commands().map((spec) => `    ${spec.name}) words=${single(flagWords(spec).map((w) => w.word).join(" "))} ;;`);
-	const lines = [
-		"# justnotes completion for bash: source <(justnotes completion bash)",
-		"_justnotes() {",
-		'  local line=${COMP_LINE:0:COMP_POINT} cur="" cmd="" words w',
-		"  local -a parts",
-		'  read -ra parts <<< "$line"',
-		'  [[ $line != *" " ]] && cur=${parts[${#parts[@]}-1]} && unset "parts[${#parts[@]}-1]"',
-		"  local i=1",
-		"  while (( i < ${#parts[@]} )); do",
-		'    w=${parts[i]}',
-		'    case $w in',
-		"      --profile) (( i++ )) ;;",
-		"      --*|vault=*) ;;",
-		'      *) cmd=$w; break ;;',
-		"    esac",
-		"    (( i++ ))",
-		"  done",
-		'  if [[ -z $cmd ]]; then',
-		`    words=${single([...commands().map((s) => s.name), ...GLOBAL].join(" "))}`,
-		"  else",
-		'    case $cmd in',
-		...cases,
-		"      *) words='' ;;",
-		"    esac",
-		'    words="$words --copy"',
-		"  fi",
-		'  COMPREPLY=($(compgen -W "$words" -- "$cur"))',
-		// bash splits words at = and :, so replies drop what precedes the last one.
-		'  local wb=${cur%"${cur##*[=:]}"}',
-		'  [[ -n $wb ]] && COMPREPLY=("${COMPREPLY[@]#"$wb"}")',
-		'  [[ ${#COMPREPLY[@]} -eq 1 && ${COMPREPLY[0]} == *= ]] && compopt -o nospace',
-		"}",
-		"complete -F _justnotes justnotes",
-	];
-	return lines.join("\n");
-}
+complete -o nospace -F _justnotes justnotes`;
 
 export function completionScript(shell: string) {
-	if (shell === "zsh") return zsh();
-	if (shell === "fish") return fish();
-	if (shell === "bash") return bash();
+	if (shell === "zsh") return zsh;
+	if (shell === "fish") return fish;
+	if (shell === "bash") return bash;
 	throw usage("Give the shell: justnotes completion zsh|fish|bash");
 }

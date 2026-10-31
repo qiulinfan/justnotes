@@ -271,6 +271,37 @@ interface AppDom {
 // modifier keys that triggered them.
 const USER_EVENTS = ["keydown", "mousedown", "pointerdown", "click", "auxclick", "contextmenu", "touchstart"];
 
+export interface CliHandlerEntry {
+	description: string;
+	flags: CliFlags | null;
+	handler: CliHandler;
+	pluginId: string;
+}
+
+// The registered CLI handlers. `onChange` hears every registration and
+// removal, so the app can keep the command's completion cache current
+// (renderer/cli.ts).
+export class CliHandlers extends Map<string, CliHandlerEntry> {
+	onChange: (() => void) | null = null;
+
+	set(command: string, entry: CliHandlerEntry) {
+		super.set(command, entry);
+		this.onChange?.();
+		return this;
+	}
+
+	delete(command: string) {
+		const had = super.delete(command);
+		if (had) this.onChange?.();
+		return had;
+	}
+
+	clear() {
+		super.clear();
+		this.onChange?.();
+	}
+}
+
 export class App {
 	appId: string;
 	vault: Vault;
@@ -290,7 +321,7 @@ export class App {
 	protocolHandlers: Record<string, (params: any) => any> = {};
 	// Handlers plugins register with registerCliHandler, by command id; the
 	// `justnotes` command runs them (renderer/cli.ts).
-	cliHandlers = new Map<string, { description: string; flags: CliFlags | null; handler: CliHandler; pluginId: string }>();
+	cliHandlers = new CliHandlers();
 	renderContext = new RenderContext();
 	customCss: CustomCss;
 	secretStorage: SecretStorage;

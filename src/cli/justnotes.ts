@@ -14,6 +14,7 @@ import * as net from "node:net";
 import * as path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { escapeValue, parseCliArgs } from "./args";
+import { candidateLines, completeWords } from "./complete";
 import { completionScript } from "./completion";
 import { CliError, list, NeedsApp, render } from "./output";
 import { ask, type CliAddress, type CliRequest, type CliResponse, cliAddress, defaultProfile, EXIT_FAILURE, EXIT_USAGE, enterSocketDir } from "./protocol";
@@ -289,6 +290,13 @@ function copy(text: string) {
 async function main() {
 	let response: CliResponse;
 	let options: Options | null = null;
+	// The completion scripts' hidden helper (complete.ts): candidates only,
+	// never an error a shell would print mid-line.
+	if (process.argv[2] === "__complete") {
+		const lines = await completeWords(process.argv.slice(3), process.cwd()).then(candidateLines, () => "");
+		if (lines) await new Promise<void>((done) => process.stdout.write(`${lines}\n`, () => done()));
+		return 0;
+	}
 	try {
 		options = splitArgs(process.argv.slice(2));
 		response = await run(options);

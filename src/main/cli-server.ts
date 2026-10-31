@@ -104,7 +104,8 @@ function isRequest(value: unknown): value is CliRequest {
 		typeof req.cwd === "string" &&
 		Array.isArray(req.argv) &&
 		req.argv.every((arg) => typeof arg === "string") &&
-		(req.read === undefined || typeof req.read === "boolean")
+		(req.read === undefined || typeof req.read === "boolean") &&
+		(req.complete === undefined || typeof req.complete === "boolean")
 	);
 }
 

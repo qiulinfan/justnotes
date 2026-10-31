@@ -13,6 +13,7 @@ import { Vault } from "../src/api/vault";
 import { APP_COMMANDS } from "../src/cli/commands/app";
 import type { Ctx } from "../src/cli/commands/context";
 import { VAULT_COMMANDS } from "../src/cli/commands/vault";
+import { writeCompletionCache } from "../src/cli/complete";
 import { completionScript } from "../src/cli/completion";
 import { runOffline } from "../src/cli/offline";
 import { NeedsApp } from "../src/cli/output";
@@ -206,16 +207,47 @@ describe("commands that write through the app", () => {
 	});
 });
 
-// The generated bash completion offers commands, the typed command's flags
-// and an enumerated parameter's values; it must split on = and : as bash does.
-describe("completion", () => {
-	test("bash replies with commands, flags and parameter values", () => {
-		const script = path.join(root, "jn.bash");
+// The scripts `justnotes completion` prints ask `justnotes __complete` for
+// candidates, so a plugin command the app recorded completes without a new
+// script. bash splits words at = and : and drops what precedes them; a
+// candidate ending in = or / takes no space.
+describe("completion scripts", () => {
+	function setup() {
+		const dir = fs.mkdtempSync(path.join(root, "complete-"));
+		const bin = path.join(dir, "bin");
+		fs.mkdirSync(bin);
+		fs.symlinkSync(path.join(import.meta.dir, "../src/cli/justnotes.ts"), path.join(bin, "justnotes"));
+		const profile = path.join(dir, "profile");
+		const vault = path.join(dir, "notes");
+		fs.mkdirSync(path.join(vault, ".obsidian"), { recursive: true });
+		fs.writeFileSync(path.join(vault, "My Note.md"), "");
+		writeCompletionCache(profile, vault, [{ name: "quickadd:run", description: "Run a choice", pluginId: "quickadd", flags: { mode: { value: "fast|slow", description: "Mode" } } }]);
+		const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+		return { dir, profile, vault, env };
+	}
+
+	test("bash replies with commands, plugin commands, parameter values and quoted note names", () => {
+		const { dir, profile, vault, env } = setup();
+		const script = path.join(dir, "jn.bash");
 		fs.writeFileSync(script, completionScript("bash"));
 		const reply = (line: string) =>
-			Bun.spawnSync(["bash", "-c", `source "${script}"; COMP_LINE='${line}'; COMP_POINT=\${#COMP_LINE}; _justnotes; echo "\${COMPREPLY[*]}"`]).stdout.toString().trim();
-		expect(reply("justnotes daily:a")).toBe("append");
-		expect(reply("justnotes vault=x outline format=")).toBe("tree md json");
-		expect(reply("justnotes --offline neighbours dir")).toBe("direction=both direction=out direction=in");
+			Bun.spawnSync(["bash", "--norc", "--noprofile", "-c", `source "${script}"; COMP_LINE="justnotes --profile ${profile} ${line}"; COMP_POINT=\${#COMP_LINE}; _justnotes; printf '[%s]' "\${COMPREPLY[@]}"`], { cwd: vault, env }).stdout.toString();
+		expect(reply("daily:a")).toBe("[append ]");
+		expect(reply("quickadd:r")).toBe("[run ]");
+		expect(reply("quickadd:run mode=")).toBe("[fast ][slow ]");
+		expect(reply("outline format=")).toBe("[tree ][md ][json ]");
+		expect(reply("read fi")).toBe("[file=]");
+		expect(reply("read file=My")).toBe("[My\\ Note ]");
+	});
+
+	test.skipIf(!Bun.which("fish"))("fish offers the same candidates with descriptions", () => {
+		const { dir, profile, vault, env } = setup();
+		const script = path.join(dir, "jn.fish");
+		fs.writeFileSync(script, completionScript("fish"));
+		const complete = (line: string) =>
+			Bun.spawnSync(["fish", "--no-config", "-c", `source ${script}; complete -C "justnotes --profile ${profile} ${line}"`], { cwd: vault, env }).stdout.toString().trim();
+		expect(complete("quickadd:")).toBe("quickadd:run\tRun a choice (quickadd)");
+		expect(complete("quickadd:run mode=s")).toBe("mode=slow\tMode");
+		expect(complete("read file=My\\ N")).toBe("file=My Note\tMy Note.md");
 	});
 });
