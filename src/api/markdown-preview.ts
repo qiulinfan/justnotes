@@ -273,6 +273,12 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		this.previewEl.focus({ preventScroll: true });
 	}
 
+	// The document's search highlights must not outlive the view.
+	onunload() {
+		this.closeSearch();
+		super.onunload();
+	}
+
 	// Find in the rendered note: matches are CSS highlights, so the rendered
 	// DOM is never rewritten.
 	showSearch() {

@@ -70,7 +70,13 @@ function observeResize(view: View, observe: boolean) {
 		for (const { target, contentRect } of entries) {
 			const view = viewByEl.get(target);
 			const size = `${contentRect.width}x${contentRect.height}`;
-			if (!view || contentRect.width === 0 || contentRect.height === 0 || lastSize.get(target) === size) continue;
+			if (!view) continue;
+			// A hidden view forgets its size, so showing it again counts as a resize.
+			if (contentRect.width === 0 || contentRect.height === 0) {
+				lastSize.delete(target);
+				continue;
+			}
+			if (lastSize.get(target) === size) continue;
 			lastSize.set(target, size);
 			if (resized.size === 0) requestAnimationFrame(flushResize);
 			resized.add(view);
@@ -317,7 +323,8 @@ export abstract class FileView extends ItemView {
 		const file = this.file;
 		if (!file || file.path === this.#path) return;
 		this.#path = file.path;
-		this.onRename(file).catch((err) => console.error(err));
+		// A plugin's override may not be async.
+		(async () => this.onRename(file))().catch((err) => console.error(err));
 	}
 
 	// The file is gone when it, or a folder above it, was deleted. The view
