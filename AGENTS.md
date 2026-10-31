@@ -275,7 +275,9 @@ plain style. Development notes belong in this file.
   (`<webview>` partitions included): `obsidian:` goes to the vault window (a
   guest's to its embedder's); `file:`, `javascript:`, `data:`, `blob:`,
   `about:` and browser schemes are dropped; every other scheme goes to the
-  system, as in Obsidian.
+  system, as in Obsidian. An external link's menu (reading view and Live
+  Preview: Open link, Copy URL) fires the workspace's `url-menu`
+  (`addUrlMenuItems` in `markdown.ts`).
 - `obsidian://open?path=` into another vault opens (or focuses) that vault's
   window, but only for vaults opened before with `--vault` or the folder
   picker (recorded in the profile's `vaults.json`): a link must never load an

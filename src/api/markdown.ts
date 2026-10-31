@@ -1418,6 +1418,39 @@ function attachHandlers(owner: MarkdownRenderer, el: HTMLElement, sourcePath: ()
 		handledEvents.add(evt);
 		owner.onInternalLinkContextMenu(evt, a as HTMLElement, a.getAttribute("data-href") ?? "", sourcePath());
 	});
+	// A URL's menu (Open link, Copy URL and what 'url-menu' listeners add,
+	// such as Bookmarks' Bookmark link...).
+	owner.registerDomEvent(el, "contextmenu", (evt: MouseEvent) => {
+		if (evt.defaultPrevented) return;
+		const a = (evt.target as Element).closest("a[href]");
+		const href = a?.getAttribute("href") ?? "";
+		if (!a || a.hasClass("internal-link") || !SCHEME.test(href) || !el.contains(a) || !handles(evt, a)) return;
+		handledEvents.add(evt);
+		evt.preventDefault();
+		const menu = new Menu();
+		addUrlMenuItems(owner.app, menu, href);
+		menu.showAtMouseEvent(evt);
+	});
+}
+
+// The items of an external link's menu: Open link and Copy URL, then the
+// workspace's 'url-menu' event for plugins (and Bookmarks) to add theirs.
+export function addUrlMenuItems(app: App, menu: Menu, url: string) {
+	menu.addItem((i) =>
+		i
+			.setTitle("Open link")
+			.setIcon("external-link")
+			.setSection("selection-link")
+			.onClick(() => window.open(url, "_blank")),
+	);
+	menu.addItem((i) =>
+		i
+			.setTitle("Copy URL")
+			.setIcon("copy")
+			.setSection("selection-link")
+			.onClick(() => navigator.clipboard.writeText(url)),
+	);
+	app.workspace.trigger("url-menu", menu, url);
 }
 
 // ---------------------------------------------------------------------------
