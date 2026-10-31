@@ -277,8 +277,20 @@ plain style. Development notes belong in this file.
   card menu's buttons also drag onto the canvas. A multi-card drop is one undo
   step. Selecting a card brings it to the front of its layer (groups stay
   under the other cards) and last in the node list, which the next save
-  writes; the click alone writes nothing. Not there yet: snapping, editing a
-  note card in place (double-click opens it in a tab), export.
+  writes; the click alone writes nothing. The element moves to the front
+  only once the click is over (or the drag starts): moving it under the
+  pointer cancels the click, and with it a double-click or a link's. A
+  double-click (or Enter, or Edit in its menu) on a whole-note card edits the
+  note in place in Live Preview (a heading or block card opens the note):
+  typing writes the note through `vault.process`, debounced, merged line by
+  line with what the file got meanwhile, and a change from elsewhere merges
+  into the editor; leaving the card ends the edit. A note card's links
+  resolve from the note. A link clicked in a card (rendered, on release of
+  the press; in a card's editor, on mousedown) opens as from Obsidian's
+  canvas, never in the canvas's leaf: in the most recently active leaf of
+  another tab group in the same root, else a new tab; Mod and a middle click
+  pick the place as elsewhere (`Canvas.openLink`, through
+  `workspace.openLinkTextIn`). Not there yet: snapping, export.
 - Keyboard: a capture-phase `keydown` listener walks the keymap scope stack
   before CodeMirror sees the key; the active scope follows keyboard focus. The
   root scope has one catch-all handler that runs command hotkeys; plugins may

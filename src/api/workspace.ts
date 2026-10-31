@@ -1616,14 +1616,19 @@ export class Workspace extends Events {
 	}
 
 	async openLinkText(linktext: string, sourcePath: string, newLeaf?: PaneType | boolean, openViewState?: OpenViewState) {
+		// A new tab takes focus unless the user turned "Always focus new tabs" off.
+		const active = openViewState?.active ?? (newLeaf ? this.app.vault.getConfig("focusNewTab") !== false : true);
+		await this.openLinkTextIn(() => this.getLeaf(newLeaf), linktext, sourcePath, { ...openViewState, active });
+	}
+
+	// Opens a link's file, created first when the link is unresolved, in the
+	// leaf `leaf` gives (the canvas picks one beside itself).
+	async openLinkTextIn(leaf: () => WorkspaceLeaf, linktext: string, sourcePath: string, openViewState?: OpenViewState) {
 		const { path, subpath } = parseLinktext(linktext);
 		let file = this.app.metadataCache.getFirstLinkpathDest(path, sourcePath);
 		if (!file) file = await this.app.fileManager.createNewMarkdownFileFromLinktext(path, sourcePath);
-		const leaf = this.getLeaf(newLeaf);
-		// A new tab takes focus unless the user turned "Always focus new tabs" off.
-		const active = openViewState?.active ?? (newLeaf ? this.app.vault.getConfig("focusNewTab") !== false : true);
 		const eState = subpath ? { ...openViewState?.eState, subpath } : openViewState?.eState;
-		await leaf.openFile(file, { ...openViewState, active, eState });
+		await leaf().openFile(file, { ...openViewState, eState });
 	}
 
 	// A new leaf in a new popout window. Like a new tab it stays inactive until

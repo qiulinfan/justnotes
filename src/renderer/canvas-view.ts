@@ -7,7 +7,7 @@ import type { App } from "../api/app";
 import { importFile } from "../api/attachments";
 import { DragManager } from "../api/drag-manager";
 import { setIcon, setTooltip } from "../api/icons";
-import { Scope } from "../api/keymap";
+import { Keymap, Scope } from "../api/keymap";
 import { parseLinktext } from "../api/metadata-utils";
 import { Menu } from "../api/ui/menu";
 import { Modal } from "../api/ui/modal";
@@ -69,10 +69,12 @@ const CARD_TYPE = "application/x-justnotes-canvas-card";
 const URL_ONLY = /^[a-z][\w+.-]*:\/\/\S+$/i;
 
 type Item = CanvasNode | CanvasEdge;
+// A link in a card's rendered Markdown, opened when it is clicked.
+type CardLink = { linktext: string; sourcePath: string };
 
 type Drag =
 	| { kind: "pan"; client: Point; x: number; y: number; moved: boolean }
-	| { kind: "move"; client: Point; start: Point; items: { node: CanvasNode; x: number; y: number }[]; moved: boolean; reselect: CanvasNode | null }
+	| { kind: "move"; client: Point; start: Point; items: { node: CanvasNode; x: number; y: number }[]; moved: boolean; reselect: CanvasNode | null; link: CardLink | null }
 	| { kind: "resize"; client: Point; start: Point; node: CanvasNode; dir: string; rect: Rect; moved: boolean }
 	| { kind: "connect"; client: Point; node: CanvasNode; side: NodeSide; el: SVGGElement; moved: boolean }
 	| { kind: "select"; client: Point; start: Point; base: Set<Item>; moved: boolean };
@@ -85,8 +87,8 @@ export class Canvas {
 	nodes = new Map<string, CanvasNode>();
 	edges = new Map<string, CanvasEdge>();
 	selection = new Set<Item>();
-	// The text node whose Markdown is being edited.
-	editing: CanvasTextNode | null = null;
+	// The text card, or note card, whose Markdown is being edited.
+	editing: CanvasTextNode | CanvasFileNode | null = null;
 	// The viewport: the canvas point at the middle of the view, and the zoom
 	// level as a power of two.
 	x = 0;
@@ -125,6 +127,10 @@ export class Canvas {
 		this.#buildCardMenu();
 		this.wrapperEl.addEventListener("pointerdown", (evt) => this.#onPointerDown(evt));
 		this.wrapperEl.addEventListener("dblclick", (evt) => this.#onDoubleClick(evt));
+		// Links in a card's rendered Markdown open beside the canvas, before
+		// the renderer would open them in the canvas's own leaf.
+		this.wrapperEl.addEventListener("click", (evt) => this.#onLinkClick(evt), true);
+		this.wrapperEl.addEventListener("auxclick", (evt) => evt.button === 1 && this.#onLinkClick(evt), true);
 		this.wrapperEl.addEventListener("wheel", (evt) => this.#onWheel(evt), { passive: false });
 		this.wrapperEl.addEventListener("contextmenu", (evt) => this.#onContextMenu(evt));
 		this.wrapperEl.addEventListener("dragover", (evt) => this.#onDragOver(evt));
@@ -388,6 +394,10 @@ export class Canvas {
 		}
 	}
 
+	#raiseSelection() {
+		this.bringToFront([...this.selection].filter((i): i is CanvasNode => !(i instanceof CanvasEdge)));
+	}
+
 	// Moving a group moves what lies inside it.
 	#withContents(nodes: CanvasNode[]) {
 		const out = new Set(nodes);
@@ -639,11 +649,11 @@ export class Canvas {
 				this.select(node);
 			} else if (!this.selection.has(node)) this.selectOnly(node);
 			else reselect = node;
-			this.bringToFront([...this.selection].filter((i): i is CanvasNode => !(i instanceof CanvasEdge)));
 			// Text inside a card is not selected by dragging it.
 			if (!target.closest("input, textarea, video, audio")) evt.preventDefault();
 			const nodes = this.#withContents([...this.selection].filter((i): i is CanvasNode => !(i instanceof CanvasEdge)));
-			this.#startDrag({ kind: "move", client, start: pos, items: nodes.map((n) => ({ node: n, x: n.x, y: n.y })), moved: false, reselect });
+			const link = evt.shiftKey ? null : this.#cardLink(target, node);
+			this.#startDrag({ kind: "move", client, start: pos, items: nodes.map((n) => ({ node: n, x: n.x, y: n.y })), moved: false, reselect, link });
 			return;
 		}
 		const edgeEl = target.closest<Element>("[data-edge-id]");
@@ -682,6 +692,7 @@ export class Canvas {
 			if (Math.hypot(evt.clientX - drag.client.x, evt.clientY - drag.client.y) < 3) return;
 			drag.moved = true;
 			if (drag.kind === "move" || drag.kind === "resize") this.checkpoint();
+			if (drag.kind === "move") this.#raiseSelection();
 		}
 		const s = this.scale;
 		const pos = this.posFromEvt(evt);
@@ -765,6 +776,10 @@ export class Canvas {
 			case "move":
 				if (drag.moved) this.requestSave();
 				else if (drag.reselect) this.selectOnly(drag.reselect);
+				// After the click: moving the card's element under the pointer
+				// would cancel the click, and with it a double-click or a link's.
+				if (!drag.moved) this.wrapperEl.win.setTimeout(() => this.#raiseSelection());
+				if (!drag.moved && drag.link) this.openLink(drag.link.linktext, drag.link.sourcePath, evt);
 				break;
 			case "resize":
 				if (drag.moved) this.requestSave();
@@ -807,7 +822,7 @@ export class Canvas {
 		const node = nodeEl ? this.nodes.get(nodeEl.dataset.nodeId ?? "") : undefined;
 		if (node) {
 			if (node instanceof CanvasTextNode) node.startEditing();
-			else if (node instanceof CanvasFileNode) node.open(true);
+			else if (node instanceof CanvasFileNode) node.canEditInPlace ? node.startEditing() : node.open(true);
 			else if (node instanceof CanvasLinkNode) node.open();
 			else if (node instanceof CanvasGroupNode) this.editGroupLabel(node);
 			return;
@@ -820,6 +835,54 @@ export class Canvas {
 		}
 		const pos = this.posFromEvt(evt);
 		this.createTextNode({ pos: { x: pos.x - TEXT_SIZE.width / 2, y: pos.y - TEXT_SIZE.height / 2 }, focus: true });
+	}
+
+	// The link a press inside a card's rendered Markdown is on. Editors in
+	// cards open their own links (on mousedown), and a heading link within
+	// the card is left to the renderer, which scrolls the card.
+	#cardLink(target: HTMLElement, node: CanvasNode): CardLink | null {
+		if (target.closest(".cm-editor")) return null;
+		const link = target.closest<HTMLElement>("a.internal-link, .markdown-embed-link, .file-embed");
+		if (!link || !node.nodeEl.contains(link)) return null;
+		const linktext = link.matches("a") ? (link.getAttribute("data-href") ?? link.getAttribute("href")) : link.closest(".internal-embed")?.getAttribute("src");
+		if (!linktext || !parseLinktext(linktext).path) return null;
+		return { linktext, sourcePath: node.sourcePath };
+	}
+
+	// The press on a card's link opened it when released (a click may never
+	// come: selecting the card moves it to the front); the click must not
+	// reach the renderer, which would open it again in the canvas's leaf. A
+	// middle click opens it here.
+	#onLinkClick(evt: MouseEvent) {
+		const nodeEl = (evt.target as HTMLElement).closest<HTMLElement>(".canvas-node");
+		const node = nodeEl ? this.nodes.get(nodeEl.dataset.nodeId ?? "") : undefined;
+		const link = node && this.#cardLink(evt.target as HTMLElement, node);
+		if (!link) return;
+		evt.preventDefault();
+		evt.stopPropagation();
+		if (evt.type === "auxclick") this.openLink(link.linktext, link.sourcePath, evt);
+	}
+
+	// A link clicked on the canvas opens as from Obsidian's canvas: never in
+	// the canvas's own leaf, but in the most recently used leaf of another
+	// tab group beside it, else a new tab; Mod picks the place as anywhere.
+	openLink(linktext: string, sourcePath: string, evt: MouseEvent) {
+		const workspace = this.app.workspace;
+		if (/^[a-z][\w+.-]*:/i.test(linktext)) return void window.open(linktext, "_blank");
+		const where = Keymap.isModEvent(evt);
+		const opened = where ? workspace.openLinkText(linktext, sourcePath, where) : workspace.openLinkTextIn(() => this.#leafBeside(), linktext, sourcePath, { active: true });
+		opened.catch((err) => console.error(err));
+	}
+
+	#leafBeside(): WorkspaceLeaf {
+		const workspace = this.app.workspace;
+		const own = this.view.leaf;
+		let best: WorkspaceLeaf | null = null;
+		workspace.iterateAllLeaves((leaf) => {
+			if (leaf === own || leaf.parent === own.parent || leaf.getRoot() !== own.getRoot() || !leaf.view.navigation) return;
+			if (!best || leaf.activeTime > best.activeTime) best = leaf;
+		});
+		return best ?? workspace.getLeaf("tab");
 	}
 
 	#onWheel(evt: WheelEvent) {
@@ -980,6 +1043,7 @@ export class Canvas {
 		if (item) {
 			if (!this.selection.has(item)) this.selectOnly(item);
 			if (node instanceof CanvasTextNode) menu.addItem((i) => i.setTitle("Edit").setIcon("pencil").setSection("action").onClick(() => node.startEditing()));
+			if (node instanceof CanvasFileNode && node.canEditInPlace) menu.addItem((i) => i.setTitle("Edit").setIcon("pencil").setSection("action").onClick(() => node.startEditing()));
 			if (node instanceof CanvasFileNode && node.file) menu.addItem((i) => i.setTitle("Open in new tab").setIcon("file-plus").setSection("action").onClick(() => node.open(true)));
 			if (node instanceof CanvasLinkNode) menu.addItem((i) => i.setTitle("Open link").setIcon("globe").setSection("action").onClick(() => node.open()));
 			if (node instanceof CanvasGroupNode) menu.addItem((i) => i.setTitle("Edit label").setIcon("pencil").setSection("action").onClick(() => this.editGroupLabel(node)));
@@ -1110,7 +1174,8 @@ export class Canvas {
 		scope.register(["Mod"], "a", run(() => this.selectAll()));
 		scope.register([], "Enter", () => {
 			const [only] = this.selection;
-			if (!idle() || this.selection.size !== 1 || !(only instanceof CanvasTextNode)) return true;
+			const editable = only instanceof CanvasTextNode || (only instanceof CanvasFileNode && only.canEditInPlace);
+			if (!idle() || this.selection.size !== 1 || !editable) return true;
 			only.startEditing();
 			return false;
 		});
