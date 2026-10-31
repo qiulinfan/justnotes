@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { parseMetadata } from "../src/api/metadata";
 import { moment } from "../src/api/util";
+import type { App } from "../src/api/app";
+import { notesWith } from "../src/renderer/all-properties";
 import { embedText, recordingFormat, recordingName } from "../src/renderer/audio-recorder";
 import { dailyNoteDate, dailyNotePath } from "../src/renderer/daily-notes";
 import { lineDiff, snapshotDue } from "../src/renderer/file-recovery";
@@ -251,5 +253,18 @@ describe("audio recorder", () => {
 		expect(embedText(link, "First line.", "")).toBe(`\n${link}`);
 		expect(embedText(link, "First", " line.")).toBe(`\n${link}\n`);
 		expect(embedText(link, "  ", "Second")).toBe(`${link}\n`);
+	});
+});
+
+// All properties counts a property across spellings that differ in case
+// ("Tags" and "tags" are one row); unfolding it must list every note counted.
+describe("all properties", () => {
+	test("a property's notes are those with its name in any case", () => {
+		const notes: Record<string, Record<string, unknown>> = { "a.md": { tags: ["x"] }, "b.md": { Tags: "y" }, "c.md": { tag: "z" } };
+		const app = {
+			metadataCache: { getCachedFiles: () => Object.keys(notes), getCache: (path: string) => ({ frontmatter: notes[path] }) },
+			vault: { getFileByPath: (path: string) => ({ path }) },
+		} as unknown as App;
+		expect(notesWith(app, "tags").map((f) => f.path)).toEqual(["a.md", "b.md"]);
 	});
 });
