@@ -198,18 +198,26 @@ export class Plugins {
 		return new PluginClass(this.app, manifest) as Plugin;
 	}
 
+	// Adding or removing a plugin's styles.css is a css-change, as in Obsidian.
 	async #loadStyles(manifest: PluginManifest) {
+		let css: string;
 		try {
-			const css = await this.app.vault.adapter.read(`${manifest.dir}/styles.css`);
-			const style = createEl("style", { text: css, attr: { "data-plugin": manifest.id } });
-			this.app.customCss.insertPluginStyle(style);
-			this.#styles.set(manifest.id, style);
-		} catch {}
+			css = await this.app.vault.adapter.read(`${manifest.dir}/styles.css`);
+		} catch {
+			return;
+		}
+		const style = createEl("style", { text: css, attr: { "data-plugin": manifest.id } });
+		this.app.customCss.insertPluginStyle(style);
+		this.#styles.set(manifest.id, style);
+		this.app.workspace.trigger("css-change");
 	}
 
 	#removeStyles(id: string) {
-		this.#styles.get(id)?.remove();
+		const style = this.#styles.get(id);
+		if (!style) return;
+		style.remove();
 		this.#styles.delete(id);
+		this.app.workspace.trigger("css-change");
 	}
 }
 
