@@ -9,7 +9,7 @@ import type { TAbstractFile, TFile, TFolder } from "./vault";
 // outline heading, an unresolved outgoing link) carries the link text and the
 // path it resolves from.
 export interface DragData {
-	type: "file" | "folder" | "files" | "link";
+	type: "file" | "folder" | "files" | "link" | "bookmarks";
 	icon: string;
 	title: string;
 	source?: string;
@@ -17,6 +17,9 @@ export interface DragData {
 	files?: TAbstractFile[];
 	linktext?: string;
 	sourcePath?: string;
+	// Bookmarks being dragged, as Obsidian's `{ item }` entries; `files`
+	// holds the files and folders they point at.
+	items?: { item: unknown }[];
 }
 
 // A transparent image hides Chromium's own drag image; the ghost below
@@ -109,7 +112,7 @@ export class DragManager {
 	// The files a drag carries, folders included.
 	static files(data: DragData | null): TAbstractFile[] {
 		if (!data) return [];
-		return data.type === "files" ? (data.files ?? []) : data.file ? [data.file] : [];
+		return data.files ?? (data.file ? [data.file] : []);
 	}
 
 	#move(evt: DragEvent) {

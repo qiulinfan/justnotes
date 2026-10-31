@@ -1,3 +1,4 @@
+import type { CorePluginHost } from "../api/internal-plugins";
 // The graph core plugin's views: the global graph (`graph`) and the local
 // graph of the active note (`localgraph`), with Obsidian's controls panel.
 import type { App } from "../api/app";
@@ -510,7 +511,7 @@ export function registerGraphViews(app: App) {
 
 // The commands and ribbon button, with Obsidian's ids. The global graph
 // opens once, in a tab of its own; the local graph opens beside the note.
-export function installGraph(app: App) {
+export function installGraph(app: App, host: CorePluginHost) {
 	const { workspace } = app;
 	const openGraph = async () => {
 		const existing = workspace.getLeavesOfType("graph")[0];
@@ -521,8 +522,8 @@ export function installGraph(app: App) {
 		}
 		await workspace.getLeaf("tab").setViewState({ type: "graph", active: true });
 	};
-	app.commands.addCommand({ id: "graph:open", name: "Graph view: Open graph view", icon: "git-fork", callback: openGraph });
-	app.commands.addCommand({
+	host.addCommand({ id: "graph:open", name: "Graph view: Open graph view", icon: "git-fork", callback: openGraph });
+	host.addCommand({
 		id: "graph:open-local",
 		name: "Graph view: Open local graph",
 		icon: "git-fork",
@@ -533,5 +534,9 @@ export function installGraph(app: App) {
 			return true;
 		},
 	});
-	workspace.leftRibbon.addRibbonItemButton("graph:Open graph view", "git-fork", "Open graph view", openGraph);
+	host.addRibbonIcon("graph:Open graph view", "git-fork", "Open graph view", openGraph);
+	host.register(() => {
+		workspace.detachLeavesOfType("graph");
+		workspace.detachLeavesOfType("localgraph");
+	});
 }

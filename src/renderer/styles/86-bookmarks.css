@@ -1,0 +1,38 @@
+/* The Bookmarks view: rows like the file explorer's, with a type icon. */
+.bookmarks-tree .nav-file-title {
+	padding-left: 8px;
+}
+
+.bookmarks-tree .bookmark-icon {
+	display: inline-flex;
+	color: var(--text-faint);
+}
+
+.bookmarks-tree .tree-item-icon .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.bookmarks-tree .bookmark-item.is-unresolved .tree-item-inner {
+	color: var(--text-faint);
+	text-decoration: line-through;
+}
+
+.bookmarks-tree .pane-empty {
+	padding: 8px;
+	color: var(--text-muted);
+}
+
+/* Where a dragged bookmark or file would land. */
+.bookmarks-tree .bookmark-item.is-drop-before {
+	box-shadow: inset 0 2px 0 var(--interactive-accent);
+}
+
+.bookmarks-tree .bookmark-item.is-drop-after {
+	box-shadow: inset 0 -2px 0 var(--interactive-accent);
+}
+
+.bookmarks-tree .bookmark-item.is-drop-into {
+	background: var(--background-modifier-hover);
+	box-shadow: inset 0 0 0 1px var(--interactive-accent);
+}

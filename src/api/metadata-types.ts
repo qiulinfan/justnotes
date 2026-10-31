@@ -2,7 +2,7 @@
 // assigned per property name, case-insensitively, for every note. The
 // assignments are Obsidian's defaults (tags, aliases, cssclasses), then the
 // vault's .obsidian/types.json, then the changes made in justnotes, which
-// never writes .obsidian and keeps them in localStorage (`property-types`).
+// never writes types.json and keeps them in localStorage (`property-types`).
 import type { App } from "./app";
 import { type Component, type EventRef, Events } from "./events";
 import { builtInWidgets } from "./metadata-widgets";

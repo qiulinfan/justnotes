@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { installLanguageExtensions } from "../src/api/dom";
 import { InternalPlugins, parseCoreConfig } from "../src/api/internal-plugins";
+import { Commands } from "../src/api/keymap";
 
-function appWithConfig(files: Record<string, unknown>) {
-	return {
+installLanguageExtensions();
+
+function appWithConfig(files: Record<string, unknown>, storage: Record<string, unknown> = {}) {
+	const app: any = {
+		loadLocalStorage: (key: string) => storage[key] ?? null,
+		saveLocalStorage: (key: string, value: unknown) => (storage[key] = JSON.parse(JSON.stringify(value))),
+		hotkeyManager: { addDefaultHotkeys() {}, removeDefaultHotkeys() {} },
 		vault: {
 			configDir: ".obsidian",
 			adapter: {
@@ -12,7 +19,9 @@ function appWithConfig(files: Record<string, unknown>) {
 				},
 			},
 		},
-	} as any;
+	};
+	app.commands = new Commands(app);
+	return app;
 }
 
 describe("core-plugins.json", () => {
@@ -53,5 +62,36 @@ describe("app.internalPlugins", () => {
 		await internal.initialize();
 		expect(internal.getEnabledPluginById("daily-notes")).toBeNull();
 		expect(internal.getPluginById("daily-notes")).not.toBeNull();
+	});
+});
+
+// The Core plugins settings: a toggle takes effect at once and is kept by
+// justnotes over core-plugins.json, which is never written.
+describe("turning core plugins on and off", () => {
+	const installers = {
+		"daily-notes": (app: any, host: any) => host.addCommand({ id: "daily-notes", name: "Open today's daily note", callback() {} }),
+	};
+
+	test("disabling removes what the plugin installed, enabling brings it back, and the choice outlives a restart", async () => {
+		const storage: Record<string, unknown> = {};
+		const files = { ".obsidian/core-plugins.json": { "daily-notes": true, "tag-pane": false } };
+		const app = appWithConfig(files, storage);
+		app.internalPlugins = new InternalPlugins(app);
+		await app.internalPlugins.initialize();
+		app.internalPlugins.install(installers);
+		expect(app.commands.findCommand("daily-notes")).toBeDefined();
+		app.internalPlugins.getPluginById("daily-notes").disable(true);
+		expect(app.commands.findCommand("daily-notes")).toBeUndefined();
+		app.internalPlugins.getPluginById("tag-pane").enable(true);
+
+		const restarted = appWithConfig(files, storage);
+		restarted.internalPlugins = new InternalPlugins(restarted);
+		await restarted.internalPlugins.initialize();
+		restarted.internalPlugins.install(installers);
+		expect(restarted.internalPlugins.getEnabledPluginById("daily-notes")).toBeNull();
+		expect(restarted.internalPlugins.getEnabledPluginById("tag-pane")).not.toBeNull();
+		expect(restarted.commands.findCommand("daily-notes")).toBeUndefined();
+		restarted.internalPlugins.getPluginById("daily-notes").enable(true);
+		expect(restarted.commands.findCommand("daily-notes")).toBeDefined();
 	});
 });

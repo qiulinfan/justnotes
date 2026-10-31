@@ -4,6 +4,7 @@ import { Component } from "../api/events";
 import { setIcon } from "../api/icons";
 import { Scope } from "../api/keymap";
 import { MarkdownRenderer, renderMarkdownSections } from "../api/markdown";
+import type { CorePluginHost } from "../api/internal-plugins";
 import { MarkdownView } from "../api/markdown-view";
 import { locateFrontMatter } from "../api/metadata-utils";
 import type { Menu } from "../api/ui/menu";
@@ -232,8 +233,8 @@ export async function startPresentation(app: App, file: TFile, leaf?: WorkspaceL
 
 // Obsidian's Slides: the command (with its id) on the active note, and
 // Start presentation in a note's More options and tab menus.
-export function installSlides(app: App) {
-	app.commands.addCommand({
+export function installSlides(app: App, host: CorePluginHost) {
+	host.addCommand({
 		id: "slides:start",
 		name: "Slides: Start presentation",
 		icon: "presentation",
@@ -244,16 +245,18 @@ export function installSlides(app: App) {
 			return true;
 		},
 	});
-	app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile, source: string, leaf?: WorkspaceLeaf) => {
-		if (source !== "more-options" && source !== "tab-header") return;
-		if (!(leaf?.view instanceof MarkdownView) || leaf.view.file !== file) return;
-		const note = leaf.view.file;
-		menu.addItem((item) =>
-			item
-				.setTitle("Start presentation")
-				.setIcon("presentation")
-				.setSection("view")
-				.onClick(() => startPresentation(app, note, leaf)),
-		);
-	});
+	host.registerEvent(
+		app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile, source: string, leaf?: WorkspaceLeaf) => {
+			if (source !== "more-options" && source !== "tab-header") return;
+			if (!(leaf?.view instanceof MarkdownView) || leaf.view.file !== file) return;
+			const note = leaf.view.file;
+			menu.addItem((item) =>
+				item
+					.setTitle("Start presentation")
+					.setIcon("presentation")
+					.setSection("view")
+					.onClick(() => startPresentation(app, note, leaf)),
+			);
+		}),
+	);
 }

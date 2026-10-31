@@ -1,3 +1,4 @@
+import type { CorePluginHost } from "../api/internal-plugins";
 import type { App } from "../api/app";
 import { Component } from "../api/events";
 import { type EmbeddedBacklinks, MarkdownView } from "../api/markdown-view";
@@ -53,11 +54,20 @@ class BacklinksInDocument extends Component implements EmbeddedBacklinks {
 }
 
 // The backlink core plugin's part of a note's view, and its command.
-export function installBacklinksInDocument(app: App) {
+// Open notes show or drop their backlinks as the plugin is turned on or off.
+export function installBacklinksInDocument(app: App, host: CorePluginHost) {
 	const instance = app.internalPlugins.getEnabledPluginById("backlink");
 	if (!instance) return;
+	const refresh = () => {
+		for (const leaf of app.workspace.getLeavesOfType("markdown")) if (leaf.view instanceof MarkdownView) leaf.view.refreshBacklinks();
+	};
 	instance.createEmbeddedBacklinks = (view: MarkdownView) => new BacklinksInDocument(view);
-	app.commands.addCommand({
+	refresh();
+	host.register(() => {
+		delete instance.createEmbeddedBacklinks;
+		refresh();
+	});
+	host.addCommand({
 		id: "backlink:toggle-backlinks",
 		name: "Backlinks: Toggle backlinks in document",
 		checkCallback: (checking: boolean) => {

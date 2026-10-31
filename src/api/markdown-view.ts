@@ -124,6 +124,11 @@ export class MarkdownView extends TextFileView {
 		this.setBacklinks(!this.#backlinks);
 	}
 
+	// The backlink core plugin was turned on or off.
+	refreshBacklinks() {
+		this.#syncBacklinks();
+	}
+
 	// Creates or drops the backlinks under the note and puts them in the
 	// current mode: under the editor's last line or in the reading view's
 	// footer.
