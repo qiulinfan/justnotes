@@ -454,3 +454,13 @@ body.is-grabbing :is(webview, iframe) {
 .mod-root .view-content {
 	background: var(--background-primary);
 }
+
+/* Appearance: "Show ribbon" and "Show tab title bar" (body classes, as in
+   Obsidian, so themes can read them). */
+body:not(.show-ribbon) .workspace-ribbon {
+	display: none;
+}
+
+body:not(.show-view-header) .workspace-leaf-content > .view-header {
+	display: none;
+}
