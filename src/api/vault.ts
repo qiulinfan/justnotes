@@ -3,6 +3,7 @@ import * as nodePath from "node:path";
 import * as nodeUrl from "node:url";
 import { Events } from "./events";
 import { normalizePath } from "./util";
+import { DEFAULT_CONFIG, UNSET, VaultConfigStore } from "./vault-config";
 
 export interface FileStats {
 	ctime: number;
@@ -832,48 +833,6 @@ export class FileSystemAdapter {
 	}
 }
 
-// Obsidian's defaults for the settings that app.json and appearance.json leave
-// unset, as its settings screens show them.
-const DEFAULT_CONFIG: Record<string, unknown> = {
-	accentColor: "",
-	alwaysUpdateLinks: false,
-	attachmentFolderPath: "/",
-	autoPairBrackets: true,
-	autoPairMarkdown: true,
-	baseFontSize: 16,
-	cssTheme: "",
-	defaultViewMode: "source",
-	enabledCssSnippets: [],
-	foldHeading: true,
-	foldIndent: true,
-	interfaceFontFamily: "",
-	legacyEditor: false,
-	livePreview: true,
-	monospaceFontFamily: "",
-	newFileFolderPath: "",
-	newFileLocation: "root",
-	newLinkFormat: "shortest",
-	promptDelete: true,
-	propertiesInDocument: "visible",
-	readableLineLength: true,
-	rightToLeft: false,
-	showIndentGuide: true,
-	showInlineTitle: true,
-	showLineNumber: false,
-	showUnsupportedFiles: false,
-	smartIndentList: true,
-	strictLineBreaks: false,
-	tabSize: 4,
-	textFontFamily: "",
-	theme: "system",
-	translucency: false,
-	trashOption: "system",
-	useMarkdownLinks: false,
-	useTab: true,
-	userIgnoreFilters: [],
-	vimMode: false,
-};
-
 // A case-insensitive volume finds the vault folder under a flipped case.
 async function detectInsensitive(dir: string) {
 	const flip = (s: string) => [...s].map((c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase())).join("");
@@ -897,9 +856,10 @@ export class Vault extends Events {
 	// Lowercased path to file, for collision checks on case-insensitive volumes.
 	#lower = new Map<string, TAbstractFile>();
 	#contents = new Map<string, { mtime: number; size: number; text: string }>();
-	// setConfig values: kept in memory, never written to app.json.
-	#overrides: Record<string, unknown> = {};
+	// app.json and appearance.json (vault-config.ts).
+	#settings: VaultConfigStore;
 	#configTimer: ReturnType<typeof setTimeout> | null = null;
+	#saveTimer: ReturnType<typeof setTimeout> | null = null;
 	#loading = false;
 
 	constructor(basePath: string) {
@@ -908,12 +868,23 @@ export class Vault extends Events {
 		this.root = new TFolder(this, "/");
 		this.fileMap["/"] = this.root;
 		this.#lower.set("/", this.root);
+		this.#settings = new VaultConfigStore({
+			read: async (name) => {
+				try {
+					return await this.adapter.read(`${this.configDir}/${name}`);
+				} catch {
+					return null;
+				}
+			},
+			write: (name, text) => this.adapter.write(`${this.configDir}/${name}`, text),
+			unreadable: (name) => this.trigger("config-unreadable", name),
+		});
 	}
 
 	// Startup indexing does not fire 'create': no plugin is loaded yet, and the
 	// metadata cache indexes every note in its own initial pass.
 	async load() {
-		await this.#loadConfig();
+		await this.loadConfig();
 		this.adapter.insensitive = await detectInsensitive(this.adapter.basePath);
 		this.#loading = true;
 		try {
@@ -924,17 +895,11 @@ export class Vault extends Events {
 		}
 	}
 
-	async #loadConfig() {
-		const read = async (name: string) => {
-			try {
-				const value = JSON.parse(await this.adapter.read(`${this.configDir}/${name}`));
-				return value && typeof value === "object" ? value : {};
-			} catch {
-				return {};
-			}
-		};
-		const [appearance, app] = await Promise.all([read("appearance.json"), read("app.json")]);
-		this.config = { ...appearance, ...app, ...this.#overrides };
+	// Reads app.json and appearance.json (boot reads them before the scan).
+	async loadConfig() {
+		await this.#settings.reload();
+		this.config = this.#settings.config;
+		this.#settings.takeChanged();
 	}
 
 	#onChange = (type: string, path: string, oldPath?: string, stat?: FileStats) => {
@@ -952,8 +917,8 @@ export class Vault extends Events {
 		if (this.#configTimer) clearTimeout(this.#configTimer);
 		this.#configTimer = setTimeout(async () => {
 			this.#configTimer = null;
-			await this.#loadConfig();
-			this.trigger("config-changed");
+			await this.#settings.reload();
+			this.#announceConfig();
 		}, 100);
 	}
 
@@ -1073,15 +1038,34 @@ export class Vault extends Events {
 		return Array.isArray(value) ? [...value] : value;
 	}
 
+	// Sets a setting and saves it to app.json or appearance.json, as Obsidian
+	// does; undefined removes it. A value the setting already has changes
+	// nothing and writes nothing.
 	setConfig(key: string, value: any) {
-		if (value === undefined) {
-			delete this.#overrides[key];
-			delete this.config[key];
-		} else {
-			this.#overrides[key] = value;
-			this.config[key] = value;
-		}
+		if (!this.#settings.set(key, value === undefined ? UNSET : value)) return;
+		this.config = this.#settings.config;
 		this.trigger("config-changed", key);
+		if (this.#saveTimer) clearTimeout(this.#saveTimer);
+		this.#saveTimer = setTimeout(() => void this.saveConfig(), 300);
+	}
+
+	// Writes the settings changed since the last save (the quit flush waits
+	// for it). A file changed on disk meanwhile is merged key by key.
+	async saveConfig() {
+		if (this.#saveTimer) clearTimeout(this.#saveTimer);
+		this.#saveTimer = null;
+		try {
+			await this.#settings.save();
+		} catch (err) {
+			console.error("Could not save the vault's settings", err);
+		}
+		this.#announceConfig();
+	}
+
+	// Tells listeners when reading or saving took in a change from disk.
+	#announceConfig() {
+		this.config = this.#settings.config;
+		if (this.#settings.takeChanged()) this.trigger("config-changed");
 	}
 
 	getAbstractFileByPath(path: string) {
@@ -1280,6 +1264,8 @@ export class Vault extends Events {
 	}
 
 	close() {
+		if (this.#saveTimer) clearTimeout(this.#saveTimer);
+		if (this.#configTimer) clearTimeout(this.#configTimer);
 		this.adapter.stopWatching();
 	}
 }

@@ -458,19 +458,37 @@ plain style. Development notes belong in this file.
   Terminal 3.29 reads it to type the dragged paths; the editor accepts the drag
   in `dragover` on its whole DOM (the drag carries no data, so the browser would
   not drop it) and inserts links where it lands; the canvas adds cards.
-- Never write Obsidian's own config files (`workspace.json`,
-  `community-plugins.json`, `app.json`, `appearance.json`, `hotkeys.json`,
-  `core-plugins.json`, `types.json`). The one exception is `bookmarks.json`
-  (see Bookmarks above): bookmarks are content the owner keeps in both apps
-  and in git, not app settings. justnotes state lives in localStorage through
+- Obsidian config files justnotes writes: `bookmarks.json` (see Bookmarks
+  above), `app.json` and `appearance.json` (see Vault settings below), all
+  three shared with Obsidian and synced by the owner's git. Never write any
+  other file in `.obsidian` (`workspace.json`, `community-plugins.json`,
+  `hotkeys.json`, `core-plugins.json`, `types.json`, ...). justnotes state
+  lives in localStorage through
   `app.saveLocalStorage` (keys prefixed with the vault id): `justnotes-layout`
   (the layout, in `workspace.json`'s shape, with leaf ids), `enabled-plugins`
   (the Settings toggles, applied over `community-plugins.json`),
-  `enabled-core-plugins` (the Core plugins toggles, over `core-plugins.json`), `custom-css`
-  (theme and snippets), `justnotes-expanded` (explorer folders),
+  `enabled-core-plugins` (the Core plugins toggles, over `core-plugins.json`),
+  `justnotes-expanded` (explorer folders),
   `property-types` (property type changes made in justnotes, layered over
   `types.json`; an empty type unassigns one). The language
   is localStorage `language`, else `en`; never the OS locale.
+- Vault settings (`vault-config.ts`, tested; `Vault.getConfig`/`setConfig`):
+  `app.json` under `appearance.json` is what `getConfig` reads, Obsidian's
+  defaults (`DEFAULT_CONFIG`) for unset keys. `setConfig` (the settings
+  pages, plugins, the CLI's theme and snippet commands) saves as Obsidian
+  does: a value the key already reads (its default included) changes and
+  writes nothing; otherwise `config-changed` fires with the key and the file
+  is written 300 ms later (`saveConfig`, also in the quit flush), with
+  `JSON.stringify(data, null, 2)`, keys in place (unknown ones included), a
+  new key at the end, in the file that holds it, else where Obsidian keeps
+  it (`APPEARANCE_KEYS` in appearance.json, the rest in app.json). A missing
+  file is created only for a change. Every save reads both files first; a
+  file changed on disk is merged key by key (the keys justnotes changed take
+  its values, the others the file's). The files are re-read on their vault
+  `raw` event (debounced 100 ms); `config-changed` (without a key) fires only
+  when the settings changed, never for justnotes' own write. A file that
+  does not parse keeps its last good settings, is never written, and the
+  change waits (a Notice says so) until it parses.
 
 ## Command line
 

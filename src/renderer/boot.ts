@@ -55,6 +55,7 @@ function applyTheme(app: App) {
 	media.addEventListener("change", apply);
 	app.vault.on("config-changed", apply);
 	apply();
+	app.vault.on("config-unreadable", (name: string) => new Notice(`${app.vault.configDir}/${name} could not be read; settings changes are not saved until it can.`));
 }
 
 function buildShell(app: App) {
