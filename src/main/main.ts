@@ -97,7 +97,8 @@ ipcMain.handle("justnotes:open-in-vault", (evt, url: string, target: string) => 
 // navigation (from an iframe, say), makes Electron ask the page's session for
 // the openExternal permission and then hand the URL to the OS. openUrl decides
 // instead, in every session: a <webview> guest can have a session of its own
-// (omp-sidebar's partition), and its links count as its embedder's. Media
+// (omp-sidebar's partition), and its links count as its embedder's, as a
+// popout's (an iframe in it) count as its vault page's. Media
 // (microphone and camera) is granted only as media.ts decides: the
 // microphone, to a vault page, once macOS lets the app use it. Every other
 // permission keeps Electron's default (granted).
@@ -113,7 +114,7 @@ function handlePermissions(ses: Session) {
 		if (permission !== "openExternal") return callback(true);
 		callback(false);
 		const url = "externalURL" in details ? details.externalURL : undefined;
-		if (url) openUrl(url, contents.hostWebContents ?? contents);
+		if (url) openUrl(url, contents.hostWebContents ?? popoutOpeners.get(contents) ?? contents);
 	});
 }
 app.on("session-created", handlePermissions);
@@ -183,6 +184,10 @@ function setApplicationMenu() {
 	);
 }
 
+// Each popout's vault page, whose links its own count as (a popout's page
+// listens for no obsidian: URLs).
+const popoutOpeners = new WeakMap<WebContents, WebContents>();
+
 // Set once the app quits (the menu, Cmd+Q, `justnotes quit` or `restart`).
 let quitting = false;
 app.on("before-quit", () => (quitting = true));
@@ -193,6 +198,7 @@ app.on("before-quit", () => (quitting = true));
 // document, and it closes with the page (a reload or the vault window closing).
 function setupPopout(child: BrowserWindow, opener: WebContents) {
 	const contents = child.webContents;
+	popoutOpeners.set(contents, opener);
 	contents.setWindowOpenHandler(({ url }) => {
 		openUrl(url, opener);
 		return { action: "deny" };
