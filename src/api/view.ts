@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import type { App } from "./app";
 import { Component, Events } from "./events";
 import { setIcon, setTooltip } from "./icons";
@@ -346,6 +347,18 @@ export abstract class TextFileView extends EditableFileView {
 	#writes = new Map<string, number>();
 	#writing: Promise<unknown> = Promise.resolve();
 
+	// The workspace flushes saves before a window closes; a page unload it did
+	// not see first (a reload) still writes unsaved text, synchronously,
+	// because nothing async finishes during unload.
+	static #loaded = new Set<TextFileView>();
+	static {
+		if (typeof window !== "undefined") {
+			window.addEventListener("beforeunload", () => {
+				for (const view of TextFileView.#loaded) view.#saveNow();
+			});
+		}
+	}
+
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
 		const later = debounce(() => this.save(), 2000, true);
@@ -364,6 +377,8 @@ export abstract class TextFileView extends EditableFileView {
 
 	onload() {
 		super.onload();
+		TextFileView.#loaded.add(this);
+		this.register(() => TextFileView.#loaded.delete(this));
 		this.registerEvent(
 			this.app.vault.on("modify", (file: TAbstractFile) => {
 				if (file === this.file) this.#onModify(this.file).catch((err) => console.error(err));
@@ -409,6 +424,21 @@ export abstract class TextFileView extends EditableFileView {
 			}
 		}
 		if (clear) this.clear();
+	}
+
+	#saveNow() {
+		const file = this.file;
+		if (!file || this.app.vault.getAbstractFileByPath(file.path) !== file) return;
+		const data = this.getViewData();
+		if (!this.dirty && data === this.data) return;
+		this.requestSave.cancel();
+		this.dirty = false;
+		this.data = data;
+		try {
+			fs.writeFileSync(this.app.vault.adapter.getFullPath(file.path), data, "utf8");
+		} catch (err) {
+			console.error(err);
+		}
 	}
 
 	// Writes run one at a time, in the order save() was called, so the file
