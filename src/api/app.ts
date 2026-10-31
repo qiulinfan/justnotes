@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
-import { getElectron } from "./dom";
+import { getElectron, onWindowAdded } from "./dom";
 import { FileManager } from "./file-manager";
 import { InternalPlugins } from "./internal-plugins";
 import { Commands, HotkeyManager, Keymap, Scope } from "./keymap";
@@ -298,11 +298,19 @@ export class App {
 	constructor(basePath: string) {
 		// Before the keymap's listener, so a command run by a hotkey sees its own
 		// keydown as lastEvent.
-		for (const type of USER_EVENTS) window.addEventListener(type, (e) => (this.lastEvent = e as UIEvent), true);
+		const trackEvents = (win: Window) => {
+			for (const type of USER_EVENTS) win.addEventListener(type, (e) => (this.lastEvent = e as UIEvent), true);
+		};
+		trackEvents(window);
 		this.appId = vaultId(basePath);
 		this.vault = new Vault(basePath);
 		this.scope = new Scope();
 		this.keymap = new Keymap(this.scope);
+		// Popout windows: the same order, events first, then keys.
+		onWindowAdded((win) => {
+			trackEvents(win);
+			this.keymap.attachWindow(win);
+		});
 		this.hotkeyManager = new HotkeyManager(this);
 		this.commands = new Commands(this);
 		this.scope.register(null, null, (evt, ctx) => this.hotkeyManager.onTrigger(evt, ctx));

@@ -89,7 +89,7 @@ export class MarkdownView extends TextFileView {
 	async setMode(mode: MarkdownSubView) {
 		if (mode === this.currentMode || (mode !== this.editMode && mode !== this.previewMode)) return;
 		const scroll = this.currentMode.getScroll();
-		const focused = this.containerEl.contains(document.activeElement);
+		const focused = this.containerEl.contains(this.containerEl.doc.activeElement);
 		if (mode === this.previewMode) this.previewMode.set(this.editor.getValue(), false);
 		await this.#showMode(mode);
 		mode.applyScroll(scroll);

@@ -107,7 +107,7 @@ export class MenuItem {
 	handleEvent(evt: MouseEvent | KeyboardEvent) {
 		if (this.disabled || this.dom.hasClass("is-label")) return;
 		if (this.submenu) {
-			this.#menu.openSubmenu(this, evt instanceof KeyboardEvent);
+			this.#menu.openSubmenu(this, !!evt?.instanceOf?.(KeyboardEvent));
 			return;
 		}
 		let root = this.#menu;
@@ -178,6 +178,7 @@ export class Menu extends Component {
 	#shown = false;
 	#used = false;
 	#submenuTimer: number | null = null;
+	#doc: Document | null = null;
 	#outside = (evt: MouseEvent) => {
 		const target = evt.target as Node;
 		if (!this.#contains(target) && !this.#parentEl?.contains(target)) this.hide();
@@ -306,7 +307,7 @@ export class Menu extends Component {
 			this.closeSubmenu();
 			this.currentSubmenu = submenu;
 			const r = item.dom.getBoundingClientRect();
-			submenu.showAtPosition({ x: r.left, y: r.top - 6, width: r.width });
+			submenu.showAtPosition({ x: r.left, y: r.top - 6, width: r.width }, item.dom.doc);
 		}
 		if (selectFirst) submenu.#move(1);
 	}
@@ -330,7 +331,8 @@ export class Menu extends Component {
 		});
 	}
 
-	showAtPosition(pos: MenuPositionDef, _doc?: Document) {
+	// `doc` is the window to show in (a popout's); the focused one by default.
+	showAtPosition(pos: MenuPositionDef, doc: Document = activeDocument) {
 		if (!this.parentMenu) {
 			if (openMenu && openMenu !== this) openMenu.hide();
 			openMenu = this;
@@ -339,14 +341,15 @@ export class Menu extends Component {
 		this.#visible[this.selected]?.dom.removeClass("selected");
 		this.selected = -1;
 		this.#render();
-		document.body.appendChild(this.dom);
+		doc.body.appendChild(this.dom);
 		this.#place(pos);
 		this.#parentEl?.addClass("has-active-menu");
 		globalApp()?.keymap.pushScope(this.scope);
 		this.scope.parent ??= globalApp()?.scope;
-		document.removeEventListener("mousedown", this.#outside, true);
+		this.#doc?.removeEventListener("mousedown", this.#outside, true);
+		this.#doc = doc;
 		// Attach after the event that opened the menu has finished.
-		if (!this.parentMenu) window.setTimeout(() => this.#shown && document.addEventListener("mousedown", this.#outside, true));
+		if (!this.parentMenu) window.setTimeout(() => this.#shown && doc.addEventListener("mousedown", this.#outside, true));
 		this.#shown = true;
 		this.load();
 		return this;
@@ -355,6 +358,7 @@ export class Menu extends Component {
 	// Opens beside the anchor (x, width), or over it with `overlap`, towards
 	// the right unless `left` asks otherwise or there is no room.
 	#place(pos: MenuPositionDef) {
+		const window = this.dom.win;
 		const w = this.dom.offsetWidth;
 		const h = this.dom.offsetHeight;
 		const width = pos.width ?? 0;
@@ -369,7 +373,7 @@ export class Menu extends Component {
 	}
 
 	showAtMouseEvent(evt: MouseEvent) {
-		return this.showAtPosition({ x: evt.clientX, y: evt.clientY });
+		return this.showAtPosition({ x: evt.clientX, y: evt.clientY }, evt.doc);
 	}
 
 	hide() {
@@ -378,7 +382,7 @@ export class Menu extends Component {
 		this.#shown = false;
 		if (this.#submenuTimer !== null) window.clearTimeout(this.#submenuTimer);
 		this.closeSubmenu();
-		document.removeEventListener("mousedown", this.#outside, true);
+		this.#doc?.removeEventListener("mousedown", this.#outside, true);
 		globalApp()?.keymap.popScope(this.scope);
 		this.dom.detach();
 		this.#parentEl?.removeClass("has-active-menu");

@@ -80,7 +80,7 @@ export class Suggestions<T> {
 		this.selectedItem = i;
 		const el = this.suggestions[i];
 		el.addClass("is-selected");
-		if (evt instanceof KeyboardEvent) el.scrollIntoView({ block: "nearest" });
+		if ((evt as UIEvent | null)?.instanceOf?.(KeyboardEvent)) el.scrollIntoView({ block: "nearest" });
 	}
 
 	useSelectedItem(evt?: MouseEvent | KeyboardEvent) {
@@ -242,7 +242,7 @@ export abstract class PopoverSuggest<T> {
 	open() {
 		if (this.isOpen) return;
 		this.isOpen = true;
-		document.body.appendChild(this.suggestEl);
+		hostDocument(this).body.appendChild(this.suggestEl);
 		this.app.keymap.pushScope(this.scope);
 	}
 
@@ -259,6 +259,7 @@ export abstract class PopoverSuggest<T> {
 
 	reposition(rect: { left: number; right: number; top: number; bottom: number }) {
 		const el = this.suggestEl;
+		const window = el.win;
 		el.style.left = `${Math.min(rect.left, window.innerWidth - el.offsetWidth - 8)}px`;
 		const below = rect.bottom + 4;
 		const fitsBelow = below + el.offsetHeight < window.innerHeight;
@@ -344,12 +345,12 @@ export abstract class AbstractInputSuggest<T> extends PopoverSuggest<T> {
 
 	getValue() {
 		const el = this.textInputEl;
-		return el instanceof HTMLInputElement ? el.value : (el.textContent ?? "");
+		return el.instanceOf(HTMLInputElement) ? el.value : (el.textContent ?? "");
 	}
 
 	setValue(value: string) {
 		const el = this.textInputEl;
-		if (el instanceof HTMLInputElement) el.value = value;
+		if (el.instanceOf(HTMLInputElement)) el.value = value;
 		else el.textContent = value;
 	}
 
@@ -375,4 +376,12 @@ export abstract class AbstractInputSuggest<T> extends PopoverSuggest<T> {
 	}
 
 	abstract getSuggestions(query: string): T[] | Promise<T[]>;
+}
+
+// The window a popover suggest shows in: its editor's or its input's, a popout
+// included.
+function hostDocument(suggest: PopoverSuggest<unknown>): Document {
+	if (suggest instanceof EditorSuggest) return suggest.context?.editor?.cm?.dom?.doc ?? activeDocument;
+	if (suggest instanceof AbstractInputSuggest) return suggest.textInputEl.doc;
+	return activeDocument;
 }

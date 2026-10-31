@@ -58,12 +58,107 @@ function build<T extends Element>(el: T, parent: Node | null, o: Info | string |
 	return el;
 }
 
-function makeEl(parent: Node | null, tag: string, o?: Info | string, cb?: (el: any) => void) {
-	return build(document.createElement(tag), parent, o, cb);
+// The document a node lives in (a document is its own). Elements created
+// through a parent's createEl/createDiv belong to the parent's window, as in
+// Obsidian, so a view moved to a popout window keeps making its own elements.
+function docOf(node: Node | null): Document {
+	if (!node) return document;
+	return node.nodeType === 9 ? (node as Document) : (node.ownerDocument ?? document);
 }
 
-function makeSvg(parent: Node | null, tag: string, o?: Info | string, cb?: (el: any) => void) {
-	return build(document.createElementNS("http://www.w3.org/2000/svg", tag), parent, o, cb);
+function makeEl(doc: Document, parent: Node | null, tag: string, o?: Info | string, cb?: (el: any) => void) {
+	return build(doc.createElement(tag), parent, o, cb);
+}
+
+function makeSvg(doc: Document, parent: Node | null, tag: string, o?: Info | string, cb?: (el: any) => void) {
+	return build(doc.createElementNS("http://www.w3.org/2000/svg", tag), parent, o, cb);
+}
+
+// The app's windows: the vault window first, then its popout windows. Code
+// that listens to a window's events registers with onWindowAdded to listen in
+// popouts too.
+const popouts: Window[] = [];
+const windowAdded: ((win: Window) => void)[] = [];
+
+export function appWindows(): Window[] {
+	return [window, ...popouts];
+}
+
+// Runs `install` for every popout window added from now on.
+export function onWindowAdded(install: (win: Window) => void) {
+	windowAdded.push(install);
+}
+
+// A popout window joins the app: its realm gets Obsidian's DOM augmentations
+// (elements made from its document use its constructors) and every installer.
+export function addWindow(win: Window) {
+	if (popouts.includes(win)) return;
+	popouts.push(win);
+	installDomExtensions(win);
+	if (insertionObserver) insertionObserver.observe(win.document.documentElement, { childList: true, subtree: true });
+	for (const install of windowAdded) {
+		try {
+			install(win);
+		} catch (err) {
+			console.error(err);
+		}
+	}
+}
+
+export function removeWindow(win: Window) {
+	popouts.remove(win);
+	if (activeWindowOf() === win) setActiveWindow(window);
+}
+
+function activeWindowOf(): Window {
+	return (window as any).activeWindow ?? window;
+}
+
+// activeWindow and activeDocument follow the focused app window.
+export function setActiveWindow(win: Window) {
+	const w = window as any;
+	w.activeWindow = win;
+	w.activeDocument = win.document;
+}
+
+// The window whose constructors made a node: a node keeps its realm when it
+// moves to another window's document.
+function constructorWinOf(node: Node): Window {
+	for (const win of appWindows()) if (node instanceof (win as any).Node) return win;
+	return window;
+}
+
+// instanceof across the app's windows: `type` is one window's DOM class and
+// the object is an instance of the class of that name in its own realm.
+function crossInstanceOf(obj: object, type: any): boolean {
+	if (obj instanceof type) return true;
+	const name = type?.name;
+	if (!name) return false;
+	const wins = appWindows() as any[];
+	return wins.some((w) => w[name] === type) && wins.some((w) => typeof w[name] === "function" && obj instanceof w[name]);
+}
+
+interface MigrationWatch {
+	el: HTMLElement;
+	win: Window;
+	listener: (win: Window) => any;
+}
+
+// onWindowMigrated registrations; checked whenever a document's tree changes.
+const migrationWatches = new Set<MigrationWatch>();
+
+function checkMigrations() {
+	for (const watch of [...migrationWatches]) {
+		if (!watch.el.isConnected) continue;
+		const win = watch.el.ownerDocument.defaultView;
+		if (!win || win === watch.win) continue;
+		watch.win = win;
+		try {
+			watch.listener(win);
+		} catch (err) {
+			console.error(err);
+		}
+	}
 }
 
 // Obsidian's renderer hands plugins Electron's module with @electron/remote as
@@ -130,6 +225,7 @@ const insertionWatches = new Set<InsertionWatch>();
 let insertionObserver: MutationObserver | null = null;
 
 function checkInsertions() {
+	checkMigrations();
 	for (const watch of [...insertionWatches]) {
 		const connected = watch.el.isConnected;
 		if (connected && !watch.connected) {
@@ -142,23 +238,84 @@ function checkInsertions() {
 		}
 		watch.connected = connected;
 	}
-	if (insertionWatches.size === 0) {
+	if (insertionWatches.size === 0 && migrationWatches.size === 0) {
 		insertionObserver?.disconnect();
 		insertionObserver = null;
 	}
 }
 
+// One observer over every app window's document.
+function observeTrees() {
+	if (insertionObserver) return;
+	insertionObserver = new MutationObserver(checkInsertions);
+	for (const win of appWindows()) insertionObserver.observe(win.document.documentElement, { childList: true, subtree: true });
+}
+
 function watchInsertion(watch: InsertionWatch) {
 	insertionWatches.add(watch);
-	if (!insertionObserver) {
-		insertionObserver = new MutationObserver(checkInsertions);
-		insertionObserver.observe(document.documentElement, { childList: true, subtree: true });
-	}
+	observeTrees();
 	queueMicrotask(checkInsertions);
 	return () => {
 		insertionWatches.delete(watch);
 		if (insertionWatches.size === 0) checkInsertions();
 	};
+}
+
+function watchMigration(watch: MigrationWatch) {
+	migrationWatches.add(watch);
+	observeTrees();
+	return () => {
+		migrationWatches.delete(watch);
+	};
+}
+
+// A ResizeObserver whose targets may sit in any app window. An observer sees
+// only elements of its own window's document, so each target is observed by
+// the observer of the window it is in, again after it moves to another one.
+export class AppResizeObserver {
+	#callback: ResizeObserverCallback;
+	#observers = new Map<Window, ResizeObserver>();
+	#targets = new Map<HTMLElement, { win: Window; stop: () => void }>();
+
+	constructor(callback: ResizeObserverCallback) {
+		this.#callback = callback;
+	}
+
+	observe(el: HTMLElement) {
+		if (this.#targets.has(el)) return;
+		const target = { win: el.win, stop: () => {} };
+		this.#targets.set(el, target);
+		this.#observer(target.win).observe(el);
+		target.stop = el.onWindowMigrated((win) => {
+			this.#observers.get(target.win)?.unobserve(el);
+			target.win = win;
+			this.#observer(win).observe(el);
+		});
+	}
+
+	unobserve(el: HTMLElement) {
+		const target = this.#targets.get(el);
+		if (!target) return;
+		this.#targets.delete(el);
+		target.stop();
+		this.#observers.get(target.win)?.unobserve(el);
+	}
+
+	disconnect() {
+		for (const target of this.#targets.values()) target.stop();
+		this.#targets.clear();
+		for (const observer of this.#observers.values()) observer.disconnect();
+		this.#observers.clear();
+	}
+
+	#observer(win: Window) {
+		let observer = this.#observers.get(win);
+		if (!observer) {
+			observer = new (win as unknown as typeof globalThis).ResizeObserver((entries, o) => this.#callback(entries, o));
+			this.#observers.set(win, observer);
+		}
+		return observer;
+	}
 }
 
 // The inline display an element had before hide(), restored by show().
@@ -214,9 +371,14 @@ export function installLanguageExtensions() {
 	define(Number, { isNumber: (o: any) => typeof o === "number" });
 }
 
-export function installDomExtensions() {
-	const w = window as any;
-	installLanguageExtensions();
+// Installs the augmentations in a window's realm: the vault window at boot,
+// each popout window when it opens.
+export function installDomExtensions(win: Window = window) {
+	const w = win as any;
+	const main = win === window;
+	if (main) installLanguageExtensions();
+	const { Node, Element, Document, DocumentFragment, HTMLElement, UIEvent } = w as typeof globalThis;
+	const doc = win.document;
 
 	define(Node.prototype, {
 		detach() {
@@ -242,29 +404,34 @@ export function installDomExtensions() {
 			}
 		},
 		appendText(val: string) {
-			this.appendChild(document.createTextNode(val));
+			this.appendChild(docOf(this).createTextNode(val));
 		},
 		instanceOf(type: any) {
-			return this instanceof type;
+			return crossInstanceOf(this, type);
 		},
 		createEl(tag: string, o?: Info | string, cb?: (el: any) => void) {
-			return makeEl(this, tag, o, cb);
+			return makeEl(docOf(this), this, tag, o, cb);
 		},
 		createDiv(o?: Info | string, cb?: (el: any) => void) {
-			return makeEl(this, "div", o, cb);
+			return makeEl(docOf(this), this, "div", o, cb);
 		},
 		createSpan(o?: Info | string, cb?: (el: any) => void) {
-			return makeEl(this, "span", o, cb);
+			return makeEl(docOf(this), this, "span", o, cb);
 		},
 		createSvg(tag: string, o?: Info | string, cb?: (el: any) => void) {
-			return makeSvg(this, tag, o, cb);
+			return makeSvg(docOf(this), this, tag, o, cb);
 		},
 	});
-	for (const key of ["doc", "win", "constructorWin"]) {
+	const nodeGetters: Record<string, (node: Node) => unknown> = {
+		doc: (node) => docOf(node),
+		win: (node) => docOf(node).defaultView ?? window,
+		constructorWin: (node) => constructorWinOf(node),
+	};
+	for (const [key, get] of Object.entries(nodeGetters)) {
 		Object.defineProperty(Node.prototype, key, {
 			configurable: true,
 			get() {
-				return key === "doc" ? (this.ownerDocument ?? document) : window;
+				return get(this);
 			},
 		});
 	}
@@ -316,10 +483,10 @@ export function installDomExtensions() {
 			return null;
 		},
 		getCssPropertyValue(property: string, pseudo?: string) {
-			return getComputedStyle(this, pseudo).getPropertyValue(property);
+			return this.win.getComputedStyle(this, pseudo).getPropertyValue(property);
 		},
 		isActiveElement() {
-			return this === document.activeElement;
+			return this === this.doc.activeElement;
 		},
 		find(selector: string) {
 			return this.querySelector(selector);
@@ -398,8 +565,10 @@ export function installDomExtensions() {
 		onNodeInserted(listener: () => any, once?: boolean) {
 			return watchInsertion({ el: this, listener, once: !!once, connected: false });
 		},
-		onWindowMigrated() {
-			return () => {};
+		// Fires when the element is moved into another window's document (a
+		// leaf moved to or from a popout window).
+		onWindowMigrated(listener: (win: Window) => any) {
+			return watchMigration({ el: this, win: this.win, listener });
 		},
 		trigger(eventType: string) {
 			this.dispatchEvent(new Event(eventType, { bubbles: true, cancelable: true }));
@@ -409,7 +578,7 @@ export function installDomExtensions() {
 		Object.defineProperty(HTMLElement.prototype, key, {
 			configurable: true,
 			get() {
-				const style = getComputedStyle(this);
+				const style = this.win.getComputedStyle(this);
 				return key === "innerWidth"
 					? this.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
 					: this.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
@@ -418,13 +587,14 @@ export function installDomExtensions() {
 	}
 	define(UIEvent.prototype, {
 		instanceOf(type: any) {
-			return this instanceof type;
+			return crossInstanceOf(this, type);
 		},
 	});
+	const eventWin = (e: UIEvent) => e.view ?? ((e.target as Node | null)?.nodeType ? docOf(e.target as Node).defaultView : null) ?? window;
 	for (const [key, get] of [
-		["targetNode", (e: Event) => e.target as Node],
-		["win", () => window],
-		["doc", () => document],
+		["targetNode", (e: UIEvent) => e.target as Node],
+		["win", eventWin],
+		["doc", (e: UIEvent) => eventWin(e).document],
 	] as const) {
 		Object.defineProperty(UIEvent.prototype, key, {
 			configurable: true,
@@ -436,20 +606,30 @@ export function installDomExtensions() {
 
 	Object.assign(w, {
 		isBoolean: (o: any) => typeof o === "boolean",
-		fish: (s: string) => document.querySelector(s),
-		fishAll: (s: string) => Array.from(document.querySelectorAll(s)),
-		createEl: (tag: string, o?: Info | string, cb?: (el: any) => void) => makeEl(null, tag, o, cb),
-		createDiv: (o?: Info | string, cb?: (el: any) => void) => makeEl(null, "div", o, cb),
-		createSpan: (o?: Info | string, cb?: (el: any) => void) => makeEl(null, "span", o, cb),
-		createSvg: (tag: string, o?: Info | string, cb?: (el: any) => void) => makeSvg(null, tag, o, cb),
+		fish: (s: string) => activeWindowOf().document.querySelector(s),
+		fishAll: (s: string) => Array.from(activeWindowOf().document.querySelectorAll(s)),
+		createEl: (tag: string, o?: Info | string, cb?: (el: any) => void) => makeEl(doc, null, tag, o, cb),
+		createDiv: (o?: Info | string, cb?: (el: any) => void) => makeEl(doc, null, "div", o, cb),
+		createSpan: (o?: Info | string, cb?: (el: any) => void) => makeEl(doc, null, "span", o, cb),
+		createSvg: (tag: string, o?: Info | string, cb?: (el: any) => void) => makeSvg(doc, null, tag, o, cb),
 		createFragment(cb?: (el: DocumentFragment) => void) {
-			const frag = document.createDocumentFragment();
+			const frag = doc.createDocumentFragment();
 			cb?.(frag);
 			return frag;
 		},
-		sleep: (ms: number) => new Promise((r) => setTimeout(r, ms)),
-		nextFrame: () => new Promise((r) => requestAnimationFrame(() => r(undefined))),
-		ready: (fn: () => any) => (document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", fn) : fn()),
+		sleep: (ms: number) => new Promise((r) => win.setTimeout(r, ms)),
+		nextFrame: () => new Promise((r) => win.requestAnimationFrame(() => r(undefined))),
+		ready: (fn: () => any) => (doc.readyState === "loading" ? doc.addEventListener("DOMContentLoaded", fn) : fn()),
+	});
+	// Plugin code runs in the vault window's realm and reads its globals; a
+	// popout's own globals forward to them.
+	if (!main) {
+		for (const key of ["activeWindow", "activeDocument"]) {
+			Object.defineProperty(w, key, { configurable: true, get: () => (window as any)[key] });
+		}
+		return;
+	}
+	Object.assign(w, {
 		activeWindow: window,
 		activeDocument: document,
 		ajax,

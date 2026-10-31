@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import type { App } from "./app";
+import { AppResizeObserver, onWindowAdded } from "./dom";
 import { Component, Events } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import type { Scope } from "./keymap";
@@ -31,7 +32,8 @@ const viewByEl = new WeakMap<Element, View>();
 const loading = new WeakMap<FileView, TFile>();
 
 function viewOf(node: EventTarget | null): View | null {
-	for (let el = node instanceof Element ? node : node instanceof Node ? node.parentElement : null; el; el = el.parentElement) {
+	const n = node as Node | null;
+	for (let el = n?.nodeType === 1 ? (n as Element) : (n?.parentElement ?? null); el; el = el.parentElement) {
 		const view = viewByEl.get(el);
 		if (view) return view;
 	}
@@ -50,24 +52,31 @@ function focusView(view: View | null) {
 	if (focused) focused.view.app.keymap.pushScope(focused.scope);
 }
 
-if (typeof document !== "undefined") {
-	document.addEventListener("focusin", (evt) => focusView(viewOf(evt.target)), true);
-	document.addEventListener("focusout", (evt) => focusView(viewOf(evt.relatedTarget)), true);
+// In the vault window and in every popout window.
+function trackFocus(win: Window) {
+	const doc = win.document;
+	doc.addEventListener("focusin", (evt) => focusView(viewOf(evt.target)), true);
+	doc.addEventListener("focusout", (evt) => focusView(viewOf(evt.relatedTarget)), true);
 	// A focused element that is hidden or removed fires no focusout. This runs
 	// before the keymap's own capture listener (registered later, by App), so
 	// every key goes to the scope of the view that really has focus.
-	window.addEventListener("keydown", () => focusView(viewOf(document.activeElement)), true);
+	win.addEventListener("keydown", () => focusView(viewOf(doc.activeElement)), true);
+}
+
+if (typeof document !== "undefined") {
+	trackFocus(window);
+	onWindowAdded(trackFocus);
 }
 
 // One observer calls onResize for every open view whose size changed,
 // including when it becomes visible. Calls wait for the next frame so view
 // code that changes layout cannot loop the observer.
-let resizeObserver: ResizeObserver | null = null;
+let resizeObserver: AppResizeObserver | null = null;
 const lastSize = new WeakMap<Element, string>();
 const resized = new Set<View>();
 
 function observeResize(view: View, observe: boolean) {
-	resizeObserver ??= new ResizeObserver((entries) => {
+	resizeObserver ??= new AppResizeObserver((entries) => {
 		for (const { target, contentRect } of entries) {
 			const view = viewByEl.get(target);
 			const size = `${contentRect.width}x${contentRect.height}`;
@@ -127,7 +136,7 @@ export abstract class View extends Component {
 		observeResize(this, true);
 		this.load();
 		await this.onOpen();
-		if (this.containerEl.contains(document.activeElement)) focusView(this);
+		if (this.containerEl.contains(this.containerEl.doc.activeElement)) focusView(this);
 	}
 
 	async close() {
@@ -155,7 +164,7 @@ export abstract class View extends Component {
 
 	// `focus` is how the workspace hands a newly active leaf the keyboard.
 	setEphemeralState(state: any) {
-		if (state?.focus && !this.containerEl.contains(document.activeElement)) {
+		if (state?.focus && !this.containerEl.contains(this.containerEl.doc.activeElement)) {
 			if (!this.containerEl.hasAttribute("tabindex")) this.containerEl.setAttr("tabindex", -1);
 			this.containerEl.focus({ preventScroll: true });
 		}

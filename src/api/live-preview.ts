@@ -3,6 +3,7 @@ import { type EditorState, type Extension, type Range, StateEffect, StateField }
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 import type { App } from "./app";
+import { AppResizeObserver } from "./dom";
 import type { Component } from "./events";
 import { setIcon } from "./icons";
 import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, onCodeBlockProcessorsChange, renderMath, resolveHtmlSrc } from "./markdown";
@@ -396,7 +397,7 @@ function widgetComponent(view: EditorView, el: HTMLElement) {
 	const child = new MarkdownRenderChild(el);
 	child.load();
 	renderChildren.set(el, child);
-	const observer = new ResizeObserver(() => view.requestMeasure());
+	const observer = new AppResizeObserver(() => view.requestMeasure());
 	observer.observe(el);
 	child.register(() => observer.disconnect());
 	return child;

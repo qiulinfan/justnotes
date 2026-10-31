@@ -45,6 +45,7 @@ export class MarkdownEditView implements MarkdownSubView {
 	#isLivePreview = true;
 	#scroll = 0;
 	#destroyed = false;
+	#stopMigration: () => void;
 	// Plugins follow the active note's unsaved text through 'quick-preview'.
 	#quickPreview = debounce(
 		(file: TFile) => {
@@ -60,6 +61,9 @@ export class MarkdownEditView implements MarkdownSubView {
 		this.containerEl = view.contentEl.createDiv("markdown-source-view cm-s-obsidian mod-cm6 is-live-preview is-readable-line-width");
 		this.editor = new Editor(new EditorView({ state: this.#createState(""), parent: this.containerEl }));
 		bindEditorFields(this.editor.cm, view);
+		// CodeMirror reads the selection and listens to the window of its root;
+		// a view moved to or from a popout window takes the new document.
+		this.#stopMigration = this.containerEl.onWindowMigrated(() => this.editor.cm.setRoot(this.containerEl.doc));
 	}
 
 	get file(): TFile | null {
@@ -141,6 +145,7 @@ export class MarkdownEditView implements MarkdownSubView {
 	destroy() {
 		if (this.#destroyed) return;
 		this.#destroyed = true;
+		this.#stopMigration();
 		this.#quickPreview.cancel();
 		this.editor.cm.destroy();
 	}
