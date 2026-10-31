@@ -29,11 +29,12 @@ export function stripHeadingForLink(heading: string) {
 }
 
 // The frontmatter block: '---' on the first line up to the next '---' line,
-// possibly empty. `from`/`to` delimit the YAML and `end` is just past the
+// possibly empty. Both lines are exactly three dashes, as the editor and the
+// reading view require: '--- ' opens no frontmatter in Obsidian. `from`/`to` delimit the YAML and `end` is just past the
 // closing dashes. parseMetadata, getFrontMatterInfo and processFrontMatter
 // all use this, so they agree on where a note's frontmatter is.
 export function locateFrontMatter(text: string) {
-	const m = /^---[ \t]*\r?\n(?:---|([\s\S]*?)\r?\n---)[ \t]*(?=\r?\n|$)/.exec(text);
+	const m = /^---\r?\n(?:---|([\s\S]*?)\r?\n---)(?=\r?\n|$)/.exec(text);
 	if (!m) return null;
 	const from = text.indexOf("\n") + 1;
 	return { from, to: from + (m[1]?.length ?? 0), end: m[0].length };
