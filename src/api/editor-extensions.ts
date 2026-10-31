@@ -4,9 +4,9 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { bracketMatching, codeFolding, foldGutter, HighlightStyle, indentOnInput, indentUnit, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorSelection, EditorState, type Extension, Prec } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range } from "@codemirror/state";
 import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import type { SyntaxNode } from "@lezer/common";
+import { IterMode, NodeProp, type SyntaxNode } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import type { BlockContext, LeafBlock, LeafBlockParser, MarkdownConfig } from "@lezer/markdown";
 import type { App } from "./app";
@@ -479,6 +479,39 @@ function folding(app: App): Extension[] {
 	];
 }
 
+// Highlighted code is a nested language tree, so its tokens miss the
+// cm-hmd-codeblock class that Obsidian gives every token in a code block.
+// An outer mark adds it without covering the token classes.
+const codeBlockMark = Decoration.mark({ class: "cm-hmd-codeblock" });
+const highlightedCode = ViewPlugin.fromClass(
+	class {
+		decorations: DecorationSet;
+
+		constructor(view: EditorView) {
+			this.decorations = this.build(view);
+		}
+
+		update(u: ViewUpdate) {
+			if (u.docChanged || u.viewportChanged || syntaxTree(u.state) !== syntaxTree(u.startState)) this.decorations = this.build(u.view);
+		}
+
+		build(view: EditorView) {
+			const marks: Range<Decoration>[] = [];
+			syntaxTree(view.state).iterate({
+				...view.viewport,
+				mode: IterMode.IgnoreMounts,
+				enter: (node) => {
+					if (node.name !== "FencedCode") return;
+					if (node.tree?.prop(NodeProp.mounted)) for (const text of node.node.getChildren("CodeText")) marks.push(codeBlockMark.range(text.from, text.to));
+					return false;
+				},
+			});
+			return Decoration.set(marks);
+		}
+	},
+	{ provide: (plugin) => EditorView.outerDecorations.of((view) => view.plugin(plugin)?.decorations ?? Decoration.none) },
+);
+
 // Indentation follows the vault's useTab and tabSize settings (Obsidian
 // defaults: tabs, 4 columns).
 const indentation = new Compartment();
@@ -609,6 +642,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		activeLine,
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),
+		highlightedCode,
 		keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, { key: "Tab", run: indentOrInsertTab, shift: indentLess }]),
 		EditorView.updateListener.of((u) => {
 			const suggest = app.workspace.editorSuggest;
