@@ -1,6 +1,7 @@
 import type { App } from "../app";
 import { Component } from "../events";
 import type { Menu } from "../ui/menu";
+import { Notice } from "../ui/notice";
 import { debounce } from "../util";
 import { type TAbstractFile, TFile } from "../vault";
 import { BaseDocument, type BasesConfigFileView, BasesViewConfig, type ViewConfigHooks, viewData } from "./config";
@@ -134,14 +135,13 @@ export class QueryController extends Component {
 		let name = base;
 		for (let i = 2; names.has(name); i++) name = `${base} ${i}`;
 		const view: BasesConfigFileView = { type, name };
-		this.#persist(this.document.addView(view));
+		if (!this.#change(() => this.document.addView(view))) return;
 		this.configs.push(new BasesViewConfig(view, this.document.config, this.#hooks));
 		this.selectView(this.configs.length - 1);
 	}
 
 	removeView(index: number) {
-		if (this.configs.length < 2) return;
-		this.#persist(this.document.removeView(index));
+		if (this.configs.length < 2 || !this.#change(() => this.document.removeView(index))) return;
 		this.configs.splice(index, 1);
 		if (this.viewIndex >= this.configs.length || index === this.viewIndex) {
 			this.viewIndex = Math.min(this.viewIndex, this.configs.length - 1);
@@ -153,14 +153,12 @@ export class QueryController extends Component {
 
 	// Change a top-level key such as `formulas` or `properties`.
 	setBaseKey(path: string[], value: unknown) {
-		this.#persist(this.document.setIn(path, value));
-		this.run();
+		if (this.#change(() => this.document.setIn(path, value))) this.run();
 	}
 
 	#viewChanged(config: BasesViewConfig, key: string, value: unknown) {
 		const index = this.configs.indexOf(config);
-		if (index < 0) return;
-		this.#persist(this.document.setViewKey(index, key, value));
+		if (index < 0 || !this.#change(() => this.document.setViewKey(index, key, value))) return;
 		if (key === "name") {
 			this.#toolbar.update();
 			if (index === this.viewIndex) this.source.viewChanged?.(this.viewName);
@@ -170,9 +168,20 @@ export class QueryController extends Component {
 		else this.requestRun();
 	}
 
-	#persist(text: string) {
+	// Apply an edit to the YAML and save it. A base with an error is never
+	// written, and an edit its YAML cannot take is reported instead of thrown.
+	#change(edit: () => string): boolean {
+		if (this.document.error) return false;
+		let text: string;
+		try {
+			text = edit();
+		} catch (err) {
+			new Notice(`The base was not changed: ${(err as Error).message}`);
+			return false;
+		}
 		this.source.text = text;
 		Promise.resolve(this.source.save?.(text)).catch((err) => console.error("Could not save the base", err));
+		return true;
 	}
 
 	// Create the selected view's instance from its type's factory.

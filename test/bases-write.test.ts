@@ -47,6 +47,41 @@ describe("frontmatter a new note gets from the base's filters", () => {
 	});
 });
 
+describe("editing a base's YAML", () => {
+	// Writing a base the parser could not read would replace what the user wrote.
+	test("a base with an error refuses every edit and keeps its text", () => {
+		for (const text of ["# notes about this base\n- keep me\n", "filters: [unclosed\n", "views: table\n"]) {
+			const doc = new BaseDocument(text);
+			expect(doc.error).not.toBeNull();
+			expect(() => doc.addView({ type: "cards", name: "Cards" })).toThrow();
+			expect(() => doc.setIn(["formulas", "a"], "1")).toThrow();
+			expect(doc.text).toBe(text);
+		}
+	});
+
+	// The implicit table of a base without views must survive adding a view,
+	// in the order the toolbar lists the views.
+	test("adding a view to a base without views writes the implicit table first", () => {
+		const doc = new BaseDocument('filters: file.inFolder("Books") # mine\n');
+		const text = doc.addView({ type: "cards", name: "Cards" });
+		expect(text).toContain('filters: file.inFolder("Books") # mine');
+		expect(new BaseDocument(text).views.map((v) => [v.type, v.name])).toEqual([
+			["table", "Table"],
+			["cards", "Cards"],
+		]);
+		doc.setViewKey(0, "limit", 5);
+		expect(new BaseDocument(doc.text).views.map((v) => v.name)).toEqual(["Table", "Cards"]);
+	});
+
+	// `formulas:` with nothing after it is common in a hand-written base.
+	test("setIn fills an empty key but never replaces one that holds something else", () => {
+		const doc = new BaseDocument("formulas:\nproperties: [status]\n");
+		expect(new BaseDocument(doc.setIn(["formulas", "a"], "1")).config.formulas).toEqual({ a: "1" });
+		expect(() => doc.setIn(["properties", "status", "displayName"], "State")).toThrow("properties");
+		expect(doc.text).toBe('formulas:\n  a: "1"\nproperties: [status]\n');
+	});
+});
+
 describe("editing a base's top-level keys", () => {
 	// Adding a formula from the toolbar must keep the rest of the file as written.
 	test("setIn adds nested keys to both the YAML and the parsed config", () => {

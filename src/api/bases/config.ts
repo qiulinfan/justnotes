@@ -38,8 +38,12 @@ export interface BasesGroupBy {
 	direction: "ASC" | "DESC";
 }
 
+// YAML's empty value, which a key or a file holds before anything is written.
+const isEmptyNode = (node: unknown) => node === null || node === undefined || (YAML.isScalar(node) && (node.value === null || node.value === undefined));
+
 // A parsed .base file. A base with no views shows one table; it is written to
-// the file only once something about it changes.
+// the file only once something about it changes. A base with an error is
+// never written: the edit methods throw instead.
 export class BaseDocument {
 	text: string;
 	config: BasesConfigFile = {};
@@ -47,7 +51,7 @@ export class BaseDocument {
 	error: string | null = null;
 	#doc: YAML.Document;
 	// The position of each view in the YAML list, which may hold entries that
-	// are not views; null for the implicit view.
+	// are not views; null for a view not written yet, such as the implicit one.
 	#indexes: (number | null)[] = [];
 
 	constructor(text: string) {
@@ -61,6 +65,11 @@ export class BaseDocument {
 		const data = this.#doc.toJS();
 		if (data !== null && data !== undefined && (typeof data !== "object" || Array.isArray(data))) {
 			this.error = "A base must be a YAML mapping of filters, formulas, properties and views.";
+			return;
+		}
+		const views = this.#doc.get("views", true);
+		if (!isEmptyNode(views) && !YAML.isSeq(views)) {
+			this.error = "`views` must be a list of views.";
 			return;
 		}
 		this.config = data ?? {};
@@ -82,6 +91,7 @@ export class BaseDocument {
 
 	// Write one key of one view, or delete it with undefined, and return the new text.
 	setViewKey(index: number, key: string, value: unknown) {
+		this.#check();
 		const at = this.#docIndex(index);
 		if (value === undefined) this.#doc.deleteIn(["views", at, key]);
 		else this.#doc.setIn(["views", at, key], this.#doc.createNode(value));
@@ -91,20 +101,26 @@ export class BaseDocument {
 	// Write a key outside `views`, such as ["formulas", "total"], in both the
 	// YAML and the parsed config; undefined deletes it.
 	setIn(path: string[], value: unknown) {
-		if (value === undefined) this.#doc.deleteIn(path);
-		else this.#doc.setIn(path, this.#doc.createNode(value));
+		this.#check();
+		const last = path[path.length - 1];
+		if (value === undefined) {
+			if (this.#doc.hasIn(path)) this.#doc.deleteIn(path);
+		} else this.#mapAt(path.slice(0, -1)).set(last, this.#doc.createNode(value));
 		let target: Record<string, any> = this.config;
 		for (const key of path.slice(0, -1)) {
-			if (!target[key] || typeof target[key] !== "object") target[key] = {};
+			if (!target[key] || typeof target[key] !== "object") {
+				if (value === undefined) return this.#commit();
+				target[key] = {};
+			}
 			target = target[key];
 		}
-		const last = path[path.length - 1];
 		if (value === undefined) delete target[last];
 		else target[last] = value;
 		return this.#commit();
 	}
 
 	addView(view: BasesConfigFileView) {
+		this.#check();
 		this.views.push(view);
 		this.#indexes.push(null);
 		this.#docIndex(this.views.length - 1);
@@ -112,6 +128,7 @@ export class BaseDocument {
 	}
 
 	removeView(index: number) {
+		this.#check();
 		const at = this.#docIndex(index);
 		this.#doc.deleteIn(["views", at]);
 		this.views.splice(index, 1);
@@ -120,16 +137,39 @@ export class BaseDocument {
 		return this.#commit();
 	}
 
-	// The view's index in the YAML list, adding it (and the list) when it is
-	// not written yet.
+	#check() {
+		if (this.error) throw new Error(this.error);
+	}
+
+	// The mapping at `path`, made where a key is missing or empty. A key that
+	// holds anything else is never replaced.
+	#mapAt(path: string[]): YAML.YAMLMap {
+		if (isEmptyNode(this.#doc.contents)) this.#doc.contents = this.#doc.createNode({});
+		let map = this.#doc.contents as YAML.YAMLMap;
+		path.forEach((key, i) => {
+			const node: unknown = map.get(key, true);
+			if (YAML.isMap(node)) map = node;
+			else if (isEmptyNode(node)) {
+				const next = this.#doc.createNode({}) as YAML.YAMLMap;
+				map.set(key, next);
+				map = next;
+			} else throw new Error(`"${path.slice(0, i + 1).join(".")}" in the base is not a mapping`);
+		});
+		return map;
+	}
+
+	// The view's index in the YAML list. A view not written yet is added at the
+	// end, after any earlier view that is not written either, so the file lists
+	// the views in the order the toolbar shows.
 	#docIndex(index: number): number {
 		const known = this.#indexes[index];
 		if (known !== null && known !== undefined) return known;
-		if (!YAML.isMap(this.#doc.contents)) this.#doc.contents = this.#doc.createNode({}) as any;
-		let seq = this.#doc.get("views");
+		for (let i = 0; i < index; i++) this.#docIndex(i);
+		const root = this.#mapAt([]);
+		let seq: unknown = root.get("views", true);
 		if (!YAML.isSeq(seq)) {
 			seq = this.#doc.createNode([]);
-			this.#doc.set("views", seq);
+			root.set("views", seq);
 		}
 		const items = (seq as YAML.YAMLSeq).items;
 		items.push(this.#doc.createNode(this.views[index]) as any);

@@ -103,6 +103,14 @@ export class BasesToolbar {
 	#viewsMenu(el: HTMLElement) {
 		const c = this.#controller;
 		const menu = new Menu();
+		// A base with an error can only be opened as text.
+		if (!c.document.error) this.#viewItems(menu);
+		c.source.addMenuItems?.(menu);
+		if (menu.items.length) menu.showAtPosition(below(el));
+	}
+
+	#viewItems(menu: Menu) {
+		const c = this.#controller;
 		c.configs.forEach((config, i) => {
 			menu.addItem((item) =>
 				item
@@ -129,8 +137,6 @@ export class BasesToolbar {
 					.onClick(() => c.removeView(c.viewIndex)),
 			);
 		}
-		c.source.addMenuItems?.(menu);
-		menu.showAtPosition(below(el));
 	}
 
 	#resultsMenu(el: HTMLElement) {
@@ -234,6 +240,7 @@ export class BasesToolbar {
 	}
 
 	#newNote() {
+		if (this.#controller.document.error) return;
 		const view = this.#controller.view;
 		(view ? view.createFileForView() : this.#controller.createFileForView()).catch((err) => console.error("Could not create a note for the base", err));
 	}
