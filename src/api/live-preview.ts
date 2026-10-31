@@ -316,6 +316,25 @@ class PropertiesWidget extends WidgetType {
 
 const renderChildren = new WeakMap<HTMLElement, Component>();
 
+// The offset in a table's source of the text of cell `col` in rendered row
+// `row` (the header is row 0; the delimiter line is skipped).
+export function tableCellOffset(source: string, row: number, col: number) {
+	const lines = source.split("\n");
+	const index = Math.min(row === 0 ? 0 : row + 1, lines.length - 1);
+	let offset = 0;
+	for (let i = 0; i < index; i++) offset += lines[i].length + 1;
+	const line = lines[index];
+	const pipes: number[] = [];
+	for (let i = 0; i < line.length; i++) {
+		if (line[i] === "\\") i++;
+		else if (line[i] === "|") pipes.push(i);
+	}
+	const starts = line.trimStart().startsWith("|") ? pipes.map((p) => p + 1) : [0, ...pipes.map((p) => p + 1)];
+	let at = starts[Math.min(col, starts.length - 1)] ?? 0;
+	while (line[at] === " " || line[at] === "\t") at++;
+	return offset + Math.min(at, line.length);
+}
+
 // A block rendered with MarkdownRenderer: tables and callouts.
 class RenderedBlockWidget extends WidgetType {
 	constructor(
@@ -344,7 +363,24 @@ class RenderedBlockWidget extends WidgetType {
 			.catch((err) => console.error(err));
 		el.addEventListener("click", (evt) => this.#followLink(evt));
 		if (this.kind === "callout") editButton(view, el, (v) => v.posAtDOM(el));
+		else el.addEventListener("mousedown", (evt) => this.#editCell(view, el, evt));
 		return el;
+	}
+
+	// A click in a rendered table reveals its source with the cursor in the
+	// clicked cell.
+	#editCell(view: EditorView, el: HTMLElement, evt: MouseEvent) {
+		const target = evt.target as HTMLElement;
+		if (evt.button !== 0 || target.closest("a")) return;
+		evt.preventDefault();
+		const cell = target.closest("td, th");
+		const row = cell?.parentElement;
+		let offset = 0;
+		if (cell && row) {
+			const index = row.parentElement?.tagName === "THEAD" ? 0 : [...row.parentElement!.children].indexOf(row) + 1;
+			offset = tableCellOffset(this.source, index, [...row.children].indexOf(cell));
+		}
+		reveal(view, view.posAtDOM(el) + offset);
 	}
 
 	// Rendered links must not navigate the window.
@@ -365,8 +401,9 @@ class RenderedBlockWidget extends WidgetType {
 	}
 
 	ignoreEvent(evt: Event) {
-		// Links inside follow; other clicks reveal the source.
-		return evt.type === "mousedown" && !!(evt.target as HTMLElement).closest?.("a, [data-href]");
+		// Links inside follow; other clicks reveal the source (tables handle
+		// their own clicks).
+		return evt.type === "mousedown" && (this.kind === "table" || !!(evt.target as HTMLElement).closest?.("a, [data-href]"));
 	}
 }
 
@@ -383,6 +420,7 @@ class CodeBlockWidget extends WidgetType {
 	constructor(
 		readonly language: string,
 		readonly source: string,
+		readonly from: number,
 		readonly host: LivePreviewHost,
 	) {
 		super();
@@ -403,8 +441,10 @@ class CodeBlockWidget extends WidgetType {
 			sourcePath: this.host.sourcePath(),
 			frontmatter: this.host.app.metadataCache.getCache(this.host.sourcePath())?.frontmatter,
 			addChild: (c: Component) => child.addChild(c),
+			// The fence lines; processors that run while the widget is being
+			// built ask before it is in the document.
 			getSectionInfo: () => {
-				const first = view.state.doc.lineAt(view.posAtDOM(el));
+				const first = view.state.doc.lineAt(el.isConnected ? view.posAtDOM(el) : this.from);
 				const last = first.number + this.source.split("\n").length + (this.source ? 1 : 0);
 				return { text: view.state.doc.toString(), lineStart: first.number - 1, lineEnd: Math.min(last, view.state.doc.lines) - 1 };
 			},
@@ -528,7 +568,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const language = info ? state.sliceDoc(info.from, info.to).trim().split(/\s/)[0] : "";
 					if (closed && language && codeBlockProcessor(language) && ownsLines(node)) {
 						const source = last.number - first.number > 1 ? doc.sliceString(first.to + 1, last.from - 1) : "";
-						decos.push(Decoration.replace({ block: true, widget: new CodeBlockWidget(language, source, host) }).range(first.from, last.to));
+						decos.push(Decoration.replace({ block: true, widget: new CodeBlockWidget(language, source, first.from, host) }).range(first.from, last.to));
 						return false;
 					}
 					if (marks[0].from < first.to) decos.push(hide.range(marks[0].from, first.to));

@@ -3,7 +3,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { EditorState } from "@codemirror/state";
 import { type Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 import { obsidianMarkdown } from "../src/api/editor-extensions";
-import { type LivePreviewHost, livePreview } from "../src/api/live-preview";
+import { type LivePreviewHost, livePreview, tableCellOffset } from "../src/api/live-preview";
 
 const host = {
 	app: {
@@ -113,5 +113,20 @@ describe("links", () => {
 			["Known", "cm-underline"],
 			["Missing", "cm-underline is-unresolved"],
 		]);
+	});
+});
+
+// A click on a rendered table cell must land in that cell's source.
+describe("tableCellOffset", () => {
+	const at = (source: string, row: number, col: number) => source.slice(tableCellOffset(source, row, col)).charAt(0);
+
+	test("maps header and body cells past the delimiter line", () => {
+		const source = "| a | b |\n| - | - |\n| 1 | 2 |";
+		expect([at(source, 0, 1), at(source, 1, 0), at(source, 1, 1)]).toEqual(["b", "1", "2"]);
+	});
+
+	test("handles rows without outer pipes and escaped pipes", () => {
+		expect(at("a | b\n--|--\n1 | 2", 1, 1)).toBe("2");
+		expect(at("| a \\| x | b |\n|-|-|", 0, 1)).toBe("b");
 	});
 });

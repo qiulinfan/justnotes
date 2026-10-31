@@ -5,7 +5,7 @@ import { bracketMatching, HighlightStyle, indentOnInput, indentUnit, syntaxHighl
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, type Extension, Prec } from "@codemirror/state";
-import { drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin } from "@codemirror/view";
+import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import type { BlockContext, LeafBlock, LeafBlockParser, MarkdownConfig } from "@lezer/markdown";
 import type { App } from "./app";
@@ -397,6 +397,28 @@ function indentOrInsertTab(view: EditorView) {
 	return true;
 }
 
+// Obsidian marks each line holding a cursor with .cm-active.
+const activeLineDeco = Decoration.line({ class: "cm-active" });
+const activeLine = ViewPlugin.fromClass(
+	class {
+		decorations: DecorationSet;
+
+		constructor(view: EditorView) {
+			this.decorations = this.build(view);
+		}
+
+		update(u: ViewUpdate) {
+			if (u.docChanged || u.selectionSet) this.decorations = this.build(u.view);
+		}
+
+		build(view: EditorView) {
+			const starts = new Set(view.state.selection.ranges.map((r) => view.state.doc.lineAt(r.head).from));
+			return Decoration.set([...starts].map((from) => activeLineDeco.range(from)), true);
+		}
+	},
+	{ decorations: (v) => v.decorations },
+);
+
 // Indentation follows the vault's useTab and tabSize settings (Obsidian
 // defaults: tabs, 4 columns).
 const indentation = new Compartment();
@@ -447,6 +469,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		markdown({ base: markdownLanguage, codeLanguages: languages, extensions: obsidianMarkdown }),
 		livePreview(host),
 		livePreviewState,
+		activeLine,
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),
 		keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, { key: "Tab", run: indentOrInsertTab, shift: indentLess }]),
