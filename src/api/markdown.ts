@@ -996,13 +996,30 @@ function pendingLibraries(tokens: Token[], markdown: string) {
 	return loads.length ? Promise.all(loads) : null;
 }
 
+// Fence names notes use for a language Prism knows under another name. Prism's
+// names are lower case, so a fence's name is matched in any case.
+const PRISM_NAMES: Record<string, string> = {
+	"c++": "cpp",
+	"c#": "csharp",
+	console: "shell-session",
+	make: "makefile",
+	"objective-c": "objectivec",
+	proto: "protobuf",
+};
+
+// The Prism language for a fence's name, if Prism has a grammar for it.
+function prismLanguage(prism: any, lang: string) {
+	const name = PRISM_NAMES[lang.toLowerCase()] ?? lang.toLowerCase();
+	return Object.hasOwn(prism.languages, name) && typeof prism.languages[name] === "object" ? name : null;
+}
+
 // Prism colours fenced code in place, except the fences a code-block
 // processor (mermaid's included) replaces.
 function highlightCode(root: HTMLElement, prism: any) {
 	for (const code of root.findAllSelf("pre:not(.frontmatter) > code[class*='language-']")) {
 		const lang = /(?:^|\s)language-(\S+)/.exec(code.className)?.[1];
-		const grammar = lang && !Object.hasOwn(MarkdownPreviewRenderer.codeBlockPostProcessors, lang) ? prism.languages[lang] : undefined;
-		if (grammar) code.innerHTML = prism.highlight(code.textContent ?? "", grammar, lang);
+		const name = lang && !Object.hasOwn(MarkdownPreviewRenderer.codeBlockPostProcessors, lang) ? prismLanguage(prism, lang) : null;
+		if (name) code.innerHTML = prism.highlight(code.textContent ?? "", prism.languages[name], name);
 	}
 }
 

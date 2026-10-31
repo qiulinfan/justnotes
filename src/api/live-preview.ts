@@ -105,12 +105,14 @@ export interface ClickableToken {
 // The address a URL node outside a link opens. GFM links bare www. text and
 // email addresses, and an angle-bracket autolink without a scheme is an email
 // address; they open as https: and mailto: links, through window.open like any
-// other URL, where main's policy decides. A link reference definition's
-// destination is not an autolink and stays as written.
+// other URL, where main's policy decides. Bare www. text is checked before the
+// scheme, which "www.example.com:8080" would seem to have. A link reference
+// definition's destination is not an autolink and stays as written.
 function autolinkHref(node: SyntaxNode, url: string) {
 	const parent = node.parent?.name;
-	if (SCHEME.test(url) || parent === "LinkReference") return url;
-	return parent !== "Autolink" && /^www\./i.test(url) ? `https://${url}` : `mailto:${url}`;
+	if (parent === "LinkReference") return url;
+	if (parent !== "Autolink" && /^www\./i.test(url)) return `https://${url}`;
+	return SCHEME.test(url) ? url : `mailto:${url}`;
 }
 
 function tokenOf(state: EditorState, n: SyntaxNode): ClickableToken | null {

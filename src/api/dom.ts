@@ -1,6 +1,8 @@
 // Obsidian augments built-in prototypes and globals (see `declare global` in
 // obsidian.d.ts). Plugins call these everywhere, so they must exist before any
 // plugin code runs.
+import type { NativeImage } from "electron";
+import type { ClipboardReply } from "../main/ipc";
 import { moment } from "./util";
 
 type Info = {
@@ -71,22 +73,47 @@ function makeSvg(parent: Node | null, tag: string, o?: Info | string, cb?: (el: 
 // properties. @electron/remote loads through the page's require, so a plugin
 // that requires it directly gets the same instance. Set up on first use: it
 // needs the Electron renderer.
-// Electron 45's renderer has no `clipboard`, which Obsidian's renderer still
-// has; plugins read and write it synchronously, as the main process's
-// clipboard does through remote.
 let electronModule: any;
 export function getElectron() {
 	if (!electronModule) {
 		electronModule = require("electron");
-		const fromRemote: Record<string, () => unknown> = {
+		let clipboard: unknown;
+		const added: Record<string, () => unknown> = {
 			remote: () => (window as any).require("@electron/remote"),
-			clipboard: () => (window as any).require("@electron/remote").clipboard,
+			clipboard: () => (clipboard ??= syncClipboard(electronModule)),
 		};
-		for (const [name, get] of Object.entries(fromRemote)) {
+		for (const [name, get] of Object.entries(added)) {
 			if (!(name in electronModule)) Object.defineProperty(electronModule, name, { get, enumerable: true, configurable: true });
 		}
 	}
 	return electronModule;
+}
+
+// Electron 45's renderer has no `clipboard`, which Obsidian's renderer still
+// has: Electron's old synchronous one, which plugins read and write as such
+// (latex-live reads a copied table's text and HTML in one go). The main
+// process's clipboard is asynchronous, so each call waits for it on sendSync
+// (main/ipc.ts). Images cross as PNG bytes.
+function syncClipboard(electron: any) {
+	const call = (method: string, ...args: unknown[]): any => {
+		const reply: ClipboardReply = electron.ipcRenderer.sendSync("justnotes:clipboard", method, ...args);
+		if ("error" in reply) throw new Error(reply.error);
+		return reply.value;
+	};
+	return {
+		readText: (): string => call("readText"),
+		writeText: (text: string) => void call("writeText", text),
+		readHTML: (): string => call("readHTML"),
+		writeHTML: (markup: string) => void call("writeHTML", markup),
+		readImage: (): NativeImage => {
+			const png: Uint8Array | null = call("readImage");
+			return png ? electron.nativeImage.createFromBuffer(Buffer.from(png)) : electron.nativeImage.createEmpty();
+		},
+		writeImage: (image: NativeImage) => void call("writeImage", image.toPNG()),
+		availableFormats: (): string[] => call("availableFormats"),
+		has: (format: string): boolean => call("has", format),
+		clear: () => void call("clear"),
+	};
 }
 
 interface InsertionWatch {
