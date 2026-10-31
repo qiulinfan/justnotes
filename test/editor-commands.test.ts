@@ -107,6 +107,7 @@ describe("line commands", () => {
 
 	test("numbered list numbers the selected lines from one", () => {
 		expect(run(toggleNumberedList, "«a\n- b\nc»")).toBe("«1. a\n2. b\n3. c»");
+		expect(run(toggleNumberedList, "«- a\n\t- b\n\t- c\n- d»")).toBe("«1. a\n\t1. b\n\t2. c\n2. d»");
 	});
 
 	test("blockquote adds a level, or removes one when all lines are quoted", () => {

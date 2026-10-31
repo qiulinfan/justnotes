@@ -8,6 +8,7 @@ import { EditorSelection, type Extension, Prec, RangeSetBuilder } from "@codemir
 import { Decoration, type DecorationSet, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import type { App } from "./app";
 import { getElectron } from "./dom";
+import { listKeymap, listRenumbering } from "./editor-lists";
 import type { Menu } from "./ui/menu";
 
 export interface EditorOptions {
@@ -45,9 +46,10 @@ export function editorOptionExtensions(options: EditorOptions): Extension[] {
 	if (options.lineNumbers) ext.push(lineNumbers());
 	if (options.autoPairBrackets) ext.push(closeBrackets(), keymap.of(closeBracketsKeymap));
 	if (options.autoPairMarkdown) ext.push(markdownPairs);
-	// Enter continues a list item (or ends an empty one), Backspace takes
-	// a list or quote mark back: lang-markdown's own keymap.
-	if (options.smartLists) ext.push(Prec.high(keymap.of(markdownKeymap)));
+	// "Smart lists": list editing (editor-lists.ts: Enter, Shift+Enter,
+	// Backspace and renumbering) first, then lang-markdown's keymap for what is
+	// not a list (quote marks). Off, Enter and Backspace edit plain text.
+	if (options.smartLists) ext.push(Prec.high(keymap.of(listKeymap)), listRenumbering, Prec.high(keymap.of(markdownKeymap)));
 	if (options.indentGuides) ext.push(indentGuides);
 	return ext;
 }

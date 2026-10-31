@@ -18,6 +18,7 @@ import { DragManager } from "./drag-manager";
 import { editorOptionExtensions, editorOptions } from "./editor-options";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
 import { editorSettings } from "./editor-settings";
+import { indentListItems, listKeymap, listRenumbering, outdentListItems } from "./editor-lists";
 import { setIcon } from "./icons";
 import { imageMenu } from "./image-menu";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
@@ -954,6 +955,8 @@ export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
 	return [
 		editorLivePreviewField,
 		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }, { key: "Enter", run: continueQuotedCode }])),
+		// "Smart lists", read when the card editor opens.
+		editorOptions(host.app).smartLists ? [Prec.high(keymap.of(listKeymap)), listRenumbering] : [],
 		indentation.of(indentConfig(host.app)),
 		history(),
 		drawSelection(),
@@ -970,7 +973,7 @@ export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),
 		highlightedCode,
-		keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, { key: "Tab", run: indentOrInsertTab, shift: indentLess }]),
+		keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, { key: "Tab", run: (v) => indentListItems(v) || indentOrInsertTab(v), shift: (v) => outdentListItems(v) || indentLess(v) }]),
 	];
 }
 
@@ -1014,7 +1017,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),
 		highlightedCode,
-		keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, { key: "Tab", run: indentOrInsertTab, shift: indentLess }, { key: "Mod-Shift-v", run: pastePlainText }]),
+		keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, { key: "Tab", run: (v) => indentListItems(v) || indentOrInsertTab(v), shift: (v) => outdentListItems(v) || indentLess(v) }, { key: "Mod-Shift-v", run: pastePlainText }]),
 		EditorView.updateListener.of((u) => {
 			const suggest = app.workspace.editorSuggest;
 			// Suggests re-check after the update finishes: a suggest that is

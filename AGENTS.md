@@ -1034,6 +1034,41 @@ plain style. Development notes belong in this file.
   `exitEmptyQuote`) starts a new line in a fenced block inside a quote with the
   line's quote marks and the whitespace after them, as Obsidian does, also on
   an empty code line.
+- Lists (`editor-lists.ts`, tested in `test/editing-lists.test.ts`) read the
+  text as CommonMark does: tab stops every 4 columns counted from the line
+  start (so after `> ` a tab reaches only column 4), children at or past the
+  item's content column and less than 4 past it, lazy continuation lines, and
+  a new ordered list interrupting a paragraph only from 1 (a nested `2.` right
+  under its parent's text is text). `scanLists` starts at the top-level block
+  around the cursor (from the syntax tree, which knows code and frontmatter)
+  and reads one quote depth. Tab and Shift+Tab on an item's marker line (or a
+  selection of items) move the item with its children: under the previous
+  sibling's content column (joining children it already has), with tabs to
+  the first tab stop at or past it (two tabs under `100. `); Shift+Tab to the
+  parent's level, the siblings after it becoming its children. The first item
+  of a list and a top-level item stay put; other lines, and Completr's open
+  suggestion (its scope runs first), keep their Tab. Indentation follows the
+  list's own lines, the vault's `useTab` only for a flat list. Enter continues
+  the item (same bullet, next number and delimiter, `[ ]` for a task, loose
+  lists stay loose), splits it mid-text, adds an empty item above at the
+  start of its text, makes the first child when the item has children (after
+  them when folded); on an empty item it moves out one level, and at the top
+  level ends the list below a blank line so typed text is no lazy
+  continuation. Shift+Enter adds a line at the content column. Backspace at
+  the start of an item's text removes a task box, then moves an empty item
+  out (or removes its marker at the top level), or makes the text a
+  continuation of the item above (a paragraph with none). `listRenumbering`,
+  a transaction filter, renumbers in the same transaction (one undo step)
+  every ordered list whose items changed, after user edits that add or remove
+  line breaks (Enter, cut, paste, Alt+arrows) or carry `listEdit` (list keys,
+  toggles through `runEdit(..., true)`): from the old first number, a list
+  split off keeping the number it shows, a newly nested list from 1, pasted
+  items keeping theirs; a number gaining a digit moves the item's lines to
+  its new content column. Typing within a line and edits without a user
+  event (reloads, plugins) are never renumbered.
+  Enter, Shift+Enter, Backspace and renumbering follow "Smart lists"
+  (`smartIndentList`, editor-options.ts; canvas card editors read it when they
+  open); Tab and Shift+Tab on items always move them.
 - Only heading sections (`foldHeading`) and what is nested in list items
   (`foldIndent`) fold, as in Obsidian: `markdownSupport` strips lang-markdown's
   block folds and the folds of every language it mounts: fenced code
