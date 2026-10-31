@@ -55,18 +55,83 @@
 	min-height: 0;
 }
 
-.workspace-split.mod-root {
-	flex: 1;
+/* "vertical" splits sit side by side, "horizontal" ones stack. */
+.workspace-split.mod-vertical {
 	flex-direction: row;
 }
 
-.workspace-split.mod-root > .workspace-tabs + .workspace-tabs {
+.workspace-split.mod-horizontal {
+	flex-direction: column;
+}
+
+.workspace-split.mod-root {
+	flex: 1;
+}
+
+.workspace-split > .workspace-tabs,
+.workspace-split > .workspace-split {
+	flex: 1 1 0;
+	position: relative;
+}
+
+.workspace-split.mod-vertical > :is(.workspace-tabs, .workspace-split) + :is(.workspace-tabs, .workspace-split) {
 	border-left: 1px solid var(--background-modifier-border);
 }
 
+.workspace-split.mod-horizontal > :is(.workspace-tabs, .workspace-split) + :is(.workspace-tabs, .workspace-split) {
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+/* Drag handles on the trailing edge of each split child and on the inner
+   edge of each sidedock. */
+.workspace-leaf-resize-handle {
+	position: absolute;
+	z-index: 2;
+	margin: 0;
+	border: none;
+	background: transparent;
+}
+
+.workspace-leaf-resize-handle:hover {
+	background: var(--interactive-accent);
+}
+
+.workspace-split.mod-vertical > * > .workspace-leaf-resize-handle {
+	top: 0;
+	bottom: 0;
+	right: -3px;
+	width: 6px;
+	height: auto;
+	cursor: col-resize;
+}
+
+.workspace-split.mod-horizontal > * > .workspace-leaf-resize-handle {
+	left: 0;
+	right: 0;
+	bottom: -3px;
+	height: 6px;
+	cursor: row-resize;
+}
+
+.workspace-split.mod-sidedock > .workspace-leaf-resize-handle {
+	top: 0;
+	bottom: 0;
+	width: 6px;
+	height: auto;
+	cursor: col-resize;
+}
+
+.workspace-split.mod-left-split > .workspace-leaf-resize-handle {
+	right: -3px;
+}
+
+.workspace-split.mod-right-split > .workspace-leaf-resize-handle {
+	left: -3px;
+}
+
 .workspace-split.mod-sidedock {
-	width: 280px;
-	flex-direction: column;
+	position: relative;
+	flex-shrink: 0;
 	background: var(--background-secondary);
 }
 
@@ -105,6 +170,25 @@
 	gap: 2px;
 	overflow-x: auto;
 	min-width: 0;
+}
+
+.workspace-tab-header-new-tab {
+	align-self: center;
+	display: flex;
+	margin-left: 4px;
+}
+
+.workspace-tab-header-new-tab .svg-icon {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+.mod-sidedock .workspace-tab-header-new-tab {
+	display: none;
+}
+
+.workspace-tab-header-spacer {
+	flex: 1;
 }
 
 .mod-sidedock .workspace-tab-header-container {
@@ -165,10 +249,34 @@
 	white-space: nowrap;
 }
 
+.workspace-tab-header-status-container {
+	display: flex;
+	gap: 2px;
+}
+
+.workspace-tab-header-status-icon {
+	display: flex;
+	color: var(--text-faint);
+}
+
+.workspace-tab-header-status-icon .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.mod-sidedock .workspace-tab-header-status-container {
+	display: none;
+}
+
 .workspace-tab-header-inner-close-button {
 	display: flex;
 	opacity: 0;
 	border-radius: var(--radius-s);
+}
+
+/* A pinned tab closes only through its menu or by unpinning it first. */
+.workspace-tab-header.is-pinned .workspace-tab-header-inner-close-button {
+	display: none;
 }
 
 .workspace-tab-header:hover .workspace-tab-header-inner-close-button,
@@ -203,6 +311,10 @@
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
+}
+
+.workspace-leaf-content:focus {
+	outline: none;
 }
 
 .view-header {

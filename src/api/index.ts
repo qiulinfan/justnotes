@@ -16,6 +16,7 @@ export * from "./secret-storage";
 export * from "./ui/menu";
 export * from "./ui/modal";
 export * from "./ui/notice";
+export * from "./ui/popover";
 export * from "./ui/setting";
 export * from "./ui/suggest";
 export { displayTooltip, type TooltipPlacement } from "./ui/tooltip";

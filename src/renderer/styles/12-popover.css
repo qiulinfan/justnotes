@@ -1,0 +1,25 @@
+/* Hover popovers (page preview): above the workspace, below modals and menus. */
+.popover.hover-popover {
+	position: fixed;
+	z-index: 30;
+	width: 450px;
+	max-width: calc(100vw - 16px);
+	max-height: 420px;
+	overflow: auto;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+}
+
+.hover-popover .markdown-embed {
+	padding: var(--size-4-2) var(--size-4-4);
+}
+
+.hover-popover .markdown-embed-content img {
+	max-width: 100%;
+}
+
+.hover-popover .markdown-preview-view {
+	font-size: var(--font-ui-medium);
+}

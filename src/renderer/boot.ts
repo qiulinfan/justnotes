@@ -1,3 +1,4 @@
+import { ipcRenderer } from "electron";
 import { App } from "../api/app";
 import { installDomExtensions } from "../api/dom";
 import { setIcon } from "../api/icons";
@@ -10,6 +11,17 @@ import { registerCoreCommands } from "./commands";
 import { SearchView } from "./search";
 import { registerViewCommands } from "./view-commands";
 import { EmptyView, FileExplorerView } from "./views";
+import { registerWorkspaceCommands } from "./workspace-commands";
+
+// The layout of a vault opened for the first time.
+const DEFAULT_LAYOUT = {
+	left: {
+		type: "split",
+		direction: "horizontal",
+		children: [{ type: "tabs", children: [{ type: "leaf", state: { type: "file-explorer" } }, { type: "leaf", state: { type: "search" } }] }],
+	},
+	right: { type: "split", direction: "horizontal", collapsed: true, children: [] },
+};
 
 async function applyTheme(app: App) {
 	let theme = "system";
@@ -17,8 +29,11 @@ async function applyTheme(app: App) {
 		theme = JSON.parse(await app.vault.adapter.read(`${app.vault.configDir}/appearance.json`)).theme ?? "system";
 	} catch {}
 	const media = window.matchMedia("(prefers-color-scheme: dark)");
+	let dark: boolean | null = null;
 	const apply = () => {
-		const dark = theme === "obsidian" || (theme !== "moonstone" && media.matches);
+		const next = theme === "obsidian" || (theme !== "moonstone" && media.matches);
+		if (next === dark) return;
+		dark = next;
 		document.body.toggleClass("theme-dark", dark);
 		document.body.toggleClass("theme-light", !dark);
 		app.workspace.trigger("css-change");
@@ -26,7 +41,6 @@ async function applyTheme(app: App) {
 	media.addEventListener("change", apply);
 	apply();
 }
-
 
 function buildShell(app: App) {
 	const root = document.body.createDiv("app-container");
@@ -44,6 +58,21 @@ function buildShell(app: App) {
 	gear.setAttr("aria-label", "Settings");
 	setIcon(gear, "settings");
 	gear.addEventListener("click", () => app.setting.open());
+}
+
+// Before the window closes, main asks the renderer to save open views, the
+// layout and plugins' quit tasks, and waits for the reply. A reload cannot
+// wait, so it saves only the layout.
+function handleWindowClose(app: App) {
+	ipcRenderer.on("justnotes:before-close", async () => {
+		try {
+			await app.workspace.flushBeforeQuit();
+		} finally {
+			ipcRenderer.send("justnotes:close-ready");
+		}
+	});
+	ipcRenderer.send("justnotes:close-handler");
+	window.addEventListener("beforeunload", () => app.saveLayoutState());
 }
 
 async function boot() {
@@ -70,15 +99,16 @@ async function boot() {
 	registerCoreCommands(app);
 	registerEditorSuggests(app);
 	registerViewCommands(app);
-	await app.workspace.getLeftLeaf(false).setViewState({ type: "file-explorer" });
-	await app.workspace.getLeftLeaf(false).setViewState({ type: "search" });
-	app.workspace.revealLeaf(app.workspace.getLeavesOfType("file-explorer")[0]);
+	registerWorkspaceCommands(app);
 
+	// Plugins load first so the layout can restore their views; layout-ready
+	// callbacks then see every file's metadata.
 	await app.plugins.initialize();
-	await app.restoreLayoutState();
-	if (!app.workspace.getMostRecentLeaf()) app.workspace.getLeaf(false);
+	const indexed = app.metadataCache.initialize();
+	await app.restoreLayoutState(DEFAULT_LAYOUT);
+	await indexed;
 	app.workspace.setLayoutReady();
-	app.metadataCache.initialize();
+	handleWindowClose(app);
 
 	const failed = Object.keys(app.plugins.manifests).filter((id) => !app.plugins.plugins[id]);
 	if (failed.length) console.info("Plugins not loaded:", failed);
