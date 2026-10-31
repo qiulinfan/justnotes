@@ -191,11 +191,20 @@ export class Plugin extends Component {
 		this.register(() => this.app.setting.removeSettingTab(tab));
 	}
 
-	// Leaves of the type stay open when the plugin unloads; the workspace keeps
-	// their state until the type is registered again.
+	// Like Obsidian, leaves of the type stay open when the plugin unloads: the
+	// workspace turns them into placeholders that keep their state until the
+	// type is registered again. It does so by listening for the registry's
+	// "view-unregistered"; while nothing listens (before that workspace change
+	// is merged), the leaves are closed instead, or the unloaded plugin's views
+	// would keep running. Drop the detach once the placeholders are in.
 	registerView(type: string, creator: ViewCreator) {
-		this.app.viewRegistry.registerView(type, creator);
-		this.register(() => this.app.viewRegistry.unregisterView(type));
+		const registry = this.app.viewRegistry;
+		registry.registerView(type, creator);
+		this.register(() => {
+			const listeners = (registry as { _?: Record<string, unknown[]> })._?.["view-unregistered"];
+			if (!listeners?.length) this.app.workspace.detachLeavesOfType(type);
+			registry.unregisterView(type);
+		});
 	}
 
 	registerExtensions(extensions: string[], viewType: string) {
