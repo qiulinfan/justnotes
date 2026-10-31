@@ -192,6 +192,14 @@ describe("links", () => {
 		expect(clickableTokenAt(stateOf(doc, 0), 1)).toEqual({ type: "internal-link", text: "Known", from: 0, to: 12 });
 	});
 
+	// Page preview and the click handler read data-href as link text, as the
+	// reading view's links have it; an encoded path found no note to preview.
+	test("a Markdown link to a note carries its decoded path, a wikilink its text as written", () => {
+		const doc = "[a](My%20Note.md) [[50%25 off]]\nend";
+		const hrefs = decorate(doc, doc.length).filter((d) => d.mark?.includes("cm-underline")).map((d) => d.attrs?.["data-href"]);
+		expect(hrefs).toEqual(["My Note.md", "50%25 off"]);
+	});
+
 	// GFM autolinks a URL or address in the link text; it was taken for the
 	// destination, so clicking [a@b.co](mailto:a@b.co) created a note "a@b.co".
 	test("a URL in the link text is not the link's destination", () => {

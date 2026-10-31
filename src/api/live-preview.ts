@@ -855,7 +855,9 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const textEnd = marks[1].from;
 					decos.push(hide.range(from, marks[0].to));
 					if (textEnd > marks[0].to) {
-						const mark = SCHEME.test(href) ? linkMark("external-link", href) : linkMark("internal-link", href, !!cx.linkDest(getLinkpath(safeDecode(href))));
+						// A note link carries its decoded path, as the reading view's does.
+						const path = safeDecode(href);
+						const mark = SCHEME.test(href) ? linkMark("external-link", href) : linkMark("internal-link", path, !!cx.linkDest(getLinkpath(path)));
 						decos.push(mark.range(marks[0].to, textEnd));
 					}
 					decos.push(hide.range(textEnd, to));

@@ -16,14 +16,6 @@ import type { WorkspaceLeaf } from "./workspace";
 
 const SCHEME = /^[a-z][\w+.-]*:/i;
 
-function safeDecode(href: string) {
-	try {
-		return decodeURI(href);
-	} catch {
-		return href;
-	}
-}
-
 // The backlinks shown under a note, made by the backlink core plugin's
 // instance (`createEmbeddedBacklinks`) while it is enabled.
 export interface EmbeddedBacklinks extends Component {
@@ -200,7 +192,8 @@ export class MarkdownView extends TextFileView {
 	// Rendered links open on click, as in Obsidian's Live Preview; a link to a
 	// heading or block of this note (even in a pinned tab) moves within it. A
 	// URL goes through window.open to the main process, which decides where
-	// each scheme opens.
+	// each scheme opens. A note link's data-href is its link text as written
+	// in a wikilink, or decoded from a Markdown link, as in the reading view.
 	onLinkClick(evt: MouseEvent) {
 		const el = evt.button === 0 ? (evt.target as HTMLElement).closest("[data-href]") : null;
 		if (!el) return false;
@@ -208,8 +201,8 @@ export class MarkdownView extends TextFileView {
 		const href = el.getAttribute("data-href")!;
 		const newLeaf = Keymap.isModEvent(evt);
 		if (SCHEME.test(href)) window.open(href, "_blank");
-		else if (href.startsWith("#") && !newLeaf) this.setEphemeralState({ subpath: safeDecode(href) });
-		else this.app.workspace.openLinkText(safeDecode(href), this.file?.path ?? "", newLeaf);
+		else if (href.startsWith("#") && !newLeaf) this.setEphemeralState({ subpath: href });
+		else this.app.workspace.openLinkText(href, this.file?.path ?? "", newLeaf);
 		return true;
 	}
 
@@ -225,7 +218,7 @@ export class MarkdownView extends TextFileView {
 		// a URL its own items and the 'url-menu' event.
 		const href = (evt.target as Element | null)?.closest?.("[data-href]")?.getAttribute("data-href");
 		if (href && SCHEME.test(href)) addUrlMenuItems(this.app, menu, href);
-		else if (href) this.app.workspace.handleLinkContextMenu(menu, safeDecode(href), this.file?.path ?? "", this.leaf);
+		else if (href) this.app.workspace.handleLinkContextMenu(menu, href, this.file?.path ?? "", this.leaf);
 		menu.addItem((i) =>
 			i
 				.setTitle("Cut")
