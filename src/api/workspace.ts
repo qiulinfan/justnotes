@@ -5,7 +5,8 @@ import { setIcon, setTooltip } from "./icons";
 import { Keymap } from "./keymap";
 import { Menu } from "./ui/menu";
 import type { EditorSuggest } from "./ui/suggest";
-import { debounce, parseLinktext } from "./util";
+import { parseLinktext } from "./metadata-utils";
+import { debounce } from "./util";
 import { TFile } from "./vault";
 import { FileView, type View, type ViewState } from "./view";
 

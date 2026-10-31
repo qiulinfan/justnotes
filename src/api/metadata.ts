@@ -1,6 +1,7 @@
 import * as nodePath from "node:path";
 import { Events } from "./events";
-import { getLinkpath, parseYaml } from "./util";
+import { getLinkpath } from "./metadata-utils";
+import { parseYaml } from "./util";
 import { type TAbstractFile, TFile, type Vault } from "./vault";
 
 interface Loc {

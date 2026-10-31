@@ -8,6 +8,7 @@ export * from "./keymap";
 export * from "./markdown";
 export * from "./markdown-view";
 export * from "./metadata";
+export * from "./metadata-utils";
 export * from "./plugin";
 export * from "./ui/menu";
 export * from "./ui/modal";

@@ -1,5 +1,8 @@
 import * as path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, shell } from "electron";
+import { registerIpc } from "./ipc";
+import { setupWindowLifecycle } from "./lifecycle";
+import { handleSchemes, registerSchemes } from "./protocol";
 
 function argValue(name: string): string | undefined {
 	const i = process.argv.indexOf(name);
@@ -32,6 +35,7 @@ async function createWindow() {
 			webSecurity: false,
 		},
 	});
+	setupWindowLifecycle(win);
 	win.webContents.setWindowOpenHandler(({ url }) => {
 		shell.openExternal(url);
 		return { action: "deny" };
@@ -39,10 +43,10 @@ async function createWindow() {
 	await win.loadFile(path.join(__dirname, "index.html"), { query: { vault: path.resolve(vault) } });
 }
 
-ipcMain.handle("justnotes:pick-folder", async () => {
-	const picked = await dialog.showOpenDialog({ properties: ["openDirectory"] });
-	return picked.canceled ? null : picked.filePaths[0];
+registerSchemes();
+registerIpc();
+app.whenReady().then(() => {
+	handleSchemes();
+	return createWindow();
 });
-
-app.whenReady().then(createWindow);
 app.on("window-all-closed", () => app.quit());
