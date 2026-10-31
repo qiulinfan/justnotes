@@ -358,3 +358,44 @@ export function readViewport(value: unknown, minZoom: number, maxZoom: number): 
 	if (![x, y, zoom].every((n) => typeof n === "number" && Number.isFinite(n))) return null;
 	return { x: x as number, y: y as number, zoom: Math.min(maxZoom, Math.max(minZoom, zoom as number)) };
 }
+
+// Snapping while cards move or resize, as Obsidian's canvas options
+// "Snap to grid" and "Snap to objects" do. `grid` is the grid step (null for
+// off), `others` the cards that stay put (null for off), `threshold` how
+// near, in canvas units, an edge or centre must come to another card's to
+// line up with it. Lining up with a card wins over the grid.
+export interface Snapping {
+	grid: number | null;
+	others: Rect[] | null;
+	threshold: number;
+}
+
+// The smallest shift that puts one of `anchors` on one of `targets`, or
+// null when none is within the threshold.
+function nearestShift(anchors: number[], targets: number[], threshold: number): number | null {
+	let best: number | null = null;
+	for (const a of anchors) for (const t of targets) if (Math.abs(t - a) <= threshold && (best === null || Math.abs(t - a) < Math.abs(best))) best = t - a;
+	return best;
+}
+
+const xLines = (r: Rect) => [r.x, r.x + r.width / 2, r.x + r.width];
+const yLines = (r: Rect) => [r.y, r.y + r.height / 2, r.y + r.height];
+
+// Where a moving box goes: its left, centre or right on another card's, else
+// its corner on the grid; each axis on its own.
+export function snapMove(box: Rect, snap: Snapping): Point {
+	const axis = (start: number, anchors: number[], lines: (r: Rect) => number[]) => {
+		const shift = snap.others ? nearestShift(anchors, snap.others.flatMap(lines), snap.threshold) : null;
+		if (shift !== null) return start + shift;
+		return snap.grid ? Math.round(start / snap.grid) * snap.grid : start;
+	};
+	return { x: axis(box.x, xLines(box), xLines), y: axis(box.y, yLines(box), yLines) };
+}
+
+// Where a dragged edge of a resized card goes, on one axis: onto another
+// card's edge or centre, else onto the grid.
+export function snapEdge(value: number, axis: "x" | "y", snap: Snapping): number {
+	const shift = snap.others ? nearestShift([value], snap.others.flatMap(axis === "x" ? xLines : yLines), snap.threshold) : null;
+	if (shift !== null) return value + shift;
+	return snap.grid ? Math.round(value / snap.grid) * snap.grid : value;
+}

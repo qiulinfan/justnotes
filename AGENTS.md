@@ -290,7 +290,12 @@ plain style. Development notes belong in this file.
   canvas, never in the canvas's leaf: in the most recently active leaf of
   another tab group in the same root, else a new tab; Mod and a middle click
   pick the place as elsewhere (`Canvas.openLink`, through
-  `workspace.openLinkTextIn`). Not there yet: snapping, export.
+  `workspace.openLinkTextIn`). Moving and resizing snap as canvas.json's
+  `snapToGrid` and `snapToObjects` say (both on when unset, as in
+  Obsidian; `snapMove`, `snapEdge`): a moved selection's left, centre or
+  right (top, middle, bottom) onto another card's within 8 screen pixels,
+  else its corner onto the 20-unit grid; a resized card's dragged edges
+  likewise. Not there yet: export.
 - Keyboard: a capture-phase `keydown` listener walks the keymap scope stack
   before CodeMirror sees the key; the active scope follows keyboard focus. The
   root scope has one catch-all handler that runs command hotkeys; plugins may

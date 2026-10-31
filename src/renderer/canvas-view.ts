@@ -37,7 +37,10 @@ import {
 	type Rect,
 	renameInCanvas,
 	type Size,
+	type Snapping,
 	sidePoint,
+	snapEdge,
+	snapMove,
 	stringifyCanvas,
 	type Viewport,
 } from "./canvas-data";
@@ -51,6 +54,8 @@ const FILE_SIZE = { width: 400, height: 400 };
 const AUDIO_SIZE = { width: 400, height: 100 };
 const MIN_SIZE = { width: 50, height: 30 };
 const GRID = 20;
+// How near, in screen pixels, an edge must come to another card's to snap.
+const SNAP_DISTANCE = 8;
 const MIN_ZOOM = -3.3;
 const MAX_ZOOM = 1;
 const HISTORY = 100;
@@ -701,8 +706,15 @@ export class Canvas {
 				this.setViewport(drag.x - (evt.clientX - drag.client.x) / s, drag.y - (evt.clientY - drag.client.y) / s, this.zoom);
 				break;
 			case "move": {
-				const dx = pos.x - drag.start.x;
-				const dy = pos.y - drag.start.y;
+				let dx = pos.x - drag.start.x;
+				let dy = pos.y - drag.start.y;
+				const snap = this.#snapping(drag.items.map((i) => i.node));
+				const box = snap && boundingBox(drag.items.map((i) => ({ x: i.x + dx, y: i.y + dy, width: i.node.width, height: i.node.height })));
+				if (snap && box) {
+					const to = snapMove(box, snap);
+					dx += to.x - box.x;
+					dy += to.y - box.y;
+				}
 				for (const item of drag.items) item.node.moveTo({ x: item.x + dx, y: item.y + dy });
 				break;
 			}
@@ -731,18 +743,36 @@ export class Canvas {
 		const { rect, dir } = drag;
 		const dx = pos.x - drag.start.x;
 		const dy = pos.y - drag.start.y;
+		const snap = this.#snapping([drag.node]);
+		// The dragged edge, snapped when snapping is on.
+		const edge = (value: number, axis: "x" | "y") => (snap ? snapEdge(value, axis, snap) : value);
+		const right = rect.x + rect.width;
+		const bottom = rect.y + rect.height;
 		let { x, y, width, height } = rect;
 		if (dir.includes("left")) {
-			x = Math.min(rect.x + dx, rect.x + rect.width - MIN_SIZE.width);
-			width = rect.x + rect.width - x;
-		} else if (dir.includes("right")) width = Math.max(MIN_SIZE.width, rect.width + dx);
+			x = Math.min(edge(rect.x + dx, "x"), right - MIN_SIZE.width);
+			width = right - x;
+		} else if (dir.includes("right")) width = Math.max(MIN_SIZE.width, edge(right + dx, "x") - rect.x);
 		if (dir.includes("top")) {
-			y = Math.min(rect.y + dy, rect.y + rect.height - MIN_SIZE.height);
-			height = rect.y + rect.height - y;
-		} else if (dir.includes("bottom")) height = Math.max(MIN_SIZE.height, rect.height + dy);
+			y = Math.min(edge(rect.y + dy, "y"), bottom - MIN_SIZE.height);
+			height = bottom - y;
+		} else if (dir.includes("bottom")) height = Math.max(MIN_SIZE.height, edge(bottom + dy, "y") - rect.y);
 		drag.node.x = Math.round(x);
 		drag.node.y = Math.round(y);
 		drag.node.resize({ width, height });
+	}
+
+	// Snapping for cards moving or resizing, from Obsidian's canvas options
+	// (canvas.json's snapToGrid and snapToObjects, both on by default):
+	// onto the background grid, and onto the edges and centres of the cards
+	// that stay put, within a few screen pixels.
+	#snapping(moving: CanvasNode[]): Snapping | null {
+		const options = this.app.internalPlugins.getEnabledPluginById("canvas")?.options ?? {};
+		const grid = options.snapToGrid !== false ? GRID : null;
+		const objects = options.snapToObjects !== false;
+		if (!grid && !objects) return null;
+		const others = objects ? [...this.nodes.values()].filter((n) => !moving.includes(n)).map((n) => n.getBBox()) : null;
+		return { grid, others, threshold: SNAP_DISTANCE / this.scale };
 	}
 
 	#drawConnection(drag: Extract<Drag, { kind: "connect" }>, pos: Point) {
