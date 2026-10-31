@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, session, shell, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, type Session, session, shell, type WebContents } from "electron";
 import { registerIpc } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
 import { handleSchemes, registerSchemes } from "./protocol";
@@ -73,17 +73,20 @@ ipcMain.handle("justnotes:obsidian-urls", (evt) => {
 });
 
 // A link to a scheme Chromium does not handle, when not caught as a main-frame
-// navigation (from an iframe, say), makes Electron ask for the openExternal
-// permission and then hand the URL to the OS. openUrl decides instead. Every
+// navigation (from an iframe, say), makes Electron ask the page's session for
+// the openExternal permission and then hand the URL to the OS. openUrl decides
+// instead, in every session: a <webview> guest can have a session of its own
+// (omp-sidebar's partition), and its links count as its embedder's. Every
 // other permission keeps Electron's default (granted).
-function routeExternalLinks() {
-	session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+function routeExternalLinks(ses: Session) {
+	ses.setPermissionRequestHandler((contents, permission, callback, details) => {
 		if (permission !== "openExternal") return callback(true);
 		callback(false);
 		const url = "externalURL" in details ? details.externalURL : undefined;
-		if (url) openUrl(url, contents);
+		if (url) openUrl(url, contents.hostWebContents ?? contents);
 	});
 }
+app.on("session-created", routeExternalLinks);
 
 app.on("open-url", (evt, url) => {
 	evt.preventDefault();
@@ -91,8 +94,8 @@ app.on("open-url", (evt, url) => {
 });
 
 // A <webview> guest (omp-sidebar embeds one) never gets Node or a preload
-// script, and its popups open in the system browser unless the plugin installs
-// its own handler through remote.
+// script, and its popups open in the system browser unless the plugin replaces
+// this handler through remote (omp-sidebar does at dom-ready).
 app.on("web-contents-created", (_evt, contents) => {
 	contents.on("will-attach-webview", (_e, webPreferences) => {
 		delete webPreferences.preload;
@@ -160,7 +163,7 @@ registerSchemes();
 registerIpc();
 app.whenReady().then(() => {
 	handleSchemes();
-	routeExternalLinks();
+	routeExternalLinks(session.defaultSession);
 	return createWindow();
 });
 app.on("window-all-closed", () => app.quit());
