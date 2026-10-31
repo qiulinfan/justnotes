@@ -1,6 +1,7 @@
 import { App } from "../api/app";
 import { installDomExtensions } from "../api/dom";
 import { setIcon } from "../api/icons";
+import { registerEditorSuggests } from "../api/editor-suggests";
 import { loadMathJax, setMarkdownApp } from "../api/markdown";
 import { MarkdownView } from "../api/markdown-view";
 import { Notice } from "../api/ui/notice";
@@ -64,6 +65,7 @@ async function boot() {
 	await app.hotkeyManager.load();
 	await loadMathJax().catch((err) => console.error(err));
 	registerCoreCommands(app);
+	registerEditorSuggests(app);
 	await app.workspace.getLeftLeaf(false).setViewState({ type: "file-explorer" });
 	await app.workspace.getLeftLeaf(false).setViewState({ type: "search" });
 	app.workspace.revealLeaf(app.workspace.getLeavesOfType("file-explorer")[0]);
