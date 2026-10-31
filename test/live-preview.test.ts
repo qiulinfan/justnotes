@@ -117,6 +117,26 @@ describe("block widgets", () => {
 	});
 });
 
+// A note opens with the cursor at offset 0, which is inside its frontmatter.
+describe("frontmatter reveal", () => {
+	const doc = "---\ntitle: x\n---\nbody";
+	const properties = (state: EditorState) => decorations(state).some((d) => d.widget === "PropertiesWidget");
+	const moveTo = (state: EditorState, pos: number, userEvent?: string) => state.update({ selection: { anchor: pos }, userEvent }).state;
+	const inBody = stateOf(doc, doc.indexOf("body"));
+
+	test("a cursor placed at offset 0 without user input keeps the Properties block", () => {
+		expect(properties(stateOf(doc, 0))).toBe(true);
+		expect(properties(moveTo(inBody, 0))).toBe(true);
+	});
+
+	test("the user moving in reveals the YAML, which stays revealed at its first column", () => {
+		expect(properties(moveTo(inBody, 0, "select"))).toBe(false);
+		const editing = moveTo(stateOf(doc, 0), doc.indexOf("title"), "select.pointer");
+		expect(properties(moveTo(editing, 0))).toBe(false);
+		expect(properties(moveTo(editing, doc.indexOf("body")))).toBe(true);
+	});
+});
+
 // The view turns editorLivePreviewField off for source mode: every mark then
 // shows and nothing renders, while line classes stay for themes.
 describe("source mode", () => {

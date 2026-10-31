@@ -531,6 +531,29 @@ class CodeBlockWidget extends WidgetType {
 	}
 }
 
+// The frontmatter shows as YAML once the selection enters it, and until the
+// selection leaves it. A note opens with the cursor at offset 0, which is
+// inside the frontmatter, so a cursor there that the user did not move
+// (opening the note, or code) keeps the Properties block.
+function touchesFrontmatter(state: EditorState) {
+	const node = syntaxTree(state).topNode.firstChild;
+	if (node?.name !== "hmd-frontmatter") return false;
+	const end = state.doc.lineAt(node.to).to;
+	return state.selection.ranges.some((r) => r.from <= end);
+}
+
+function atDocStart({ selection }: EditorState) {
+	return selection.ranges.length === 1 && selection.main.empty && selection.main.head === 0;
+}
+
+const frontmatterRevealed = StateField.define<boolean>({
+	create: (state) => touchesFrontmatter(state) && !atDocStart(state),
+	update(revealed, tr) {
+		if (!tr.docChanged && !tr.selection) return revealed;
+		return touchesFrontmatter(tr.state) && (revealed || !atDocStart(tr.state) || tr.isUserEvent("select"));
+	},
+});
+
 const hide = Decoration.replace({});
 
 function ancestors(node: SyntaxNode, ...names: string[]) {
@@ -593,7 +616,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (!closed) return false;
 					addLine(to, "HyperMD-frontmatter-end");
 					const mode = host.app.vault.getConfig("propertiesInDocument") ?? "visible";
-					if (!live || mode === "source" || touchesLines(from, to)) return false;
+					if (!live || mode === "source" || state.field(frontmatterRevealed)) return false;
 					const yaml = doc.sliceString(doc.line(1).to + 1, doc.lineAt(to).from);
 					decos.push(Decoration.replace({ block: true, widget: mode === "hidden" ? undefined : new PropertiesWidget(yaml) }).range(from, to));
 					return false;
@@ -887,5 +910,5 @@ export function livePreview(host: LivePreviewHost): Extension {
 			return true;
 		},
 	});
-	return [field, watcher, tagClicks];
+	return [frontmatterRevealed, field, watcher, tagClicks];
 }
