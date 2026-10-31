@@ -317,7 +317,9 @@ plain style. Development notes belong in this file.
 - `obsidian://open?path=` into another vault opens (or focuses) that vault's
   window, but only for vaults opened before with `--vault` or the folder
   picker (recorded in the profile's `vaults.json`): a link must never load an
-  unknown folder's plugins.
+  unknown folder's plugins. The built-in `open` and `new` refuse a `file=` or
+  `name=` with a `..` or hidden (`.obsidian`, `.git`) segment
+  (`urlPathOutsideNotes`): a link must never write plugin code or settings.
 - The macOS application menu keeps the standard roles (Edit, zoom, developer
   tools, window) but no accelerator on a key the renderer's hotkeys use: menu
   key equivalents fire before the page sees the key, so Electron's default

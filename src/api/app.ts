@@ -56,6 +56,15 @@ export function parseObsidianUrl(url: string): ObsidianProtocolData | null {
 	return { ...params, action: decodeUriPart(action) };
 }
 
+// The file= or name= of an obsidian: URL that names no note of the vault, or
+// undefined. A URL from a note or a web page must not reach files outside the
+// vault, nor its hidden folders: the config folder holds plugins' code and
+// settings, and `new` would write main.js or data.json there, which the vault
+// index (hidden paths stay out of it) does not see as taken.
+export function urlPathOutsideNotes(params: ObsidianProtocolData) {
+	return [params.file, params.name].find((p) => p?.split(/[\\/]/).some((part) => part.startsWith(".")));
+}
+
 function splitSubpath(linktext: string): [string, string] {
 	const i = linktext.indexOf("#");
 	return i < 0 ? [linktext, ""] : [linktext.slice(0, i), linktext.slice(i)];
@@ -419,8 +428,7 @@ export class App {
 				}
 				params.file = file;
 			}
-			// A URL from a note or a web page must not reach files outside the vault.
-			const outside = [params.file, params.name].find((p) => p?.split(/[\\/]/).includes(".."));
+			const outside = urlPathOutsideNotes(params);
 			if (outside) {
 				new Notice(`${outside} is not in this vault`);
 				return false;
