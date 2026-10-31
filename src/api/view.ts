@@ -451,7 +451,9 @@ function mergeBase(doc: TextDoc, text: string) {
 	const prior = doc.prior;
 	if (!prior || Date.now() - prior.at > 1000 || !addsLines(prior.text, text) || doc.seen.has(digest(text))) return doc.base;
 	// Made from the written text: it holds every line of it. (When the write
-	// only removed or emptied lines, a capture of the replaced text does too.)
+	// only removed or emptied lines, a capture of the replaced text does too,
+	// and the merge below decides; a line appended right after a write that
+	// removed the final newline then comes out without its own.)
 	if (addsLines(doc.base, text) && !addsLines(doc.base, prior.text)) return doc.base;
 	const kept = mergeText(prior.text, doc.base, text);
 	return !kept.conflicts && kept.text !== text ? prior.text : doc.base;
