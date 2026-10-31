@@ -1,9 +1,11 @@
+import * as nodePath from "node:path";
 import { ipcRenderer } from "electron";
 import { App } from "../api/app";
 import { installDomExtensions } from "../api/dom";
 import { setIcon } from "../api/icons";
 import { registerEditorSuggests } from "../api/editor-suggests";
 import { loadMathJax, setMarkdownApp } from "../api/markdown";
+import { CodeCache } from "../api/code-cache";
 import { FileMetadataStore } from "../api/metadata-store";
 import { MarkdownView } from "../api/markdown-view";
 import { Notice } from "../api/ui/notice";
@@ -132,9 +134,10 @@ async function boot() {
 	registerCorePluginViews(app);
 
 	buildShell(app);
-	// The metadata cache of the last run, kept in the profile.
+	// What the last run kept in the profile: the metadata cache and plugins' compiled code.
 	const profile: string = (window as any).require("@electron/remote").app.getPath("userData");
 	app.metadataCache.useStore(FileMetadataStore.forVault(profile, app.vault.adapter.basePath));
+	app.plugins.useCodeCache(new CodeCache(nodePath.join(profile, "code-cache", "plugins")));
 	await app.vault.load();
 	mark("vault-loaded");
 	// Indexing overlaps the rest of boot and is done before plugins load, so

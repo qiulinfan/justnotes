@@ -10,6 +10,7 @@ import * as lezerCommon from "@lezer/common";
 import * as lezerHighlight from "@lezer/highlight";
 import * as lezerLr from "@lezer/lr";
 import type { App } from "./app";
+import type { CodeCache } from "./code-cache";
 import { getElectron } from "./dom";
 import * as obsidian from "./index";
 import type { Plugin, PluginManifest } from "./plugin";
@@ -56,9 +57,15 @@ export class Plugins {
 	loadingPluginId: string | null = null;
 	#styles = new Map<string, HTMLStyleElement>();
 	#overlay: EnabledOverlay = { enabled: [], disabled: [] };
+	#codeCache: CodeCache | null = null;
 
 	constructor(app: App) {
 		this.app = app;
+	}
+
+	// Set by the host before initialize(): plugins' compiled code is kept there.
+	useCodeCache(cache: CodeCache) {
+		this.#codeCache = cache;
 	}
 
 	getPluginFolder() {
@@ -127,11 +134,13 @@ export class Plugins {
 		}
 		this.loadingPluginId = id;
 		try {
-			const plugin = await this.#instantiate(manifest);
+			const { plugin, compiled } = await this.#instantiate(manifest);
 			this.plugins[id] = plugin;
 			this.enabledPlugins.add(id);
 			await this.#loadStyles(manifest);
 			await plugin.load();
+			// After onload, so the stored code holds what loading compiled.
+			compiled?.save().catch((err) => console.warn(`Could not cache the code of plugin "${id}"`, err));
 			return true;
 		} catch (err) {
 			console.error(`Plugin "${id}" failed to load`, err);
@@ -196,10 +205,12 @@ export class Plugins {
 	async #instantiate(manifest: PluginManifest) {
 		const code = await this.app.vault.adapter.read(`${manifest.dir}/main.js`);
 		const module = { exports: {} as any };
-		const fn = window.eval(`(function anonymous(require, module, exports){${code}\n})\n//# sourceURL=plugin:${manifest.id}`);
+		const source = `(function anonymous(require, module, exports){${code}\n})\n//# sourceURL=plugin:${manifest.id}`;
+		const compiled = this.#codeCache ? await this.#codeCache.compile(manifest.id, source, `plugin:${manifest.id}`) : null;
+		const fn = compiled ? compiled.run() : window.eval(source);
 		fn(pluginRequire, module, module.exports);
 		const PluginClass = module.exports.default ?? module.exports;
-		return new PluginClass(this.app, manifest) as Plugin;
+		return { plugin: new PluginClass(this.app, manifest) as Plugin, compiled };
 	}
 
 	// Adding or removing a plugin's styles.css is a css-change, as in Obsidian.

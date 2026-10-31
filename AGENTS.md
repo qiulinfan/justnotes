@@ -613,6 +613,14 @@ stale or corrupt cache gives the same result, more slowly.
   `parseMetadata`'s output changes for some text (the digest test in
   `test/metadata-store.test.ts` fails until a new digest is added under the
   new version); otherwise notes keep their old metadata until edited.
+- Compiled code (`code-cache.ts`): V8's code for scripts the app evaluates,
+  since Chromium caches code only for scripts fetched over http(s).
+  Plugins: `<profile>/code-cache/plugins/<id>-<hash>.bin`, the hash of the V8
+  version and the wrapped `main.js` text. `Plugins.#instantiate` compiles the
+  wrapper with `vm.Script` (in the page's global scope, as the indirect eval
+  before it did) using that file when present, and writes it after the
+  plugin's `onload` (so it holds what loading compiled) when it was missing or
+  V8 rejected it; an older text's file of the same plugin is removed then.
 - Startup leaves those notes' texts unread, so the vault's text cache
   (`cachedRead`) fills on the first search, unlinked-mentions scan or graph
   content query; they read through `readInOrder` (`read-in-order.ts`), up
