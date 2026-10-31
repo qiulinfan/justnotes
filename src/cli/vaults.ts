@@ -8,10 +8,14 @@ import { EXIT_USAGE } from "./protocol";
 // are real paths. Electron-free, so the command can load it.
 
 // The real path of a file that may not exist yet: its nearest existing
-// folder's real path, with the rest of the path.
+// folder's real path, with the rest of the path. The native realpath, which
+// also gives each name the case it has on disk: Node's JavaScript one (main,
+// under Electron) keeps the case it was given, so on a case-insensitive
+// volume ~/notes and ~/Notes would be two vaults with two windows. Bun's
+// realpathSync is the native one already.
 export function realPathOf(file: string): string {
 	try {
-		return fs.realpathSync(file);
+		return fs.realpathSync.native(file);
 	} catch {
 		const parent = path.dirname(file);
 		return parent === file ? file : path.join(realPathOf(parent), path.basename(file));
@@ -31,7 +35,7 @@ export function vaultOf(target: string, vaults: string[]) {
 	for (const vault of vaults) {
 		let root: string;
 		try {
-			root = fs.realpathSync(vault);
+			root = fs.realpathSync.native(vault);
 		} catch {
 			continue;
 		}

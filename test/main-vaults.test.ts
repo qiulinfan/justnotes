@@ -59,3 +59,27 @@ describe("vaultOf", () => {
 		}
 	});
 });
+
+// Main matches vaults under Electron's Node, whose JavaScript realpath keeps
+// the case a path was typed in; Bun's is the native one, so this runs the
+// module there. On a case-insensitive volume (macOS's default) vault=~/Notes
+// for an open ~/notes once opened a second window, running the vault's
+// plugins twice, and recorded a second entry in vaults.json.
+describe("vault paths in another case, in main", () => {
+	const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jn-vault-case-")));
+	const vault = path.join(root, "Notes");
+	fs.mkdirSync(path.join(vault, "sub"), { recursive: true });
+	afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+	const insensitive = fs.existsSync(path.join(root, "notes"));
+
+	test.skipIf(!insensitive)("name the open vault, not a new one", async () => {
+		const built = await Bun.build({ entrypoints: [path.join(import.meta.dir, "../src/cli/vaults.ts")], target: "node", format: "cjs" });
+		const module = path.join(root, "vaults.cjs");
+		await Bun.write(module, await built.outputs[0].text());
+		const script = `const v = require(${JSON.stringify(module)}); const open = [${JSON.stringify(vault)}];
+			console.log(JSON.stringify([v.pickVault(["vault=" + ${JSON.stringify(path.join(root, "notes"))}, "x"], "/", open, [], null), v.vaultOf(${JSON.stringify(path.join(root, "NOTES/sub/a.md"))}, open)]));`;
+		const electron = path.join(import.meta.dir, "../node_modules/.bin/electron");
+		const run = Bun.spawnSync([electron, "-e", script], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
+		expect(JSON.parse(run.stdout.toString())).toEqual([{ vault, open: true, argv: ["x"] }, vault]);
+	});
+});

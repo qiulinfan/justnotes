@@ -81,10 +81,11 @@ function pathInside(folder: string, fullPath: string) {
 }
 
 // The real path of a file that may not exist yet: its nearest existing
-// folder's real path, with the rest of the path.
+// folder's real path, with the rest of the path, each name in its case on
+// disk (the native realpath, as main matches vaults: cli/vaults.ts).
 function realPathOf(file: string): string {
 	try {
-		return fs.realpathSync(file);
+		return fs.realpathSync.native(file);
 	} catch {
 		const parent = nodePath.dirname(file);
 		return parent === file ? file : nodePath.join(realPathOf(parent), nodePath.basename(file));
