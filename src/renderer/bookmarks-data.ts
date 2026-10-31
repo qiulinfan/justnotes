@@ -4,6 +4,8 @@
 // (`query`), graph (`options`), url (`url`) and group (`items`). Unknown
 // fields and unknown item types are kept as they are.
 
+import { droppedSchemes } from "../main/link-policy";
+
 export interface BookmarkItem {
 	type: string;
 	ctime?: number;
@@ -64,6 +66,68 @@ export function newBookmark(type: string, ctime: number, fields: Omit<BookmarkIt
 		if (all[key] !== undefined) item[key] = all[key];
 	}
 	return item;
+}
+
+const SCHEME = /^[a-z][\w+.-]*:/i;
+// A host with a dot (or localhost), an optional port, then a path or nothing:
+// what a URL typed without its scheme starts with.
+const BARE_HOST = /^(localhost|[\w-]+(\.[\w-]+)+)(:\d+)?([/?#]|$)/i;
+
+// The URL of a URL bookmark, from what was typed, dropped or linked: a bare
+// host such as example.com/page gets https:// (only when `bare` allows it);
+// null for text that is no URL, a web URL without a host, or a scheme the
+// external-link policy drops (file:, javascript:, ...), which the bookmark
+// could never open. The URL is kept as written, not normalized.
+export function bookmarkUrl(text: string, bare = true): string | null {
+	const url = text.trim();
+	if (!url || /\s/.test(url)) return null;
+	const full = BARE_HOST.test(url) && bare ? `https://${url}` : SCHEME.test(url) ? url : null;
+	if (!full) return null;
+	let parsed: URL;
+	try {
+		parsed = new URL(full);
+	} catch {
+		return null;
+	}
+	if (droppedSchemes.has(parsed.protocol)) return null;
+	if (/^https?:$/.test(parsed.protocol) && !parsed.hostname) return null;
+	return full;
+}
+
+// A URL bookmark's default title: its host and path (example.com/docs/page),
+// decoded for reading; a URL without a host (mailto:) shows what follows the
+// scheme.
+export function urlTitle(url: string): string {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return url;
+	}
+	const text = parsed.host ? `${parsed.host}${parsed.pathname.replace(/\/+$/, "")}` : parsed.pathname || url;
+	try {
+		return decodeURI(text);
+	} catch {
+		return text;
+	}
+}
+
+// The URLs a drop from outside the app's drag manager carries: the
+// `text/uri-list` entries, else plain text whose every line is a URL with a
+// scheme (a word such as node.js is no link). Each URL once.
+export function droppedUrls(uriList: string, plain: string): string[] {
+	const fromList = uriList
+		.split(/\r?\n/)
+		.filter((line) => line.trim() && !line.startsWith("#"))
+		.map((line) => bookmarkUrl(line, false))
+		.filter((url): url is string => !!url);
+	let urls = fromList;
+	if (!urls.length) {
+		const lines = plain.split(/\r?\n/).filter((line) => line.trim());
+		const parsed = lines.map((line) => bookmarkUrl(line, false));
+		urls = parsed.every(Boolean) ? (parsed as string[]) : [];
+	}
+	return [...new Set(urls)];
 }
 
 // Every item, depth first, with the list holding it and its group.

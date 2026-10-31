@@ -18,8 +18,10 @@ import type { PaneType, WorkspaceLeaf } from "../api/workspace";
 import {
 	type BookmarkItem,
 	type BookmarksData,
+	bookmarkUrl,
 	cloneBookmarks,
 	contains,
+	droppedUrls,
 	findParent,
 	flattenBookmarks,
 	mergeBookmarks,
@@ -29,6 +31,7 @@ import {
 	removeDeletedFromBookmarks,
 	renameInBookmarks,
 	serializeBookmarks,
+	urlTitle,
 	walkBookmarks,
 } from "./bookmarks-data";
 import { PromptModal } from "./views";
@@ -118,9 +121,15 @@ export class BookmarksInstance extends Events {
 	}
 
 	// Adds an item to a group (the top level by default), at the end or at
-	// `index`.
+	// `index`. An item without a creation time (from the CLI or a plugin)
+	// gets one, its fields put in Obsidian's order in place.
 	addItem(item: BookmarkItem, group: BookmarkItem | null = null, index?: number) {
-		if (!item.ctime) item.ctime = this.ctime();
+		if (!item.ctime) {
+			const { type, ctime: _, ...fields } = item;
+			const ordered = newBookmark(type, this.ctime(), fields);
+			for (const key of Object.keys(item)) delete item[key];
+			Object.assign(item, ordered);
+		}
 		const list = group ? (group.items ??= []) : this.items;
 		list.splice(index ?? list.length, 0, item);
 		this.onItemsChanged(true);
@@ -171,6 +180,11 @@ export class BookmarksInstance extends Events {
 		}
 		if (type === "graph") return newBookmark("graph", 0, { options: cloneBookmarks(view.getState().options ?? {}) });
 		return null;
+	}
+
+	// The URL bookmark of a URL, if any.
+	findUrlBookmark(url: string): BookmarkItem | null {
+		return this.urlBookmarkLookup[url] ?? null;
 	}
 
 	findBookmarkForView(view: View | null | undefined) {
@@ -302,40 +316,79 @@ function groupChoices(instance: BookmarksInstance, exclude: BookmarkItem[]) {
 }
 
 // Obsidian's Add bookmark / Edit bookmark dialog: an optional title and a
-// group; editing also removes. Several new items share the group choice.
+// group; editing also removes. Several new items share the group choice,
+// which starts at `group` for new items. A URL bookmark also has its URL,
+// checked before the dialog closes; a new one's title follows the URL
+// (host and path) until it is typed.
 export class BookmarkModal extends Modal {
-	constructor(app: App, instance: BookmarksInstance, items: BookmarkItem[], editing: boolean) {
+	constructor(app: App, instance: BookmarksInstance, items: BookmarkItem[], editing: boolean, group: BookmarkItem | null = null) {
 		super(app);
 		const one = items.length === 1 ? items[0] : null;
-		this.setTitle(editing ? "Edit bookmark" : one ? "Add bookmark" : `Bookmark ${items.length} items`);
-		let title = one?.title ?? "";
+		const isUrl = one?.type === "url";
+		this.setTitle(editing ? "Edit bookmark" : isUrl ? "Bookmark a URL" : one ? "Add bookmark" : `Bookmark ${items.length} items`);
 		let url = one?.url ?? "";
+		let title = one?.title ?? (isUrl && !editing && url ? urlTitle(url) : "");
+		let titleTyped = editing || !!one?.title;
 		let query = one?.query ?? "";
-		const current = editing && one ? (findParent(instance.items, one)?.parent ?? null) : null;
+		const current = editing && one ? (findParent(instance.items, one)?.parent ?? null) : group;
 		const choices = groupChoices(instance, editing ? items : []);
-		let group = Math.max(0, choices.findIndex(([g]) => g === current));
-		if (one) {
-			new Setting(this.contentEl).setName("Title").addText((t) => {
-				t.setPlaceholder(instance.getItemTitle({ ...one, title: undefined })).setValue(title).onChange((v) => (title = v));
-				t.inputEl.addClass("bookmark-title-input");
-				this.onOpen = () => {
-					t.inputEl.focus();
-					t.inputEl.select();
-				};
+		let choice = Math.max(0, choices.findIndex(([g]) => g === current));
+		let focusEl: HTMLInputElement | null = null;
+		this.onOpen = () => {
+			focusEl?.focus();
+			focusEl?.select();
+		};
+		let urlSetting: Setting | null = null;
+		let titleInput: HTMLInputElement | null = null;
+		if (isUrl) {
+			urlSetting = new Setting(this.contentEl).setName("URL").addText((t) => {
+				t.setPlaceholder("https://example.com")
+					.setValue(url)
+					.onChange((v) => {
+						url = v;
+						urlSetting?.setErrorMessage(null);
+						if (titleTyped || !titleInput) return;
+						const valid = bookmarkUrl(v);
+						title = valid ? urlTitle(valid) : "";
+						titleInput.value = title;
+					});
+				t.inputEl.addClass("bookmark-url-input");
+				if (!url) focusEl = t.inputEl;
 			});
 		}
-		if (one?.type === "url") new Setting(this.contentEl).setName("URL").addText((t) => t.setValue(url).onChange((v) => (url = v)));
+		if (one) {
+			new Setting(this.contentEl).setName("Title").addText((t) => {
+				t.setPlaceholder(isUrl ? "Shows the URL when empty" : instance.getItemTitle({ ...one, title: undefined }))
+					.setValue(title)
+					.onChange((v) => {
+						title = v;
+						titleTyped = true;
+					});
+				t.inputEl.addClass("bookmark-title-input");
+				titleInput = t.inputEl;
+				focusEl ??= t.inputEl;
+			});
+		}
 		if (one?.type === "search") new Setting(this.contentEl).setName("Search").addText((t) => t.setValue(query).onChange((v) => (query = v)));
 		if (one?.type !== "group" || choices.length > 1) {
 			new Setting(this.contentEl).setName("Bookmark group").addDropdown((d) => {
 				choices.forEach(([, name], i) => d.addOption(String(i), name));
-				d.setValue(String(group)).onChange((v) => (group = Number(v)));
+				d.setValue(String(choice)).onChange((v) => (choice = Number(v)));
 			});
 		}
 		const save = () => {
+			const checked = isUrl ? bookmarkUrl(url) : null;
+			if (isUrl && !checked) {
+				urlSetting?.setErrorMessage(url.trim() ? "Not a URL justnotes can open." : "Enter a URL.");
+				const input = urlSetting?.controlEl.querySelector("input");
+				input?.focus();
+				input?.select();
+				return;
+			}
 			this.close();
-			const target = choices[group]?.[0] ?? null;
+			const target = choices[choice]?.[0] ?? null;
 			if (!editing) {
+				if (one && checked) one.url = checked;
 				if (one) one.title = title.trim() || undefined;
 				if (one && !one.title) delete one.title;
 				for (const item of items) instance.addItem(item, target);
@@ -343,7 +396,7 @@ export class BookmarkModal extends Modal {
 			}
 			if (!one) return;
 			const fields: Partial<BookmarkItem> = { title: title.trim() };
-			if (one.type === "url") fields.url = url.trim();
+			if (checked) fields.url = checked;
 			if (one.type === "search") fields.query = query.trim();
 			if (target !== current) moveBookmark(instance.items, one, target, target ? (target.items?.length ?? 0) : instance.items.length);
 			instance.updateItem(one, fields);
@@ -433,6 +486,7 @@ export class BookmarksView extends ItemView {
 			el.addEventListener("click", cb);
 		};
 		button("bookmark-plus", "Bookmark the active tab", () => bookmarkView(this.app, this.instance, this.app.workspace.getMostRecentLeaf()?.view));
+		button("globe", "Bookmark a URL...", () => bookmarkUrlDialog(this.app, this.instance, "", null));
 		button("folder-plus", "New bookmark group", () => newGroup(this.app, this.instance, null));
 		button("chevrons-up-down", "Expand all / collapse all", () => {
 			const groups: string[] = [];
@@ -443,16 +497,34 @@ export class BookmarksView extends ItemView {
 			this.app.workspace.requestSaveLayout();
 		});
 		this.#treeEl = this.contentEl.createDiv("nav-files-container bookmarks-tree");
+		// The space below the rows (and the empty pane's message) is the end
+		// of the top level.
+		const background = (evt: Event) => evt.target === this.#treeEl || !!(evt.target as Element).closest?.(".pane-empty");
 		this.#treeEl.addEventListener("dragover", (evt) => {
-			if (evt.target !== this.#treeEl || !this.#accepts()) return;
+			const kind = this.#accepts(evt);
+			if (!background(evt) || !kind) return;
 			evt.preventDefault();
 			this.#clearDrop();
-			this.app.dragManager.setAction("Move to the end");
+			this.app.dragManager.setAction(kind === "move" ? "Move to the end" : "Bookmark here");
 		});
 		this.#treeEl.addEventListener("drop", (evt) => {
-			if (evt.target !== this.#treeEl) return;
+			if (!background(evt) || !this.#accepts(evt)) return;
 			evt.preventDefault();
-			this.#drop(null, this.instance.items.length);
+			this.#drop(evt, null, this.instance.items.length);
+		});
+		this.#treeEl.addEventListener("contextmenu", (evt) => {
+			if (!background(evt)) return;
+			evt.preventDefault();
+			const menu = new Menu();
+			menu.addItem((i) =>
+				i
+					.setTitle("Bookmark the active tab")
+					.setIcon("bookmark-plus")
+					.onClick(() => bookmarkView(this.app, this.instance, this.app.workspace.getMostRecentLeaf()?.view)),
+			);
+			menu.addItem((i) => i.setTitle("Bookmark a URL...").setIcon("globe").onClick(() => bookmarkUrlDialog(this.app, this.instance, "", null)));
+			menu.addItem((i) => i.setTitle("New bookmark group").setIcon("folder-plus").onClick(() => newGroup(this.app, this.instance, null)));
+			menu.showAtMouseEvent(evt);
 		});
 		this.registerEvent(this.instance.on("changed", () => this.render()));
 		this.registerEvent(this.app.workspace.on("file-open", () => this.#markActive()));
@@ -511,9 +583,20 @@ export class BookmarksView extends ItemView {
 		for (const el of this.#treeEl.findAll(".bookmark-item[data-path]")) el.toggleClass("is-active", el.getAttr("data-path") === active);
 	}
 
-	#accepts() {
+	// What a drag over the view would do: move a bookmark of this view, add
+	// files (dragged in the app), or add URLs: an external link dragged
+	// through the drag manager, or a URL from a browser or another app
+	// (`text/uri-list` or plain text, only read on the drop).
+	#accepts(evt: DragEvent): "move" | "files" | "url" | null {
+		if (this.#dragged) return "move";
 		const drag = this.app.dragManager.draggable;
-		return !!this.#dragged || (!!drag && drag.type !== "bookmarks" && DragManager.files(drag).length > 0);
+		if (drag) {
+			if (drag.type === "bookmarks") return null;
+			if (DragManager.files(drag).length) return "files";
+			return drag.type === "link" && bookmarkUrl(drag.linktext ?? "", false) ? "url" : null;
+		}
+		const types = evt.dataTransfer?.types ?? [];
+		return !types.includes("Files") && (types.includes("text/uri-list") || types.includes("text/plain")) ? "url" : null;
 	}
 
 	#clearDrop() {
@@ -550,37 +633,56 @@ export class BookmarksView extends ItemView {
 			return y < 0.5 ? "before" : "after";
 		};
 		el.addEventListener("dragover", (evt) => {
-			if (!this.#accepts()) return;
+			const kind = this.#accepts(evt);
+			if (!kind) return;
 			const where = zone(evt);
 			if (this.#dragged && where === "into" && contains(this.#dragged, item)) return;
 			evt.preventDefault();
 			evt.stopPropagation();
+			if (evt.dataTransfer && kind === "url" && !this.app.dragManager.draggable) evt.dataTransfer.dropEffect = "copy";
 			this.#clearDrop();
 			el.addClass(`is-drop-${where}`);
-			this.app.dragManager.setAction(where === "into" ? `Move into ${this.instance.getItemTitle(item)}` : this.#dragged ? "Move here" : "Bookmark here");
+			const title = this.instance.getItemTitle(item);
+			this.app.dragManager.setAction(where === "into" ? (kind === "move" ? `Move into ${title}` : `Bookmark in ${title}`) : kind === "move" ? "Move here" : "Bookmark here");
 		});
 		el.addEventListener("dragleave", () => el.removeClass("is-drop-before", "is-drop-after", "is-drop-into"));
 		el.addEventListener("drop", (evt) => {
-			if (!this.#accepts()) return;
+			if (!this.#accepts(evt)) return;
 			evt.preventDefault();
 			evt.stopPropagation();
 			const where = zone(evt);
-			if (where === "into") this.#drop(item, item.items?.length ?? 0);
-			else this.#drop(group, where === "before" ? index : index + 1);
+			if (where === "into") this.#drop(evt, item, item.items?.length ?? 0);
+			else this.#drop(evt, group, where === "before" ? index : index + 1);
 		});
 	}
 
-	#drop(group: BookmarkItem | null, index: number) {
+	#drop(evt: DragEvent, group: BookmarkItem | null, index: number) {
 		this.#clearDrop();
 		if (this.#dragged) {
 			this.instance.moveItem(this.#dragged, group, index);
 			this.#dragged = null;
 			return;
 		}
-		const files = DragManager.files(this.app.dragManager.draggable);
+		const drag = this.app.dragManager.draggable;
+		const files = DragManager.files(drag);
 		files.forEach((file, i) => {
 			const type = file instanceof TFolder ? "folder" : "file";
 			this.instance.addItem(newBookmark(type, this.instance.ctime(), { path: file.path }), group, index + i);
+		});
+		if (files.length) return;
+		// A link's text names a URL; a drop from outside carries its own.
+		const linked = drag?.type === "link" ? bookmarkUrl(drag.linktext ?? "", false) : null;
+		const urls = drag ? (linked ? [linked] : []) : droppedUrls(evt.dataTransfer?.getData("text/uri-list") ?? "", evt.dataTransfer?.getData("text/plain") ?? "");
+		if (!urls.length) {
+			if (!drag) new Notice("Only URLs can be bookmarked here.");
+			return;
+		}
+		// The link's own text, when it has one other than its URL: the drag
+		// manager's title, or the anchor of a link dragged from a page.
+		const linkText = drag ? drag.title : urls.length === 1 ? anchorText(evt.dataTransfer?.getData("text/html") ?? "", urls[0]) : null;
+		const named = linkText && linkText.trim() !== urls[0] && bookmarkUrl(linkText, false) !== urls[0] ? linkText.trim() : null;
+		urls.forEach((url, i) => {
+			this.instance.addItem(newBookmark("url", this.instance.ctime(), { url, title: named ?? urlTitle(url) }), group, index + i);
 		});
 	}
 
@@ -592,7 +694,12 @@ export class BookmarksView extends ItemView {
 		menu.addSections(["title", "open", "action", "view", "info", "system", "danger"]);
 		if (item.type === "group") {
 			menu.addItem((i) => i.setTitle("Open all").setIcon("files").setSection("open").onClick(() => instance.openBookmark(item)));
+			menu.addItem((i) => i.setTitle("Bookmark a URL...").setIcon("globe").setSection("action").onClick(() => bookmarkUrlDialog(app, instance, "", item)));
 			menu.addItem((i) => i.setTitle("New bookmark group").setIcon("folder-plus").setSection("action").onClick(() => newGroup(app, instance, item)));
+		} else if (item.type === "url" && item.url) {
+			const url = item.url;
+			menu.addItem((i) => i.setTitle("Open link").setIcon("external-link").setSection("open").onClick(() => instance.openBookmark(item)));
+			menu.addItem((i) => i.setTitle("Copy URL").setIcon("copy").setSection("info").onClick(() => navigator.clipboard.writeText(url)));
 		} else if (item.type === "file") {
 			menu.addItem((i) => i.setTitle("Open in new tab").setIcon("file-plus").setSection("open").onClick(() => instance.openBookmark(item, "tab")));
 			menu.addItem((i) => i.setTitle("Open to the right").setIcon("separator-vertical").setSection("open").onClick(() => instance.openBookmark(item, "split")));
@@ -645,6 +752,22 @@ function bookmarkView(app: App, instance: BookmarksInstance, view: View | null |
 		return;
 	}
 	new BookmarkModal(app, instance, [item], false).open();
+}
+
+// The dialog for a new URL bookmark (`url` may be empty, to be typed) in
+// `group`, or Edit bookmark when the URL has one.
+function bookmarkUrlDialog(app: App, instance: BookmarksInstance, url: string, group: BookmarkItem | null) {
+	const existing = url ? instance.findUrlBookmark(url) : null;
+	if (existing) return instance.editItem(existing);
+	new BookmarkModal(app, instance, [newBookmark("url", 0, { url })], false, group).open();
+}
+
+// The text of the link to `url` in HTML dropped from a page, if any.
+function anchorText(html: string, url: string) {
+	if (!html) return null;
+	const doc = new DOMParser().parseFromString(html, "text/html");
+	const a = [...doc.querySelectorAll("a[href]")].find((el) => el.getAttribute("href") === url);
+	return a?.textContent?.trim() || null;
 }
 
 function bookmarkFiles(app: App, instance: BookmarksInstance, files: TAbstractFile[]) {
@@ -760,6 +883,12 @@ export function installBookmarks(app: App, host: CorePluginHost) {
 			return true;
 		},
 	});
+	// justnotes' own: Obsidian bookmarks URLs from its Web viewer.
+	host.addCommand({
+		id: "bookmarks:bookmark-url",
+		name: "Bookmarks: Bookmark a URL...",
+		callback: () => bookmarkUrlDialog(app, instance, "", null),
+	});
 	host.addCommand({
 		id: "bookmarks:unbookmark-current-view",
 		name: "Bookmarks: Remove bookmark for the current tab",
@@ -809,6 +938,22 @@ export function installBookmarks(app: App, host: CorePluginHost) {
 					.setIcon("bookmark")
 					.setSection("action")
 					.onClick(() => bookmarkSection(app, instance, file, `#${heading.heading}`)),
+			);
+		}),
+	);
+	// External links (reading view, Live Preview) are bookmarked from their
+	// menu, Obsidian's 'url-menu'.
+	host.registerEvent(
+		workspace.on("url-menu", (menu: Menu, href: string) => {
+			const url = bookmarkUrl(href, false);
+			if (!url) return;
+			const bookmarked = !!instance.findUrlBookmark(url);
+			menu.addItem((i) =>
+				i
+					.setTitle(bookmarked ? "Edit bookmark..." : "Bookmark link...")
+					.setIcon("bookmark")
+					.setSection("selection-link")
+					.onClick(() => bookmarkUrlDialog(app, instance, url, null)),
 			);
 		}),
 	);

@@ -4,6 +4,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell
 import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
+import { droppedSchemes } from "./link-policy";
 import { isPopoutOpen } from "./popout";
 import { handleSchemes, registerSchemes } from "./protocol";
 
@@ -29,11 +30,6 @@ if (profile) app.setPath("userData", path.resolve(profile));
 const isObsidianUrl = (url: string) => /^obsidian:/i.test(url);
 // The only URLs a <webview> guest's popups may hand to the system.
 const isWebUrl = (url: string) => /^(https?|mailto):/i.test(url);
-// Schemes a link never hands to the system: file: (a note must not launch a
-// local program) and schemes that run code or show the browser's or the app's
-// own pages. justnotes registers no scheme of its own (protocol.ts); its page
-// is file:.
-const droppedSchemes = new Set(["file:", "javascript:", "data:", "blob:", "about:", "chrome:", "chrome-extension:", "devtools:", "view-source:"]);
 // Pages whose renderer listens for URLs. Until then a page's URLs wait in
 // queuedUrls, and URLs that arrive before any window exists in earlyUrls,
 // which the first page takes. A page stops listening when a new document
