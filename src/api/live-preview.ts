@@ -5,10 +5,10 @@ import type { SyntaxNode } from "@lezer/common";
 import type { App } from "./app";
 import type { Component } from "./events";
 import { setIcon } from "./icons";
-import { Keymap } from "./keymap";
-import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, renderMath } from "./markdown";
+import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, onCodeBlockProcessorsChange, renderMath, resolveHtmlSrc } from "./markdown";
 import { getLinkpath } from "./metadata-utils";
 import { parseYaml } from "./util";
+import type { TFile } from "./vault";
 
 export interface LivePreviewHost {
 	app: App;
@@ -259,9 +259,9 @@ class ImageWidget extends WidgetType {
 	}
 }
 
-// Typora-style `<img src="Assets/x.png" style="zoom:50%">`: the src is a path
-// relative to the note (backslashes allowed) or a URL; other attributes
-// carry over except event handlers.
+// Typora-style `<img src="Assets/x.png" style="zoom:50%">`: the src is a URL
+// or a path the renderer's resolveHtmlSrc finds; other attributes carry over
+// except event handlers.
 const HTML_ATTR = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
 const IMG_ATTRS = new Set(["alt", "title", "width", "height", "style", "align", "class"]);
 
@@ -275,15 +275,7 @@ function htmlImage(tag: string, resolveImage: (link: string) => string | null): 
 		else if (IMG_ATTRS.has(name)) attrs.push([name, value]);
 	}
 	if (!src) return null;
-	let url: string | null = src;
-	if (!SCHEME.test(src)) {
-		let path = src.replace(/\\/g, "/").replace(/^\.\//, "");
-		try {
-			path = decodeURIComponent(path);
-		} catch {}
-		// An absolute path from another machine still finds the file by name.
-		url = resolveImage(path) ?? (path.includes("/") ? resolveImage(path.slice(path.lastIndexOf("/") + 1)) : null);
-	}
+	const url = resolveHtmlSrc(src, resolveImage) ?? (SCHEME.test(src) ? src : null);
 	return url ? new HtmlImageWidget(url, attrs) : null;
 }
 
@@ -383,6 +375,20 @@ class PropertiesWidget extends WidgetType {
 
 const renderChildren = new WeakMap<HTMLElement, Component>();
 
+// The component of a rendered widget: what its render adds belongs to it,
+// and it unloads when CodeMirror destroys the widget's DOM. CodeMirror
+// measures block heights once; content that loads later (images, embeds,
+// processors) changes the size, so each change asks for a new measure.
+function widgetComponent(view: EditorView, el: HTMLElement) {
+	const child = new MarkdownRenderChild(el);
+	child.load();
+	renderChildren.set(el, child);
+	const observer = new ResizeObserver(() => view.requestMeasure());
+	observer.observe(el);
+	child.register(() => observer.disconnect());
+	return child;
+}
+
 // The offset in a table's source of the text of cell `col` in rendered row
 // `row` (the header is row 0; the delimiter line is skipped).
 export function tableCellOffset(source: string, row: number, col: number) {
@@ -402,10 +408,25 @@ export function tableCellOffset(source: string, row: number, col: number) {
 	return offset + Math.min(at, line.length);
 }
 
-// A block rendered with MarkdownRenderer: tables and callouts.
+// A line of an indented block without the block's own indentation: all of
+// it, or as much leading whitespace as the line has.
+function dedent(line: string, indent: string) {
+	if (line.startsWith(indent)) return line.slice(indent.length);
+	return line.slice(Math.min(/^[ \t]*/.exec(line)![0].length, indent.length));
+}
+
+// The title of a foldable callout, which folds it on a click.
+const FOLD_TITLE = ".callout.is-collapsible > .callout-title";
+
+// A block rendered with MarkdownRenderer, as the reading view renders it:
+// tables (in .table-wrapper) and callouts (.cm-callout > .callout). The
+// renderer's own handlers follow links and fold callouts. A block in a list
+// item renders without the item's indentation, which alone would make it an
+// indented code block; `source` keeps the note's lines, for cell offsets.
 class RenderedBlockWidget extends WidgetType {
 	constructor(
 		readonly source: string,
+		readonly indent: string,
 		readonly kind: "table" | "callout",
 		readonly host: LivePreviewHost,
 	) {
@@ -416,21 +437,25 @@ class RenderedBlockWidget extends WidgetType {
 		return other.source === this.source && other.kind === this.kind;
 	}
 
+	// The block as the renderer gets it.
+	get markdown() {
+		return this.source.split("\n").map((line) => dedent(line, this.indent)).join("\n");
+	}
+
 	toDOM(view: EditorView) {
 		const el = createDiv(`cm-embed-block markdown-rendered ${this.kind === "table" ? "cm-table-widget" : "cm-callout"}`);
-		const body = el.createDiv();
-		const child = new MarkdownRenderChild(el);
-		child.load();
-		renderChildren.set(el, child);
-		MarkdownRenderer.render(this.host.app, this.source, body, this.host.sourcePath(), child)
-			.then(() => {
-				for (const table of body.findAll("table")) table.addClass("table-editor");
-				view.requestMeasure();
-			})
-			.catch((err) => console.error(err));
-		el.addEventListener("click", (evt) => this.#followLink(evt));
-		if (this.kind === "callout") editButton(view, el, (v) => v.posAtDOM(el));
-		else el.addEventListener("mousedown", (evt) => this.#editCell(view, el, evt));
+		const body = this.kind === "table" ? el.createDiv("table-wrapper") : el;
+		const child = widgetComponent(view, el);
+		MarkdownRenderer.render(this.host.app, this.markdown, body, this.host.sourcePath(), child).catch((err) => console.error(err));
+		for (const table of body.findAll("table")) table.addClass("table-editor");
+		if (this.kind === "callout") {
+			editButton(view, el, (v) => v.posAtDOM(el));
+			// A press on a fold title must not put the caret beside the block,
+			// which would reveal its source; the click then folds it.
+			el.addEventListener("mousedown", (evt) => {
+				if ((evt.target as HTMLElement).closest(FOLD_TITLE)) evt.preventDefault();
+			});
+		} else el.addEventListener("mousedown", (evt) => this.#editCell(view, el, evt));
 		return el;
 	}
 
@@ -450,27 +475,15 @@ class RenderedBlockWidget extends WidgetType {
 		reveal(view, view.posAtDOM(el) + offset);
 	}
 
-	// Rendered links must not navigate the window.
-	#followLink(evt: MouseEvent) {
-		const a = (evt.target as HTMLElement).closest("a");
-		if (!a || evt.defaultPrevented) return;
-		evt.preventDefault();
-		const { app } = this.host;
-		if (a.hasClass("tag")) return searchTag(app, a.textContent ?? "");
-		const href = a.getAttribute("data-href") ?? a.getAttribute("href");
-		if (!href) return;
-		if (SCHEME.test(href)) require("electron").shell.openExternal(href);
-		else app.workspace.openLinkText(safeDecode(href), this.host.sourcePath(), Keymap.isModEvent(evt));
-	}
-
 	destroy(dom: HTMLElement) {
 		renderChildren.get(dom)?.unload();
 	}
 
 	ignoreEvent(evt: Event) {
-		// Links inside follow; other clicks reveal the source (tables handle
-		// their own clicks).
-		return evt.type === "mousedown" && (this.kind === "table" || !!(evt.target as HTMLElement).closest?.("a, [data-href]"));
+		// Links inside follow and a foldable callout's title folds it; other
+		// clicks reveal the source (tables handle their own clicks).
+		const target = evt.target as HTMLElement;
+		return evt.type === "mousedown" && (this.kind === "table" || !!target.closest?.(`a, [data-href], ${FOLD_TITLE}`));
 	}
 }
 
@@ -478,31 +491,36 @@ type CodeBlockProcessor = (source: string, el: HTMLElement, ctx: any) => any;
 
 // Code-block processors live in the Markdown renderer's registry.
 function codeBlockProcessor(language: string): CodeBlockProcessor | undefined {
-	return (MarkdownPreviewRenderer as any).codeBlockPostProcessors?.[language];
+	const processors = MarkdownPreviewRenderer.codeBlockPostProcessors;
+	return Object.hasOwn(processors, language) ? processors[language] : undefined;
 }
 
-// A fenced block whose language a plugin renders, as in Obsidian's Live
-// Preview: the processor's output plus an edit button.
+// A fenced block whose language has a code-block processor (a plugin's,
+// mermaid, base), as in Obsidian's Live Preview: the processor's output plus
+// an edit button. The processor gets the fence's content without the fence's
+// indentation, as the renderer passes it. `lines` counts the lines after the
+// opening fence, for getSectionInfo: `source` is empty both for an empty
+// fence and for one that holds a blank line.
 class CodeBlockWidget extends WidgetType {
 	constructor(
 		readonly language: string,
 		readonly source: string,
+		readonly lines: number,
 		readonly from: number,
+		readonly handler: CodeBlockProcessor,
 		readonly host: LivePreviewHost,
 	) {
 		super();
 	}
 
 	eq(other: CodeBlockWidget) {
-		return other.language === this.language && other.source === this.source;
+		return other.language === this.language && other.source === this.source && other.lines === this.lines && other.handler === this.handler;
 	}
 
 	toDOM(view: EditorView) {
 		const el = createDiv("cm-preview-code-block cm-embed-block markdown-rendered");
 		const block = el.createDiv(`block-language-${this.language}`);
-		const child = new MarkdownRenderChild(block);
-		child.load();
-		renderChildren.set(el, child);
+		const child = widgetComponent(view, el);
 		const ctx = {
 			docId: Math.random().toString(36).slice(2),
 			sourcePath: this.host.sourcePath(),
@@ -512,14 +530,11 @@ class CodeBlockWidget extends WidgetType {
 			// built ask before it is in the document.
 			getSectionInfo: () => {
 				const first = view.state.doc.lineAt(el.isConnected ? view.posAtDOM(el) : this.from);
-				const last = first.number + this.source.split("\n").length + (this.source ? 1 : 0);
-				return { text: view.state.doc.toString(), lineStart: first.number - 1, lineEnd: Math.min(last, view.state.doc.lines) - 1 };
+				return { text: view.state.doc.toString(), lineStart: first.number - 1, lineEnd: Math.min(first.number + this.lines, view.state.doc.lines) - 1 };
 			},
 		};
 		try {
-			Promise.resolve(codeBlockProcessor(this.language)?.(this.source, block, ctx))
-				.then(() => view.requestMeasure())
-				.catch((err) => console.error(err));
+			Promise.resolve(this.handler(this.source, block, ctx)).catch((err) => console.error(err));
 		} catch (err) {
 			console.error(err);
 		}
@@ -534,6 +549,55 @@ class CodeBlockWidget extends WidgetType {
 	ignoreEvent() {
 		return true;
 	}
+}
+
+// An embed other than a found image: a note or one of its sections, a PDF, a
+// base, media, or a missing file. The renderer renders its source through
+// its own embed path and post processors, so it is the reading view's embed.
+// `target` is the file the link resolves to, so a created or renamed target
+// renders again. A block widget when the embed is alone on its line.
+class EmbedWidget extends WidgetType {
+	constructor(
+		readonly source: string,
+		readonly target: string,
+		readonly block: boolean,
+		readonly host: LivePreviewHost,
+	) {
+		super();
+	}
+
+	eq(other: EmbedWidget) {
+		return other.source === this.source && other.target === this.target && other.block === this.block;
+	}
+
+	toDOM(view: EditorView) {
+		const el = this.block ? createDiv("cm-embed-block markdown-rendered") : createSpan("cm-inline-embed markdown-rendered");
+		const child = widgetComponent(view, el);
+		MarkdownRenderer.render(this.host.app, this.source, el, this.host.sourcePath(), child).catch((err) => console.error(err));
+		if (this.block) editButton(view, el, (v) => v.posAtDOM(el));
+		return el;
+	}
+
+	destroy(dom: HTMLElement) {
+		renderChildren.get(dom)?.unload();
+	}
+
+	ignoreEvent() {
+		return true;
+	}
+}
+
+// The text of a math node without the quote marks of the lines it goes on
+// to, which are its children inside a quote.
+function mathText(state: EditorState, node: SyntaxNode) {
+	let text = "";
+	let at = node.from;
+	for (let mark = node.getChild("QuoteMark"); mark; mark = mark.nextSibling) {
+		if (mark.name !== "QuoteMark") continue;
+		text += state.sliceDoc(at, mark.from);
+		at = /[ \t]/.test(state.sliceDoc(mark.to, mark.to + 1)) ? mark.to + 1 : mark.to;
+	}
+	return text + state.sliceDoc(at, node.to);
 }
 
 // The frontmatter shows as YAML once the selection enters it, and until the
@@ -569,8 +633,17 @@ function ancestors(node: SyntaxNode, ...names: string[]) {
 
 interface BuildContext {
 	host: LivePreviewHost;
-	isResolved(linkpath: string): boolean;
+	// The file a link path names, or null.
+	linkDest(linkpath: string): TFile | null;
 	resolveImage(link: string): string | null;
+}
+
+// A rendered link: the editor's underline, dimmed with is-unresolved when no
+// file has the name, and the attributes of the renderer's link element, its
+// class (internal-link, external-link) and the data-href that the click and
+// hover handlers read.
+function linkMark(kind: "internal-link" | "external-link", href: string, resolved = true) {
+	return Decoration.mark({ class: resolved ? "cm-underline" : "cm-underline is-unresolved", attributes: { class: kind, "data-href": href } });
 }
 
 // Syntax stays visible wherever the selection touches; elsewhere it is hidden
@@ -603,6 +676,15 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 	};
 	// Block widgets replace whole lines, so the block must be alone on them.
 	const ownsLines = (node: SyntaxNode) => !doc.sliceString(doc.lineAt(node.from).from, node.from).trim() && !ancestors(node, "Blockquote");
+	// An embed that is not a found image renders through the renderer: as a
+	// block when it is alone on its line, else within the line.
+	const embed = (node: SyntaxNode, linkpath: string) => {
+		const line = doc.lineAt(node.from);
+		const block = ownsLines(node) && node.to <= line.to && !doc.sliceString(node.to, line.to).trim();
+		if (block && touchesLines(node.from, node.to)) return;
+		const widget = new EmbedWidget(state.sliceDoc(node.from, node.to), cx.linkDest(linkpath)?.path ?? "", block, host);
+		decos.push(block ? Decoration.replace({ widget, block: true }).range(line.from, line.to) : Decoration.replace({ widget }).range(node.from, node.to));
+	};
 
 	syntaxTree(state).iterate({
 		enter: (ref) => {
@@ -659,9 +741,13 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (touchesLines(from, to)) return false;
 					const info = node.getChild("CodeInfo");
 					const language = info ? state.sliceDoc(info.from, info.to).trim().split(/\s/)[0] : "";
-					if (closed && language && codeBlockProcessor(language) && ownsLines(node)) {
-						const source = last.number - first.number > 1 ? doc.sliceString(first.to + 1, last.from - 1) : "";
-						decos.push(Decoration.replace({ block: true, widget: new CodeBlockWidget(language, source, first.from, host) }).range(first.from, last.to));
+					const handler = language ? codeBlockProcessor(language) : undefined;
+					if (closed && handler && ownsLines(node)) {
+						const indent = doc.sliceString(first.from, from);
+						const lines = last.number - first.number > 1 ? doc.sliceString(first.to + 1, last.from - 1).split("\n") : [];
+						const source = lines.map((line) => dedent(line, indent)).join("\n");
+						const widget = new CodeBlockWidget(language, source, last.number - first.number, first.from, handler, host);
+						decos.push(Decoration.replace({ block: true, widget }).range(first.from, last.to));
 						return false;
 					}
 					if (marks[0].from < first.to) decos.push(hide.range(marks[0].from, first.to));
@@ -677,7 +763,8 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					eachLine(from, to, (l) => addLine(l.from, "HyperMD-callout"));
 					if (touchesLines(from, to) || !ownsLines(node)) return;
 					const last = doc.lineAt(to);
-					decos.push(Decoration.replace({ block: true, widget: new RenderedBlockWidget(doc.sliceString(first.from, last.to), "callout", host) }).range(first.from, last.to));
+					const widget = new RenderedBlockWidget(doc.sliceString(first.from, last.to), doc.sliceString(first.from, from), "callout", host);
+					decos.push(Decoration.replace({ block: true, widget }).range(first.from, last.to));
 					return false;
 				}
 				case "QuoteMark": {
@@ -733,7 +820,8 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (touchesLines(from, to) || !ownsLines(node)) return false;
 					const first = doc.lineAt(from);
 					const last = doc.lineAt(to);
-					decos.push(Decoration.replace({ block: true, widget: new RenderedBlockWidget(doc.sliceString(first.from, last.to), "table", host) }).range(first.from, last.to));
+					const widget = new RenderedBlockWidget(doc.sliceString(first.from, last.to), doc.sliceString(first.from, from), "table", host);
+					decos.push(Decoration.replace({ block: true, widget }).range(first.from, last.to));
 					return false;
 				}
 				case "Link": {
@@ -743,10 +831,10 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (!url || marks.length < 2) return;
 					const textEnd = marks[1].from;
 					const href = state.sliceDoc(url.from, url.to);
-					const unresolved = !SCHEME.test(href) && !cx.isResolved(getLinkpath(safeDecode(href)));
 					decos.push(hide.range(from, marks[0].to));
 					if (textEnd > marks[0].to) {
-						decos.push(Decoration.mark({ class: unresolved ? "cm-underline is-unresolved" : "cm-underline", attributes: { "data-href": href } }).range(marks[0].to, textEnd));
+						const mark = SCHEME.test(href) ? linkMark("external-link", href) : linkMark("internal-link", href, !!cx.linkDest(getLinkpath(safeDecode(href))));
+						decos.push(mark.range(marks[0].to, textEnd));
 					}
 					decos.push(hide.range(textEnd, to));
 					return false;
@@ -756,14 +844,14 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const url = node.getChild("URL");
 					if (!url) return false;
 					decos.push(hide.range(from, url.from));
-					decos.push(Decoration.mark({ class: "cm-underline", attributes: { "data-href": state.sliceDoc(url.from, url.to) } }).range(url.from, url.to));
+					decos.push(linkMark("external-link", state.sliceDoc(url.from, url.to)).range(url.from, url.to));
 					decos.push(hide.range(url.to, to));
 					return false;
 				}
 				case "URL": {
 					const parent = node.parent?.name;
 					if (parent === "Link" || parent === "Image" || touches(from, to)) return;
-					decos.push(Decoration.mark({ class: "cm-underline", attributes: { "data-href": state.sliceDoc(from, to) } }).range(from, to));
+					decos.push(linkMark("external-link", state.sliceDoc(from, to)).range(from, to));
 					return;
 				}
 				case "Image": {
@@ -771,9 +859,12 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const url = node.getChild("URL");
 					const marks = node.getChildren("LinkMark");
 					const target = url ? safeDecode(state.sliceDoc(url.from, url.to)) : null;
-					const src = target ? cx.resolveImage(target) : null;
+					if (!target) return false;
 					const alt = marks.length >= 2 ? state.sliceDoc(marks[0].to, marks[1].from) : "";
-					if (src && target) decos.push(Decoration.replace({ widget: new ImageWidget(src, target, alt) }).range(from, to));
+					const local = !SCHEME.test(target);
+					const src = !local || IMAGE.test(getLinkpath(target)) ? cx.resolveImage(target) : null;
+					if (src) decos.push(Decoration.replace({ widget: new ImageWidget(src, target, alt) }).range(from, to));
+					else if (local) embed(node, getLinkpath(target));
 					return false;
 				}
 				case "HTMLTag": {
@@ -804,14 +895,12 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 						const src = IMAGE.test(path) ? cx.resolveImage(path) : null;
 						const alt = alias ? state.sliceDoc(alias.from, alias.to) : "";
 						if (src) decos.push(Decoration.replace({ widget: new ImageWidget(src, target, alt) }).range(from, to));
+						else embed(node, path);
 						return false;
 					}
 					const shown = alias ?? targetNode;
-					const unresolved = !cx.isResolved(getLinkpath(target));
 					decos.push(hide.range(from, shown.from));
-					decos.push(
-						Decoration.mark({ class: unresolved ? "cm-underline is-unresolved" : "cm-underline", attributes: { "data-href": target } }).range(shown.from, shown.to),
-					);
+					decos.push(linkMark("internal-link", target, !!cx.linkDest(getLinkpath(target))).range(shown.from, shown.to));
 					decos.push(hide.range(shown.to, to));
 					return false;
 				}
@@ -829,13 +918,13 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (touches(from, to)) return false;
 					const content = node.getChild("math");
 					const display = state.sliceDoc(from, from + 2) === "$$";
-					decos.push(Decoration.replace({ widget: new MathWidget(content ? state.sliceDoc(content.from, content.to) : "", display) }).range(from, to));
+					decos.push(Decoration.replace({ widget: new MathWidget(content ? mathText(state, content) : "", display) }).range(from, to));
 					return false;
 				}
 				case "BlockMath": {
 					if (touchesLines(from, to)) return false;
 					const content = node.getChild("math");
-					const widget = new MathWidget(content ? state.sliceDoc(content.from, content.to).trim() : "", true);
+					const widget = new MathWidget(content ? mathText(state, content).trim() : "", true);
 					if (ownsLines(node)) decos.push(Decoration.replace({ widget, block: true }).range(doc.lineAt(from).from, doc.lineAt(to).to));
 					else decos.push(Decoration.replace({ widget }).range(from, to));
 					return false;
@@ -876,7 +965,7 @@ export async function searchTag(app: App, tag: string) {
 export function livePreview(host: LivePreviewHost): Extension {
 	// Link and image resolution scan the vault, so each is cached per editor
 	// until refreshLivePreview.
-	const resolved = new Map<string, boolean>();
+	const dests = new Map<string, TFile | null>();
 	const images = new Map<string, string | null>();
 	const cached = <T>(cache: Map<string, T>, link: string, resolve: () => T) => {
 		const key = `${host.sourcePath()}\n${link}`;
@@ -885,14 +974,14 @@ export function livePreview(host: LivePreviewHost): Extension {
 	};
 	const cx: BuildContext = {
 		host,
-		isResolved: (linkpath) => cached(resolved, linkpath, () => !!host.app.metadataCache.getFirstLinkpathDest(linkpath, host.sourcePath())),
+		linkDest: (linkpath) => cached(dests, linkpath, () => host.app.metadataCache.getFirstLinkpathDest(linkpath, host.sourcePath())),
 		resolveImage: (link) => cached(images, link, () => host.resolveImage(link)),
 	};
 	const field = StateField.define<DecorationSet>({
 		create: (state) => build(state, cx),
 		update(decos, tr) {
 			if (tr.effects.some((e) => e.is(refresh))) {
-				resolved.clear();
+				dests.clear();
 				images.clear();
 				return build(tr.state, cx);
 			}
@@ -913,5 +1002,31 @@ export function livePreview(host: LivePreviewHost): Extension {
 			return true;
 		},
 	});
-	return [frontmatterRevealed, field, tagClicks];
+	return [frontmatterRevealed, field, tagClicks, processorRefresh];
 }
+
+// A plugin that loads or unloads a code-block processor changes which fences
+// render: the decorations are rebuilt once its registrations are done.
+const processorRefresh = ViewPlugin.fromClass(
+	class {
+		#stop: () => void;
+		#queued = false;
+		#destroyed = false;
+
+		constructor(view: EditorView) {
+			this.#stop = onCodeBlockProcessorsChange(() => {
+				if (this.#queued) return;
+				this.#queued = true;
+				queueMicrotask(() => {
+					this.#queued = false;
+					if (!this.#destroyed) refreshLivePreview(view);
+				});
+			});
+		}
+
+		destroy() {
+			this.#destroyed = true;
+			this.#stop();
+		}
+	},
+);
