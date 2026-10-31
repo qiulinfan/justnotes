@@ -672,11 +672,6 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 				});
 				return false;
 			},
-			contextmenu: (evt) => {
-				evt.preventDefault();
-				view.showContextMenu(evt);
-				return true;
-			},
 			paste: (evt) => {
 				app.workspace.trigger("editor-paste", evt, view.editor, view);
 				if (evt.defaultPrevented) return true;
@@ -691,6 +686,18 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 				evt.preventDefault();
 				return true;
 			},
+		}),
+		// The editor menu opens over the gutters too, as in Obsidian (obsidian-git
+		// adds its line author items there); domEventHandlers only see the content.
+		ViewPlugin.define((cm) => {
+			const onContextMenu = (evt: MouseEvent) => {
+				const target = evt.target as HTMLElement;
+				if (!cm.contentDOM.contains(target) && !target.closest?.(".cm-gutters")) return;
+				evt.preventDefault();
+				view.showContextMenu(evt);
+			};
+			cm.dom.addEventListener("contextmenu", onContextMenu);
+			return { destroy: () => cm.dom.removeEventListener("contextmenu", onContextMenu) };
 		}),
 	];
 	if (app.vault.getConfig("showLineNumber")) ext.push(lineNumbers());
