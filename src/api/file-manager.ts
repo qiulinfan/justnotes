@@ -41,8 +41,30 @@ function editProperties(text: string, before: Record<string, unknown>, after: Re
 	return replaceFrontmatter(text, yaml);
 }
 
+// Markdown the metadata cache does not index, held inside other files (the
+// Canvas core plugin's text cards). renameFile reads each holder's texts
+// before a rename and rewrites the links in them that no longer reach their
+// file, as it does in notes. justnotes' own.
+export interface LinkHolder {
+	// Each held text: the file holding it (its links resolve from that file's
+	// path), a key the holder finds it by again, and the Markdown.
+	texts(): Promise<{ file: TFile; key: string; text: string }[]>;
+	// Rewrites the held texts of `file`: `edit` gets each key and text and
+	// returns the new text.
+	edit(file: TFile, edit: (key: string, text: string) => string): Promise<void>;
+}
+
+interface HeldLink {
+	holder: LinkHolder;
+	source: TFile;
+	key: string;
+	ref: ReferenceCache;
+	target: TFile;
+}
+
 export class FileManager {
 	app: App;
+	linkHolders = new Set<LinkHolder>();
 
 	constructor(app: App) {
 		this.app = app;
@@ -116,6 +138,7 @@ export class FileManager {
 				if (target) candidates.push({ source, ref, target });
 			}
 		}
+		const held = await this.#heldLinks(moved);
 
 		await vault.rename(file, newPath);
 
@@ -128,19 +151,71 @@ export class FileManager {
 			if (!refs.has(ref)) count++;
 			refs.set(ref, target);
 		}
-		if (edits.size && (vault.getConfig("alwaysUpdateLinks") || (await this.#confirmUpdate(edits.size, count)))) {
+		const heldEdits = new Map<LinkHolder, Map<TFile, Map<string, Map<Reference, TFile>>>>();
+		const heldFiles = new Set<TFile>();
+		for (const { holder, source, key, ref, target } of held) {
+			if (cache.getFirstLinkpathDest(getLinkpath(ref.link), source.path) === target) continue;
+			let files = heldEdits.get(holder);
+			if (!files) heldEdits.set(holder, (files = new Map()));
+			let keys = files.get(source);
+			if (!keys) files.set(source, (keys = new Map()));
+			let refs = keys.get(key);
+			if (!refs) keys.set(key, (refs = new Map()));
+			refs.set(ref, target);
+			heldFiles.add(source);
+			count++;
+		}
+		const files = new Set([...edits.keys(), ...heldFiles]).size;
+		if (files && (vault.getConfig("alwaysUpdateLinks") || (await this.#confirmUpdate(files, count)))) {
 			for (const [source, refs] of edits) await this.#rewrite(source, refs);
+			for (const [holder, byFile] of heldEdits) {
+				for (const [source, keys] of byFile) {
+					await holder.edit(source, (key, text) => {
+						const refs = keys.get(key);
+						return refs ? this.#relinkText(text, refs, source.path) : text;
+					});
+				}
+			}
 		}
 		await this.#cacheClean();
 	}
 
+	// The links in the holders' texts that reach a moved file, or that a moved
+	// file holds, as they resolve before the rename.
+	async #heldLinks(moved: TFile[]) {
+		const cache = this.app.metadataCache;
+		const movedSet = new Set(moved);
+		const out: HeldLink[] = [];
+		for (const holder of this.linkHolders) {
+			for (const { file: source, key, text } of await holder.texts()) {
+				const own = parseMetadata(text);
+				for (const ref of [...(own.links ?? []), ...(own.embeds ?? [])]) {
+					const target = cache.getFirstLinkpathDest(getLinkpath(ref.link), source.path);
+					if (target && (movedSet.has(target) || movedSet.has(source))) out.push({ holder, source, key, ref, target });
+				}
+			}
+		}
+		return out;
+	}
+
 	// Points every link to `file` at `target` instead, each keeping its style,
-	// subpath and alias (Note composer's merge, before `file` goes).
-	async redirectLinks(file: TFile, target: TFile) {
+	// subpath and alias (Note composer's merge, before `file` goes). With
+	// `subpaths`, only the links whose subpath it maps go, given the mapped
+	// subpath (Note composer's extracted heading).
+	async redirectLinks(file: TFile, target: TFile, subpaths?: Map<string, string>) {
 		await this.#cacheClean();
 		for (const [path, refs] of this.app.metadataCache.getBacklinksForFile(file).data) {
 			const source = this.app.vault.getFileByPath(path);
-			if (source) await this.#rewrite(source, new Map(refs.map((ref) => [ref, target])));
+			if (!source) continue;
+			const moved = new Map<Reference, TFile>();
+			const given = new Map<Reference, string>();
+			for (const ref of refs) {
+				const subpath = parseLinktext(ref.link).subpath;
+				if (subpaths && !subpaths.has(subpath)) continue;
+				moved.set(ref, target);
+				if (subpaths) given.set(ref, subpaths.get(subpath)!);
+			}
+			if (moved.size) await this.#rewrite(source, moved, given);
 		}
 		await this.#cacheClean();
 	}
@@ -160,33 +235,38 @@ export class FileManager {
 	// Each link is looked up again in the current text, among the links
 	// written the same way, nearest its cached place: the note may have been
 	// edited since it was indexed.
-	async #rewrite(source: TFile, refs: Map<Reference, TFile>) {
-		await this.app.vault.process(source, (text) => {
-			const fm = locateFrontMatter(text);
-			const current = parseMetadata(text);
-			const unclaimed = [...(current.links ?? []), ...(current.embeds ?? [])];
-			const splices = new Map<number, { to: number; text: string }>();
-			for (const [ref, target] of refs) {
-				const replacement = this.#relink(ref, target, source.path);
-				const position = (ref as ReferenceCache).position;
-				if (position) {
-					const found = claim(unclaimed, ref.original, position.start.offset);
-					if (found) splices.set(found.position.start.offset, { to: found.position.end.offset, text: replacement });
-				} else if (fm) {
-					for (let at = text.indexOf(ref.original, fm.from); at >= 0 && at < fm.to; at = text.indexOf(ref.original, at + 1)) {
-						splices.set(at, { to: at + ref.original.length, text: replacement });
-					}
-				}
-			}
-			let out = text;
-			for (const [from, { to, text: replacement }] of [...splices].sort((a, b) => b[0] - a[0])) out = out.slice(0, from) + replacement + out.slice(to);
-			return out;
-		});
+	async #rewrite(source: TFile, refs: Map<Reference, TFile>, subpaths?: Map<Reference, string>) {
+		await this.app.vault.process(source, (text) => this.#relinkText(text, refs, source.path, subpaths));
 	}
 
-	#relink(ref: Reference, target: TFile, sourcePath: string) {
+	// `text` (a note, or Markdown held in `sourcePath`) with each ref pointed
+	// at its target, keeping its subpath unless `subpaths` gives another.
+	#relinkText(text: string, refs: Map<Reference, TFile>, sourcePath: string, subpaths?: Map<Reference, string>) {
+		const fm = locateFrontMatter(text);
+		const current = parseMetadata(text);
+		const unclaimed = [...(current.links ?? []), ...(current.embeds ?? [])];
+		const splices = new Map<number, { to: number; text: string }>();
+		for (const [ref, target] of refs) {
+			const replacement = this.#relink(ref, target, sourcePath, subpaths?.get(ref));
+			const position = (ref as ReferenceCache).position;
+			if (position) {
+				const found = claim(unclaimed, ref.original, position.start.offset);
+				if (found) splices.set(found.position.start.offset, { to: found.position.end.offset, text: replacement });
+			} else if (fm) {
+				for (let at = text.indexOf(ref.original, fm.from); at >= 0 && at < fm.to; at = text.indexOf(ref.original, at + 1)) {
+					splices.set(at, { to: at + ref.original.length, text: replacement });
+				}
+			}
+		}
+		let out = text;
+		for (const [from, { to, text: replacement }] of [...splices].sort((a, b) => b[0] - a[0])) out = out.slice(0, from) + replacement + out.slice(to);
+		return out;
+	}
+
+	#relink(ref: Reference, target: TFile, sourcePath: string, newSubpath?: string) {
 		const cache = this.app.metadataCache;
-		const { path, subpath } = parseLinktext(ref.link);
+		const { path, subpath: oldSubpath } = parseLinktext(ref.link);
+		const subpath = newSubpath ?? oldSubpath;
 		const keepMd = /\.md$/i.test(path);
 		const original = ref.original;
 		const embed = original.startsWith("!") ? "!" : "";

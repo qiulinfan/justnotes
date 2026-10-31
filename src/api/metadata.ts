@@ -97,8 +97,11 @@ export interface FootnoteSubpathResult {
 
 // A backtick fence's info string holds no backtick: '```a``` b' is inline code.
 const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)$/;
-// Inside a list a fence may follow the item's markers on its line ('2. ```c++').
-const OPEN_FENCE = /^([ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)*)(`{3,}(?=[^`]*$)|~{3,})/;
+// Inside a list a fence may follow the item's markers on its line ('2. ```c++'),
+// and quote markers of a quote nested in the item ('  > ```py').
+const OPEN_FENCE = /^([ \t]*(?:(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]))[ \t]*)*)(`{3,}(?=[^`]*$)|~{3,})/;
+const QUOTE_MARKS = /^(?:[ \t]*>)*[ \t]?/;
+const quoteDepth = (prefix: string) => prefix.split(">").length - 1;
 const CLOSE_FENCE = /^[ \t]*(`{3,}|~{3,})[ \t]*$/;
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
 const SETEXT = /^ {0,3}(=+|-+)[ \t]*$/;
@@ -147,17 +150,23 @@ const MATH = /\$\$[^$]+\$\$|\$(?=[^\s$])[^$]*?[^\s$\\]\$(?!\d)|\$[^\s$]\$(?!\d)/
 // Follows fenced code through the lines of a list or quote: "open" for the
 // line that opens a fence, "code" for the lines inside it and its closing
 // fence. A line indented less than the fence ends the list item holding it,
-// and so the fence.
+// and so the fence; in a quote nested in the item, a line with fewer quote
+// markers ends it.
 function fences() {
-	let open: { mark: string; indent: number } | null = null;
+	let open: { mark: string; indent: number; quotes: number } | null = null;
 	return (body: string): "open" | "code" | null => {
-		if (open && (blank(body) || widthOf(body) >= open.indent)) {
-			const close = CLOSE_FENCE.exec(body);
-			if (close && close[1][0] === open.mark[0] && close[1].length >= open.mark.length) open = null;
-			return "code";
+		if (open) {
+			const marks = open.quotes ? QUOTE_MARKS.exec(body)![0] : "";
+			const inner = body.slice(marks.length);
+			const inside = open.quotes ? quoteDepth(marks) >= open.quotes : blank(body) || widthOf(body) >= open.indent;
+			if (inside) {
+				const close = CLOSE_FENCE.exec(inner);
+				if (close && close[1][0] === open.mark[0] && close[1].length >= open.mark.length) open = null;
+				return "code";
+			}
 		}
 		const m = OPEN_FENCE.exec(body);
-		open = m ? { mark: m[2], indent: columns(m[1]) } : null;
+		open = m ? { mark: m[2], indent: columns(m[1]), quotes: quoteDepth(m[1]) } : null;
 		return m ? "open" : null;
 	};
 }

@@ -2,6 +2,8 @@
 // view reads, writes and merges it, and the geometry of its nodes and edges.
 // Nodes, edges and the file itself keep every field, known or not, in order.
 import type { AllCanvasNodeData, CanvasData, CanvasEdgeData, NodeSide } from "obsidian/canvas";
+import type { LinkHolder } from "../api/file-manager";
+import type { TFile, Vault } from "../api/vault";
 
 export type { AllCanvasNodeData, CanvasData, CanvasEdgeData, NodeSide };
 
@@ -304,6 +306,59 @@ export function renameInCanvas(text: string, oldPath: string, newPath: string): 
 		}
 	}
 	return changed ? stringifyCanvas(data) : null;
+}
+
+// The Markdown of a canvas's text cards, by node id; none when the text is
+// no canvas.
+export function canvasTexts(text: string): { key: string; text: string }[] {
+	try {
+		return parseCanvas(text).nodes.flatMap((node) => (node.type === "text" && typeof node.text === "string" ? [{ key: node.id, text: node.text }] : []));
+	} catch {
+		return [];
+	}
+}
+
+// A canvas's text with `edit` applied to each text card's Markdown (given
+// its node id); null when nothing changed or the text is no canvas.
+export function editCanvasTexts(text: string, edit: (key: string, text: string) => string): string | null {
+	let data: CanvasData;
+	try {
+		data = parseCanvas(text);
+	} catch {
+		return null;
+	}
+	let changed = false;
+	for (const node of data.nodes) {
+		if (node.type !== "text" || typeof node.text !== "string") continue;
+		const next = edit(node.id, node.text);
+		if (next !== node.text) {
+			node.text = next;
+			changed = true;
+		}
+	}
+	return changed ? stringifyCanvas(data) : null;
+}
+
+// The vault's canvases as holders of links (FileManager.linkHolders): their
+// text cards' links follow a rename as links in notes do.
+export function canvasLinkHolder(vault: Vault): LinkHolder {
+	return {
+		async texts() {
+			const out: { file: TFile; key: string; text: string }[] = [];
+			for (const file of vault.getFiles()) {
+				if (file.extension !== "canvas") continue;
+				try {
+					for (const card of canvasTexts(await vault.cachedRead(file))) out.push({ file, ...card });
+				} catch (err) {
+					console.error(err);
+				}
+			}
+			return out;
+		},
+		async edit(file, edit) {
+			await vault.process(file, (text) => editCanvasTexts(text, edit) ?? text);
+		},
+	};
 }
 
 export interface Size {

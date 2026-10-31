@@ -1,7 +1,22 @@
 // Note properties edited as text in a table cell. A list is edited one item
 // per line, so an item may hold a comma; a value plain text cannot show, such
 // as an object, is not edited in a cell at all.
+import type { FileManager } from "../file-manager";
+import type { TFile } from "../vault";
+
 const LIST_TYPES = ["multitext", "tags", "aliases"];
+
+// Writes a cell's edit to the note's frontmatter. processFrontMatter refuses
+// frontmatter that is not a map or does not parse; then the reason to show
+// comes back (null when written), never an unhandled rejection.
+export async function writeCell(fileManager: Pick<FileManager, "processFrontMatter">, file: TFile, edit: (frontmatter: any) => void): Promise<string | null> {
+	try {
+		await fileManager.processFrontMatter(file, edit);
+		return null;
+	} catch (err) {
+		return `Could not edit ${file.path}: ${err instanceof Error ? err.message : String(err)}.`;
+	}
+}
 
 export interface CellEditor {
 	text: string;

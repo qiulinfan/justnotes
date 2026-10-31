@@ -4,8 +4,9 @@ import { setIcon } from "../icons";
 import { Keymap } from "../keymap";
 import { Menu } from "../ui/menu";
 import { Notice } from "../ui/notice";
+import type { TFile } from "../vault";
 import { BatchRenderer } from "./batches";
-import { cellEditor } from "./cell-edit";
+import { cellEditor, writeCell } from "./cell-edit";
 import { summariesOf, viewData } from "./config";
 import type { QueryController } from "./controller";
 import type { BasesEntry } from "./entry";
@@ -244,13 +245,26 @@ export class TableView extends BasesView {
 			const hit = target(evt);
 			const box = evt.target as HTMLInputElement;
 			if (!hit || !box.matches(".bases-cell-checkbox")) return;
-			this.app.fileManager.processFrontMatter(hit.entry.file, (fm) => {
-				fm[frontmatterKey(fm, hit.name)] = box.checked;
-			});
+			this.#write(
+				hit.entry.file,
+				(fm) => {
+					fm[frontmatterKey(fm, hit.name)] = box.checked;
+				},
+				() => (box.checked = !box.checked),
+			);
 		});
 		table.addEventListener("dblclick", (evt) => {
 			const hit = target(evt);
 			if (hit?.td.hasClass("is-editable") && !(evt.target as HTMLElement).closest("a")) this.#edit(hit.td, hit.entry, hit.name);
+		});
+	}
+
+	// A refused edit shows why and puts the cell back as the note has it.
+	#write(file: TFile, edit: (frontmatter: any) => void, revert: () => void) {
+		writeCell(this.app.fileManager, file, edit).then((failure) => {
+			if (!failure) return;
+			revert();
+			new Notice(failure);
 		});
 	}
 
@@ -299,12 +313,19 @@ export class TableView extends BasesView {
 			// The new value shows until the base reruns with it.
 			const shown = editor.parse(text, fm[key]);
 			if (shown !== undefined) wrapProperty(this.app, key, shown, entry.file.path).renderTo(td, renderContextOf(this.app));
-			this.app.fileManager.processFrontMatter(entry.file, (data) => {
-				const k = frontmatterKey(data, name);
-				const value = editor.parse(text, data[k]);
-				if (value === undefined) delete data[k];
-				else data[k] = value;
-			});
+			this.#write(
+				entry.file,
+				(data) => {
+					const k = frontmatterKey(data, name);
+					const value = editor.parse(text, data[k]);
+					if (value === undefined) delete data[k];
+					else data[k] = value;
+				},
+				() => {
+					td.empty();
+					this.#cell(td, entry, `note.${name}`);
+				},
+			);
 		};
 		const field: HTMLElement = input;
 		field.addEventListener("keydown", (e) => {

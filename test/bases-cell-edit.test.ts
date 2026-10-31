@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { cellEditor } from "../src/api/bases/cell-edit";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import type { App } from "../src/api/app";
+import { cellEditor, writeCell } from "../src/api/bases/cell-edit";
+import { FileManager } from "../src/api/file-manager";
+import { Vault } from "../src/api/vault";
 
 // Saving a table cell rewrites that property in the note's frontmatter, so a
 // wrong round trip through text corrupts the note.
@@ -44,4 +50,26 @@ describe("editing a property in a table cell", () => {
 		expect(editor.parse("about 5", 2)).toBe("about 5");
 		expect(cellEditor("todo", "text")!.parse("  ", "todo")).toBeUndefined();
 	});
+});
+
+// processFrontMatter refuses frontmatter it would corrupt; a cell edit must
+// report that instead of leaving an unhandled rejection.
+test("a cell edit on a note whose frontmatter is not a map reports why and writes nothing", async () => {
+	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "justnotes-cell-")));
+	fs.writeFileSync(path.join(dir, "list.md"), "---\n- a\n---\nText\n");
+	fs.writeFileSync(path.join(dir, "ok.md"), "---\nk: 1\n---\n");
+	const vault = new Vault(dir);
+	try {
+		await vault.load();
+		const fm = new FileManager({ vault } as unknown as App);
+		const failure = await writeCell(fm, vault.getFileByPath("list.md")!, (f) => (f.k = 2));
+		expect(failure).toContain("list.md");
+		expect(failure).toContain("not a map");
+		expect(fs.readFileSync(path.join(dir, "list.md"), "utf8")).toBe("---\n- a\n---\nText\n");
+		expect(await writeCell(fm, vault.getFileByPath("ok.md")!, (f) => (f.k = 2))).toBeNull();
+		expect(fs.readFileSync(path.join(dir, "ok.md"), "utf8")).toBe("---\nk: 2\n---\n");
+	} finally {
+		vault.close();
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
 });

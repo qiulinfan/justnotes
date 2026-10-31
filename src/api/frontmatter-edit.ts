@@ -90,6 +90,14 @@ function parse(yaml: string): Parsed | null {
 		if (from !== keyFrom) lineWise = false;
 		const to = lineEnd(yaml, end);
 		const tail = yaml.slice(end, to);
+		// Aliases (`b: *x`) resolve to their anchor's value; one without an
+		// anchor before it makes the YAML invalid, as Obsidian finds it.
+		let value: unknown;
+		try {
+			value = YAML.isNode(valueNode) ? structuredClone(valueNode.toJS(doc)) : (valueNode ?? null);
+		} catch {
+			return null;
+		}
 		entries.push({
 			key: String(key),
 			from,
@@ -98,7 +106,7 @@ function parse(yaml: string): Parsed | null {
 			keyFrom,
 			keyTo,
 			keyType: keyNode.type,
-			value: YAML.isNode(valueNode) ? valueNode.toJSON() : (valueNode ?? null),
+			value,
 			style: styleOf(yaml, keyFrom, valueNode),
 		});
 	}
@@ -161,6 +169,22 @@ function current(parsed: Parsed): PropertyEntries {
 	return parsed.entries.map((e) => [e.key, e.value]);
 }
 
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+// A line-wise edit must leave every property but the `edited` one as it
+// was: changing, removing or moving an anchor (`a: &x 1`) away from its
+// aliases (`b: *x`) would leave them dangling (invalid YAML) or point them
+// at another anchor. Then the whole map is rewritten from `intended`, the
+// aliases resolved to their values, as Obsidian's own rewrite does.
+function checked(parsed: Parsed, out: string, intended: PropertyEntries, edited?: string) {
+	const after = parse(out);
+	const kept =
+		after &&
+		after.entries.length === intended.length &&
+		after.entries.every((e, i) => e.key === intended[i][0] && (e.key === edited || sameValue(e.value, intended[i][1])));
+	return kept ? out : rewrite(parsed, intended);
+}
+
 // Sets a property's value; a property the YAML lacks is added at the end.
 // YAML that is not a map of properties is returned unchanged.
 function setPropertyLf(yaml: string, key: string, value: unknown): string {
@@ -168,9 +192,10 @@ function setPropertyLf(yaml: string, key: string, value: unknown): string {
 	if (!parsed) return yaml;
 	const entry = parsed.entries.find((e) => e.key === key);
 	if (!entry) return insertPropertyLf(yaml, key, value);
-	if (!parsed.lineWise) return rewrite(parsed, current(parsed).map(([k, v]) => [k, k === key ? value : v]));
+	const intended: PropertyEntries = current(parsed).map(([k, v]) => [k, k === key ? value : v]);
+	if (!parsed.lineWise) return rewrite(parsed, intended);
 	const text = entryText(key, value, entry.style, defaultIndent(parsed.entries), entry.keyType);
-	return splice(yaml, entry.from, entry.to, text.includes("\n") ? text : text + entry.comment);
+	return checked(parsed, splice(yaml, entry.from, entry.to, text.includes("\n") ? text : text + entry.comment), intended, key);
 }
 
 // Adds a property before the one at `index`, or at the end. A key the YAML
@@ -181,15 +206,12 @@ function insertPropertyLf(yaml: string, key: string, value: unknown, index?: num
 	if (parsed.entries.some((e) => e.key === key)) return setPropertyLf(yaml, key, value);
 	const entries = parsed.entries;
 	const at = index === undefined || index >= entries.length ? null : entries[Math.max(0, index)];
-	if (!parsed.lineWise) {
-		const list = current(parsed);
-		list.splice(at ? entries.indexOf(at) : list.length, 0, [key, value]);
-		return rewrite(parsed, list);
-	}
+	const list = current(parsed);
+	list.splice(at ? entries.indexOf(at) : list.length, 0, [key, value]);
+	if (!parsed.lineWise) return rewrite(parsed, list);
 	const text = entryText(key, value, null, defaultIndent(entries));
-	if (at) return splice(yaml, at.from, at.from, `${text}\n`);
 	const body = yaml.replace(/\s*$/, "");
-	return finish(body ? `${body}\n${text}` : text);
+	return checked(parsed, at ? splice(yaml, at.from, at.from, `${text}\n`) : finish(body ? `${body}\n${text}` : text), list, key);
 }
 
 // Removes a property with its lines.
@@ -197,9 +219,10 @@ function removePropertyLf(yaml: string, key: string): string {
 	const parsed = parse(yaml);
 	const entry = parsed?.entries.find((e) => e.key === key);
 	if (!parsed || !entry) return yaml;
-	if (!parsed.lineWise) return rewrite(parsed, current(parsed).filter(([k]) => k !== key));
+	const intended = current(parsed).filter(([k]) => k !== key);
+	if (!parsed.lineWise) return rewrite(parsed, intended);
 	const to = entry.to < yaml.length ? entry.to + 1 : entry.to;
-	return splice(yaml, entry.from, to, "");
+	return checked(parsed, splice(yaml, entry.from, to, ""), intended);
 }
 
 // Renames a property in place, keeping its value as written. Renaming to a
@@ -209,8 +232,9 @@ function renamePropertyLf(yaml: string, from: string, to: string): string {
 	const parsed = parse(yaml);
 	const entry = parsed?.entries.find((e) => e.key === from);
 	if (!parsed || !entry || !to || parsed.entries.some((e) => e.key === to)) return yaml;
-	if (!parsed.lineWise) return rewrite(parsed, current(parsed).map(([k, v]) => [k === from ? to : k, v]));
-	return splice(yaml, entry.keyFrom, entry.keyTo, keyText(to, entry.keyType));
+	const intended: PropertyEntries = current(parsed).map(([k, v]) => [k === from ? to : k, v]);
+	if (!parsed.lineWise) return rewrite(parsed, intended);
+	return checked(parsed, splice(yaml, entry.keyFrom, entry.keyTo, keyText(to, entry.keyType)), intended);
 }
 
 // Moves a property to position `index` among the others.
@@ -221,16 +245,19 @@ function movePropertyLf(yaml: string, key: string, index: number): string {
 	const others = parsed.entries.filter((e) => e !== entry);
 	const at = Math.max(0, Math.min(index, others.length));
 	if (parsed.entries.indexOf(entry) === at) return yaml;
-	if (!parsed.lineWise) {
-		const list = current(parsed).filter(([k]) => k !== key);
-		list.splice(at, 0, [key, entry.value]);
-		return rewrite(parsed, list);
-	}
+	const list = current(parsed).filter(([k]) => k !== key);
+	list.splice(at, 0, [key, entry.value]);
+	if (!parsed.lineWise) return rewrite(parsed, list);
+	// Cut and pasted in the original text: the YAML without the entry may not
+	// parse (an alias whose anchor it holds).
 	const text = yaml.slice(entry.from, entry.to);
-	const without = removePropertyLf(yaml, key);
-	const next = parse(without)!.entries[at];
-	if (next) return splice(without, next.from, next.from, `${text}\n`);
-	return finish(`${without.replace(/\s*$/, "")}\n${text}`);
+	const cut = entry.to < yaml.length ? entry.to + 1 : entry.to;
+	const next = others[at];
+	let out: string;
+	if (!next) out = finish(`${(yaml.slice(0, entry.from) + yaml.slice(cut)).replace(/\s*$/, "")}\n${text}`);
+	else if (next.from < entry.from) out = finish(`${yaml.slice(0, next.from)}${text}\n${yaml.slice(next.from, entry.from)}${yaml.slice(cut)}`);
+	else out = finish(`${yaml.slice(0, entry.from)}${yaml.slice(cut, next.from)}${text}\n${yaml.slice(next.from)}`);
+	return checked(parsed, out, list);
 }
 
 // A YAML with CRLF line breaks is edited as LF and given CRLF back, so the

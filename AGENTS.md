@@ -136,13 +136,27 @@ plain style. Development notes belong in this file.
   at the end, Shift+Enter at the start (after the frontmatter), Mod+Enter (or
   Enter with no match) creates a note named as typed; a merged note's
   frontmatter adds only missing properties, links to it are redirected
-  (`FileManager.redirectLinks`) and it goes to the trash. File recovery keeps
+  (`FileManager.redirectLinks`) and it goes to the trash. Text added to a
+  CRLF note gets CRLF line breaks. Extracting a heading redirects the links
+  into the section (`movedSubpaths`, judged in the text before): to a note
+  made from it `[[Note#Heading]]` becomes `[[New]]` and a heading under it
+  `[[New#Sub]]`; into another note, where the heading stays, subpaths are
+  kept; block references keep theirs. File recovery keeps
   whole-text snapshots of `.md` and `.canvas` files in the profile's IndexedDB
   (`<appId>-file-recovery`), one when a file is opened and then at most one
   per `intervalMinutes` (default 5) after edits, pruned after `keepDays`
-  (default 7); a restore snapshots the current text first. Templates insert a
+  (default 7); a restore snapshots the current text first. Snapshots, and
+  one waiting for the interval, follow a renamed file; deleting a file with
+  one waiting saves its last text at once. Templates insert a
   template's frontmatter at the top, adding only the properties the note
-  lacks. `properties` is the All properties pane
+  lacks. Properties are never added (by Templates or Note composer) to
+  frontmatter that is not a map of properties, or that the added lines would
+  not leave one (a flow map): `templateEdits` throws
+  `FrontmatterNotMapError`, nothing is written and a Notice (the CLI an
+  error) says why, as `processFrontMatter` refuses. On a case-insensitive
+  volume the Daily notes and Templates folders are found as the disk spells
+  them (`vault.getDiskPath`, justnotes' own), so a setting naming `daily` for
+  `Daily` opens, creates and steps between the notes there. `properties` is the All properties pane
   (`all-properties`, `properties:open`): names with type and note count,
   unfolding to their notes; its menu sets the type or renames the property in
   every note (each note's YAML changed only at that key). Slides
@@ -183,8 +197,7 @@ plain style. Development notes belong in this file.
   refused), after `systemPreferences.askForMediaAccess` on macOS when the
   system has not decided yet; with `--use-fake-device-for-media-stream` it
   skips the system check. Not there yet: the other core plugins,
-  the Tags view's Mod-click to add a tag to the search, links to an
-  extracted heading (`[[Note#Heading]]`) are not redirected to the new note.
+  the Tags view's Mod-click to add a tag to the search.
 - Bookmarks (`bookmarks-data.ts`: format, merge, rename/delete following,
   tested; `bookmarks.ts`: instance, view, dialog, commands, menus). The
   instance (`app.internalPlugins.plugins.bookmarks.instance`, created in
@@ -212,7 +225,9 @@ plain style. Development notes belong in this file.
   `bookmark-current-section` (the block under the cursor, given a `^id` when
   it has none), `bookmark-all-tabs` (a new group) and
   `unbookmark-current-view`, and justnotes' own `bookmarks:bookmark-url`.
-  Menus: file (Bookmark.../Edit bookmark...), files (several), editor (on a
+  Menus: tab group (the tab list's "Bookmark N tabs...", on the workspace's
+  `tab-group-menu`, which the chevron at the end of a tab bar fires),
+  file (Bookmark.../Edit bookmark...), files (several), editor (on a
   heading line), tab (`leaf-menu`, graph and search), and `url-menu`
   (Bookmark link.../Edit bookmark... on an external link). The view drags
   rows through `app.dragManager` (`type: "bookmarks"`, `items: [{item}]`,
@@ -230,8 +245,9 @@ plain style. Development notes belong in this file.
   `main/link-policy.ts`, shared with main) is refused. Edit... changes a URL
   bookmark's URL and title; opening it is `window.open`, so main's policy
   decides. `addItem` puts an item without a `ctime` (from the CLI or a
-  plugin) in Obsidian's key order. Not there yet: the tab group's "Bookmark
-  N tabs" menu, a heading bookmark does not follow a renamed heading.
+  plugin) in Obsidian's key order. A heading bookmark does not follow a
+  heading edited in place, as links to it do not in Obsidian; Obsidian's
+  "Rename this heading..." command, which updates links, is not there yet.
 - Graph view (`graph-data.ts` for options, queries and nodes, tested;
   `graph-renderer.ts` for the canvas; `graph-view.ts` for the views): a
   d3-force simulation drawn with Canvas 2D, frames only while the layout moves
@@ -261,7 +277,10 @@ plain style. Development notes belong in this file.
   Files are written in Obsidian's layout (one node or edge per line), only
   after a change, and keep unknown fields of nodes, edges and the file in
   place. Renaming a file or folder rewrites the canvases that show it, open
-  or not. Link cards show the URL, not the page. Drops onto the canvas: files
+  or not; a rename through `fileManager.renameFile` also rewrites the links
+  in text cards that no longer reach their file, as in notes (the plugin
+  adds `canvasLinkHolder` to `fileManager.linkHolders`, justnotes' own hook
+  for Markdown the metadata cache does not index). Link cards show the URL, not the page. Drops onto the canvas: files
   dragged from the explorer, search results or link panes become file cards
   at the pointer, several next to each other (`dropLayout`: a row of up to
   four, then a grid, centred on the drop point); a folder adds the files
@@ -680,11 +699,15 @@ plain style. Development notes belong in this file.
   the changed property's lines: the others keep their bytes (order, quotes,
   comments), and the changed one keeps its flow or block list style, item
   indentation, quotes and a trailing comment. A flow-style map is rewritten
-  whole. Removing the last property removes the block. YAML that does not
+  whole, and so is a map whose line-wise edit would leave an alias (`b: *x`)
+  without its anchor or change another property's value (aliases resolved
+  to their values, as Obsidian's own rewrite does); every edit's result
+  parses. Removing the last property removes the block. YAML that does not
   parse to a map shows "Invalid properties", which opens the YAML.
   `fileManager.processFrontMatter` (QuickAdd, Bases cells) applies what its
   callback changed the same way, property by property, and throws on YAML
-  that is not a map rather than replacing it.
+  that is not a map rather than replacing it. A Bases cell edit it refuses
+  (`writeCell`) shows the reason in a Notice and puts the cell back.
 
 ## Live Preview and math
 

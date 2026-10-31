@@ -33,8 +33,12 @@ export function dailyNoteDate(options: DailyNoteOptions, path: string): moment.M
 	return date.isValid() ? date : null;
 }
 
+// The options with the folder as the disk spells it: on a case-insensitive
+// volume the setting may name an existing folder in another case.
 export function dailyNoteOptions(app: App): DailyNoteOptions {
-	return app.internalPlugins.getPluginById("daily-notes")?.instance.options ?? {};
+	const options: DailyNoteOptions = app.internalPlugins.getPluginById("daily-notes")?.instance.options ?? {};
+	const folder = folderOf(options);
+	return folder ? { ...options, folder: app.vault.getDiskPath(folder) } : options;
 }
 
 async function ensureFolders(app: App, path: string) {
@@ -45,11 +49,16 @@ async function ensureFolders(app: App, path: string) {
 	}
 }
 
+// Where the vault's daily note for `date` is or would be created.
+export function dailyNotePathIn(app: App, date: moment.Moment) {
+	return app.vault.getDiskPath(dailyNotePath(dailyNoteOptions(app), date));
+}
+
 // The daily note for `date`, made from the configured template when it does
 // not exist yet.
 export async function dailyNote(app: App, date: moment.Moment) {
 	const opts = dailyNoteOptions(app);
-	const path = dailyNotePath(opts, date);
+	const path = dailyNotePathIn(app, date);
 	const existing = app.vault.getFileByPath(path);
 	if (existing) return existing;
 	let content = "";
@@ -74,8 +83,8 @@ export async function openDailyNote(app: App, date = moment()) {
 	}
 }
 
-// The existing daily note before (-1) or after (1) the active one.
-function adjacent(app: App, file: TFile, step: -1 | 1) {
+// The existing daily note before (-1) or after (1) the given one.
+export function adjacentDailyNote(app: App, file: TFile, step: -1 | 1) {
 	const opts = dailyNoteOptions(app);
 	const day = dailyNoteDate(opts, file.path);
 	if (!day) return null;
@@ -95,7 +104,7 @@ export function installDailyNotes(app: App, host: CorePluginHost) {
 		const file = app.workspace.getActiveFile();
 		if (!file || !dailyNoteDate(dailyNoteOptions(app), file.path)) return false;
 		if (checking) return true;
-		const next = adjacent(app, file, step);
+		const next = adjacentDailyNote(app, file, step);
 		if (next) app.workspace.getLeaf(false).openFile(next, { active: true });
 		else new Notice(step < 0 ? "No earlier daily note." : "No later daily note.");
 		return true;

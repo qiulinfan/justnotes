@@ -94,6 +94,28 @@ describe("property edits rewrite only the property they change", () => {
 			expect(setProperty(bad, "a", 3)).toBe(bad);
 		}
 	});
+
+	// An alias reads as its anchor's value; an edit that would leave it
+	// without its anchor (invalid YAML) rewrites the map with the values.
+	test("an edit to a YAML anchor never leaves its aliases dangling", () => {
+		const yaml = "# keep\na: &x 1\nb: *x\nc: [3]\n";
+		expect(readProperties(yaml)).toEqual([
+			["a", 1],
+			["b", 1],
+			["c", [3]],
+		]);
+		expect(readProperties("a: 2\nb: *x\n")).toBeNull();
+		const edits = [
+			[setProperty(yaml, "a", 2), [["a", 2], ["b", 1], ["c", [3]]]],
+			[removeProperty(yaml, "a"), [["b", 1], ["c", [3]]]],
+			[moveProperty(yaml, "a", 2), [["b", 1], ["c", [3]], ["a", 1]]],
+			[moveProperty(yaml, "b", 0), [["b", 1], ["a", 1], ["c", [3]]]],
+		] as const;
+		for (const [out, want] of edits) expect(readProperties(out)).toEqual(want as unknown as [string, unknown][]);
+		// Edits that keep the anchor before its alias stay line-wise.
+		expect(setProperty(yaml, "c", [4])).toBe("# keep\na: &x 1\nb: *x\nc: [4]\n");
+		expect(moveProperty("c: 3\na: &x 1\nb: *x\n", "a", 0)).toBe("a: &x 1\nc: 3\nb: *x\n");
+	});
 });
 
 describe("frontmatter in a note", () => {
