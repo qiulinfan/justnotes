@@ -6,6 +6,7 @@
       "name": "justnotes",
       "dependencies": {
         "@codemirror/autocomplete": "^6.20.4",
+        "@codemirror/collab": "^6.1.1",
         "@codemirror/commands": "^6.11.1",
         "@codemirror/lang-markdown": "^6.5.2",
         "@codemirror/language": "^6.13.1",
@@ -50,6 +51,8 @@
     "@chevrotain/types": ["@chevrotain/types@11.1.2", "", {}, "sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw=="],
 
     "@codemirror/autocomplete": ["@codemirror/autocomplete@6.20.4", "", { "dependencies": { "@codemirror/language": "^6.0.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.17.0", "@lezer/common": "^1.0.0" } }, "sha512-yF8RhOf2SXlg00+qtupzLhrglcas61boqaONiNcbPIebHCpJocpqTBA6dyrtUrQO47hqyTdeob/3XnYilT7TaQ=="],
+
+    "@codemirror/collab": ["@codemirror/collab@6.1.1", "", { "dependencies": { "@codemirror/state": "^6.0.0" } }, "sha512-tkIn9Jguh98ie12dbBuba3lE8LHUkaMrIFuCVeVGhncSczFdKmX25vC12+58+yqQW5AXi3py6jWY0W+jelyglA=="],
 
     "@codemirror/commands": ["@codemirror/commands@6.11.1", "", { "dependencies": { "@codemirror/language": "^6.0.0", "@codemirror/state": "^6.7.0", "@codemirror/view": "^6.27.0", "@lezer/common": "^1.1.0" } }, "sha512-O/4hG3SC1YwcmQ0d2UVNDs+AsaNWd1iHVxbTeEBuqH+6bExAiPK3iS/BvpY6rZGURALv4ZD3sIgcCmRvw3ehBg=="],
 

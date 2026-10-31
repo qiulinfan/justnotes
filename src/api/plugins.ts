@@ -1,4 +1,5 @@
 import * as cmAutocomplete from "@codemirror/autocomplete";
+import * as cmCollab from "@codemirror/collab";
 import * as cmCommands from "@codemirror/commands";
 import * as cmLanguage from "@codemirror/language";
 import * as cmLint from "@codemirror/lint";
@@ -20,6 +21,7 @@ import { debounce } from "./util";
 const SHARED_MODULES: Record<string, unknown> = {
 	obsidian,
 	"@codemirror/autocomplete": cmAutocomplete,
+	"@codemirror/collab": cmCollab,
 	"@codemirror/commands": cmCommands,
 	"@codemirror/language": cmLanguage,
 	"@codemirror/lint": cmLint,
