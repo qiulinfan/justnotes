@@ -4,6 +4,8 @@ import type { App } from "../api/app";
 import { QueryController } from "../api/bases/controller";
 import { renderBaseBlock, renderBaseEmbeds } from "../api/bases/embed";
 import { loadPropertyTypes } from "../api/bases/frontmatter";
+import { CARDS_VIEW } from "../api/bases/cards-view";
+import { LIST_VIEW } from "../api/bases/list-view";
 import { TABLE_VIEW } from "../api/bases/table-view";
 import { registerBasesViewType } from "../api/bases/view";
 import { MarkdownPreviewRenderer } from "../api/markdown";
@@ -134,6 +136,8 @@ async function createBase(app: App, folder?: TFolder) {
 
 export function installBases(app: App) {
 	registerBasesViewType("table", TABLE_VIEW);
+	registerBasesViewType("cards", CARDS_VIEW);
+	registerBasesViewType("list", LIST_VIEW);
 	app.viewRegistry.registerView("bases", (leaf) => new BasesFileView(leaf));
 	app.viewRegistry.registerExtensions(["base"], "bases");
 	MarkdownPreviewRenderer.registerCodeBlockPostProcessor("base", (source, el, ctx) => renderBaseBlock(app, source, el, ctx));

@@ -242,7 +242,7 @@ tfoot .bases-summary-row td {
 	color: var(--text-muted);
 }
 
-.bases-table-more {
+.bases-batch-sentinel {
 	height: 1px;
 }
 

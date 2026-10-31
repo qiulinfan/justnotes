@@ -2,6 +2,7 @@
 // and note properties edited in place.
 import { setIcon } from "../icons";
 import { Menu } from "../ui/menu";
+import { BatchRenderer } from "./batches";
 import { summariesOf, viewData } from "./config";
 import type { QueryController } from "./controller";
 import type { BasesEntry } from "./entry";
@@ -12,9 +13,6 @@ import { BUILT_IN_SUMMARIES } from "./query";
 import { BooleanValue, NullValue, NumberValue, renderContextOf, renderInternalLink, type Value } from "./values";
 import { BasesView, type BasesViewRegistration } from "./view";
 
-// Rows render in batches as the table scrolls into view; a base over a whole
-// vault can have thousands.
-const BATCH = 200;
 const LIST_TYPES = ["multitext", "tags", "aliases"];
 const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 });
 
@@ -40,7 +38,7 @@ export class TableView extends BasesView {
 	type = "table";
 	#controller: QueryController;
 	#el: HTMLElement;
-	#observer: IntersectionObserver | null = null;
+	#batches = new BatchRenderer();
 	#entries = new Map<string, BasesEntry>();
 	// Note properties shown as checkboxes, empty ones included: those typed
 	// checkbox, or holding a boolean in any row.
@@ -53,7 +51,7 @@ export class TableView extends BasesView {
 	}
 
 	onunload() {
-		this.#observer?.disconnect();
+		this.#batches.stop();
 		this.#el.detach();
 	}
 
@@ -63,7 +61,6 @@ export class TableView extends BasesView {
 	}
 
 	onDataUpdated() {
-		this.#observer?.disconnect();
 		const scrollTop = this.#el.scrollTop;
 		const scrollLeft = this.#el.scrollLeft;
 		this.#el.empty();
@@ -110,36 +107,8 @@ export class TableView extends BasesView {
 			table.createEl("tbody").createEl("tr", "bases-empty").createEl("td", { text: "No results", attr: { colspan: columns.length } });
 		}
 		if (!grouped && summaries.size) this.#summaryRow(table.createEl("tfoot"), this.data.data, columns, summaries);
-		this.#renderTasks(tasks, scrollTop);
+		this.#batches.render(this.#el, tasks, scrollTop);
 		this.#el.scrollLeft = scrollLeft;
-	}
-
-	#renderTasks(tasks: (() => void)[], scrollTop: number) {
-		let next = 0;
-		const batch = () => {
-			const end = Math.min(tasks.length, next + BATCH);
-			for (; next < end; next++) tasks[next]();
-			return next < tasks.length;
-		};
-		// Render enough to restore the scroll position, then the rest on demand.
-		batch();
-		while (scrollTop > 0 && next < tasks.length && this.#el.scrollHeight < scrollTop + this.#el.clientHeight) batch();
-		this.#el.scrollTop = scrollTop;
-		if (next >= tasks.length) return;
-		const sentinel = this.#el.createDiv("bases-table-more");
-		const observer = new IntersectionObserver((records) => {
-			if (!records.some((r) => r.isIntersecting)) return;
-			if (!batch()) {
-				observer.disconnect();
-				sentinel.detach();
-				return;
-			}
-			// Observing again reports at once if the sentinel is still in view.
-			observer.unobserve(sentinel);
-			observer.observe(sentinel);
-		});
-		observer.observe(sentinel);
-		this.#observer = observer;
 	}
 
 	#header(tr: HTMLElement, columns: BasesPropertyId[], colgroup: HTMLElement) {
