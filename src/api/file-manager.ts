@@ -1,7 +1,7 @@
 import * as nodePath from "node:path";
 import * as YAML from "yaml";
 import type { App } from "./app";
-import type { Reference, ReferenceCache } from "./metadata";
+import { parseMetadata, type Reference, type ReferenceCache } from "./metadata";
 import { getLinkpath, locateFrontMatter, parseLinktext } from "./metadata-utils";
 import { Modal } from "./ui/modal";
 import { normalizePath } from "./util";
@@ -11,6 +11,16 @@ import { type DataWriteOptions, type TAbstractFile, TFile, TFolder, Vault } from
 // block subpath keeps its '^' readable.
 const encodePath = (path: string) => encodeURI(path).replace(/#/g, "%23");
 const encodeSubpath = (subpath: string) => encodeURI(subpath).replace(/%5E/g, "^");
+
+// Takes the ref written as `original` nearest to `offset` out of `refs`.
+function claim(refs: ReferenceCache[], original: string, offset: number) {
+	let best = -1;
+	const distance = (i: number) => Math.abs(refs[i].position.start.offset - offset);
+	for (let i = 0; i < refs.length; i++) {
+		if (refs[i].original === original && (best < 0 || distance(i) < distance(best))) best = i;
+	}
+	return best < 0 ? null : refs.splice(best, 1)[0];
+}
 
 export class FileManager {
 	app: App;
@@ -60,11 +70,14 @@ export class FileManager {
 	// reaches its target: links to the moved files, and the moved notes' own
 	// links that depended on their old folder. Each link keeps its style,
 	// subpath and alias. With alwaysUpdateLinks off the user is asked first.
+	// The links come from the metadata cache, so it must have read every
+	// earlier write first, such as the notes a previous rename rewrote.
 	async renameFile(file: TAbstractFile, newPath: string) {
 		const vault = this.app.vault;
 		const cache = this.app.metadataCache;
 		newPath = normalizePath(newPath);
 		if (newPath === file.path) return;
+		await this.#cacheClean();
 		const moved: TFile[] = [];
 		if (file instanceof TFolder) Vault.recurseChildren(file, (f) => f instanceof TFile && moved.push(f));
 		else if (file instanceof TFile) moved.push(file);
@@ -95,27 +108,39 @@ export class FileManager {
 			if (!refs.has(ref)) count++;
 			refs.set(ref, target);
 		}
-		if (!edits.size) return;
-		if (!vault.getConfig("alwaysUpdateLinks")) {
-			const notes = edits.size === 1 ? "1 file" : `${edits.size} files`;
-			const ok = await this.#confirm("Update links", `Update ${count === 1 ? "1 link" : `${count} links`} in ${notes} to the new location?`, "Update");
-			if (!ok) return;
+		if (edits.size && (vault.getConfig("alwaysUpdateLinks") || (await this.#confirmUpdate(edits.size, count)))) {
+			for (const [source, refs] of edits) await this.#rewrite(source, refs);
 		}
-		for (const [source, refs] of edits) await this.#rewrite(source, refs);
+		await this.#cacheClean();
 	}
 
-	// Splices each new link over the old one, last first so offsets hold;
-	// a link whose text changed since it was cached is left alone.
+	// Before its first index the cache has nothing to catch up with.
+	#cacheClean() {
+		const cache = this.app.metadataCache;
+		return cache.resolved ? new Promise<void>((resolve) => cache.onCleanCache(resolve)) : Promise.resolve();
+	}
+
+	#confirmUpdate(files: number, links: number) {
+		const notes = files === 1 ? "1 file" : `${files} files`;
+		return this.#confirm("Update links", `Update ${links === 1 ? "1 link" : `${links} links`} in ${notes} to the new location?`, "Update");
+	}
+
+	// Splices each new link over the old one, last first so offsets hold.
+	// Each link is looked up again in the current text, among the links
+	// written the same way, nearest its cached place: the note may have been
+	// edited since it was indexed.
 	async #rewrite(source: TFile, refs: Map<Reference, TFile>) {
 		await this.app.vault.process(source, (text) => {
 			const fm = locateFrontMatter(text);
+			const current = parseMetadata(text);
+			const unclaimed = [...(current.links ?? []), ...(current.embeds ?? [])];
 			const splices = new Map<number, { to: number; text: string }>();
 			for (const [ref, target] of refs) {
 				const replacement = this.#relink(ref, target, source.path);
 				const position = (ref as ReferenceCache).position;
 				if (position) {
-					const { start, end } = position;
-					if (text.slice(start.offset, end.offset) === ref.original) splices.set(start.offset, { to: end.offset, text: replacement });
+					const found = claim(unclaimed, ref.original, position.start.offset);
+					if (found) splices.set(found.position.start.offset, { to: found.position.end.offset, text: replacement });
 				} else if (fm) {
 					for (let at = text.indexOf(ref.original, fm.from); at >= 0 && at < fm.to; at = text.indexOf(ref.original, at + 1)) {
 						splices.set(at, { to: at + ref.original.length, text: replacement });

@@ -60,6 +60,31 @@ describe("FileManager.renameFile", () => {
 		expect(read("src.md")).toBe("[[note]] [[note]]");
 	});
 
+	// A plugin moving notes in a loop renames again before the cache has read
+	// the notes the previous rename rewrote.
+	test("renames in a row each rewrite their links", async () => {
+		const { vault, fm, read } = await setup({ "a.md": "", "b.md": "", "n.md": "", "src.md": "[[a]] then [[b]]", "ref.md": "see [[n]] and [x](n.md)" });
+		for (const [from, to] of [
+			["a.md", "renamed a with a longer name.md"],
+			["b.md", "b2.md"],
+		]) {
+			await fm.renameFile(vault.getFileByPath(from)!, to);
+		}
+		const note = vault.getFileByPath("n.md")!;
+		await fm.renameFile(note, "B.md");
+		await fm.renameFile(note, "C.md");
+		expect(read("src.md")).toBe("[[renamed a with a longer name]] then [[b2]]");
+		expect(read("ref.md")).toBe("see [[C]] and [x](C.md)");
+	});
+
+	// An editor save can land while the note is renamed.
+	test("a link is rewritten where it is now when its note changed since it was indexed", async () => {
+		const { vault, fm, read, dir } = await setup({ "old.md": "", "src.md": "x [[old]]" });
+		vault.on("rename", () => fs.writeFileSync(path.join(dir, "src.md"), "typed first\nx [[old]]"));
+		await fm.renameFile(vault.getFileByPath("old.md")!, "new.md");
+		expect(read("src.md")).toBe("typed first\nx [[new]]");
+	});
+
 	test("renaming onto an existing note fails and rewrites nothing", async () => {
 		const { vault, fm, read } = await setup({ "a.md": "A", "b.md": "B", "src.md": "[[a]]" });
 		await expect(fm.renameFile(vault.getFileByPath("a.md")!, "b.md")).rejects.toThrow("Destination file already exists!");

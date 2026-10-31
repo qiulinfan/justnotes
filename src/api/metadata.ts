@@ -717,7 +717,7 @@ export class MetadataCache extends Events {
 		this.#flush();
 		this.resolved = true;
 		this.trigger("resolved");
-		for (const cb of this.#onClean.splice(0)) cb();
+		this.#settle();
 	}
 
 	#buildNames() {
@@ -747,6 +747,7 @@ export class MetadataCache extends Events {
 		} finally {
 			this.#inflight--;
 			if (!this.#inflight && this.#dirty) this.#scheduleFlush();
+			this.#settle();
 		}
 	}
 
@@ -821,16 +822,31 @@ export class MetadataCache extends Events {
 
 	#flush() {
 		this.#flushQueued = false;
-		if (!this.#dirty || this.#inflight) return;
-		this.#dirty = false;
-		const files = [...this.#pending];
-		this.#pending.clear();
-		for (const file of files) {
-			if (this.vault.getAbstractFileByPath(file.path) !== file || !this.#cache.has(file.path)) continue;
-			this.#resolve(file);
-			this.trigger("resolve", file);
+		if (this.#dirty && !this.#inflight) {
+			this.#dirty = false;
+			const files = [...this.#pending];
+			this.#pending.clear();
+			for (const file of files) {
+				if (this.vault.getAbstractFileByPath(file.path) !== file || !this.#cache.has(file.path)) continue;
+				this.#resolve(file);
+				this.trigger("resolve", file);
+			}
+			if (this.resolved) this.trigger("resolved");
 		}
-		if (this.resolved) this.trigger("resolved");
+		this.#settle();
+	}
+
+	// The cache is clean once the initial index is done and no note is being
+	// read or waits to be resolved.
+	#settle() {
+		if (!this.resolved || this.#inflight || this.#dirty || this.#flushQueued) return;
+		for (const cb of this.#onClean.splice(0)) {
+			try {
+				cb();
+			} catch (err) {
+				console.error(err);
+			}
+		}
 	}
 
 	#resolve(file: TFile) {
@@ -1006,8 +1022,10 @@ export class MetadataCache extends Events {
 		});
 	}
 
+	// Runs cb once the cache is clean: after the initial index, with every
+	// change read so far parsed and resolved.
 	onCleanCache(cb: () => void) {
-		if (this.resolved) cb();
-		else this.#onClean.push(cb);
+		this.#onClean.push(cb);
+		this.#settle();
 	}
 }
