@@ -3,6 +3,7 @@ import { parseMetadata } from "../src/api/metadata";
 import { moment } from "../src/api/util";
 import { dailyNoteDate, dailyNotePath } from "../src/renderer/daily-notes";
 import { findMentions, headingAt, headingTree, mentionSkips, outlineMatches } from "../src/renderer/link-panes";
+import { sortTags, type TagNode, tagTree } from "../src/renderer/tag-pane";
 import { fillTemplate, templateEdits } from "../src/renderer/templates";
 import { countWords } from "../src/renderer/word-count";
 
@@ -56,6 +57,26 @@ describe("outline", () => {
 		const names = (nodes: typeof roots): string[] => nodes.flatMap((n) => [...(shown?.has(n) ? [n.heading.heading] : []), ...names(n.children)]);
 		expect(names(roots)).toEqual(["Limits", "Series", "Limit tests"]);
 		expect(outlineMatches(roots, "  ")).toBeNull();
+	});
+});
+
+describe("tags view", () => {
+	const shape = (nodes: TagNode[]): unknown[] => nodes.map((n) => (n.children.length ? [`${n.name} ${n.count}`, shape(n.children)] : `${n.name} ${n.count}`));
+
+	test("nested tags form a tree whose counts are the notes under each tag, a tag repeated in one note counted once, under its first spelling", () => {
+		const notes = [["#proj/alpha", "#proj/alpha", "#Proj"], ["#proj/beta/x"], ["#idea"]];
+		expect(shape(sortTags(tagTree(notes, true), "alphabetical"))).toEqual(["idea 1", ["proj 2", ["alpha 1", ["beta 1", ["x 1"]]]]]);
+	});
+
+	test("the flat list keeps each full tag; spellings differing in case are one tag", () => {
+		expect(shape(sortTags(tagTree([["#a/b", "#A/B"], ["#a/B"]], false), "alphabetical"))).toEqual(["#a/b 2"]);
+	});
+
+	test("frequency sorts by count, ties by name; the reverse orders flip", () => {
+		const roots = tagTree([["#b", "#c"], ["#c"], ["#a"]], true);
+		expect(shape(sortTags(roots, "frequency"))).toEqual(["c 2", "a 1", "b 1"]);
+		expect(shape(sortTags(roots, "frequencyReverse"))).toEqual(["a 1", "b 1", "c 2"]);
+		expect(shape(sortTags(roots, "alphabeticalReverse"))).toEqual(["c 2", "b 1", "a 1"]);
 	});
 });
 

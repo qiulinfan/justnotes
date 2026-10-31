@@ -1,0 +1,57 @@
+/* Tags view */
+.tag-pane {
+	display: flex;
+	flex-direction: column;
+	font-size: var(--font-ui-small);
+}
+
+.tag-container {
+	flex: 1;
+	padding: 4px 8px 32px;
+	overflow-y: auto;
+	user-select: none;
+}
+
+.tag-pane-tag {
+	cursor: pointer;
+}
+
+.tag-pane-tag .collapse-icon {
+	display: flex;
+	width: 16px;
+	flex-shrink: 0;
+	color: var(--text-faint);
+}
+
+.tag-pane-tag .collapse-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+.tag-pane-tag-text {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.tag-pane-tag-count {
+	padding: 0 6px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.tag-pane-tag-item > .tree-item-children {
+	margin-left: 10px;
+	padding-left: 6px;
+	border-left: 1px solid var(--background-modifier-border);
+}
+
+.tag-pane .nav-action-button.is-active {
+	color: var(--text-accent);
+}
+
+.tag-pane .pane-empty {
+	padding: 8px;
+	color: var(--text-faint);
+}
