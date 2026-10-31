@@ -2,14 +2,18 @@
 // ("Detect all file extensions", `showUnsupportedFiles`), and which ones the
 // excluded files (`userIgnoreFilters`) push down or leave out.
 import type { App } from "./app";
-import { IMAGE_EXTENSIONS } from "./markdown";
+import { AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from "./markdown";
 import type { TFile } from "./vault";
 
-// What Obsidian opens itself: notes, canvases, bases, images, audio, video
-// and PDFs (in justnotes, also what a plugin registered a view for).
+// Shown whatever "Detect all file extensions" says: Markdown, TeX and plain
+// text (first-class in justnotes, unlike Obsidian), images, audio, video,
+// PDFs, canvases and bases.
+const ALWAYS_SHOWN = new Set(["md", "tex", "txt", "pdf", "canvas", "base", ...IMAGE_EXTENSIONS, ...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS]);
+
+// What justnotes opens itself, and what a plugin registered a view for.
 export function isSupportedExtension(app: App, extension: string) {
 	const ext = extension.toLowerCase();
-	return app.viewRegistry.isExtensionRegistered(ext) || IMAGE_EXTENSIONS.has(ext) || ext === "pdf";
+	return ALWAYS_SHOWN.has(ext) || app.viewRegistry.isExtensionRegistered(ext);
 }
 
 export function isFileShown(app: App, file: TFile) {

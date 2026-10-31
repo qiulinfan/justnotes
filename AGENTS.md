@@ -538,9 +538,10 @@ plain style. Development notes belong in this file.
     Mod+Shift+V pastes plain text. Default view and editing mode apply to new
     tabs, as in Obsidian.
   - Files and links: Show all file types (`showUnsupportedFiles`) hides from
-    the explorer, the quick switcher and link suggestions what Obsidian does
-    not open (`isSupportedExtension`: registered view extensions, images,
-    PDFs); excluded files (`userIgnoreFilters`, a path prefix or a
+    the explorer, the quick switcher and link suggestions what justnotes does
+    not open (`isSupportedExtension`: Markdown, TeX and plain text, images,
+    audio, video, PDFs, canvases and bases always show, as do extensions a
+    view is registered for); excluded files (`userIgnoreFilters`, a path prefix or a
     `/regex/`, managed on a sub-page) are left out of search, the graph and
     unlinked mentions and put last in the quick switcher and link
     suggestions (`excludedLast`).
