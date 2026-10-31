@@ -1,16 +1,6 @@
 /* The Bookmarks view: rows like the file explorer's, with a type icon. */
-.bookmarks-tree .nav-file-title {
-	padding-left: 8px;
-}
-
 .bookmarks-tree .bookmark-icon {
-	display: inline-flex;
 	color: var(--text-faint);
-}
-
-.bookmarks-tree .tree-item-icon .svg-icon {
-	width: var(--icon-xs);
-	height: var(--icon-xs);
 }
 
 .bookmarks-tree .bookmark-item.is-unresolved .tree-item-inner {

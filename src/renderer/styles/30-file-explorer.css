@@ -1,6 +1,7 @@
-/* File explorer */
+/* File explorer, and the tree rows every sidebar pane shares. Sizes come from
+   the --nav-* variables, as in Obsidian. */
 .nav-header {
-	padding: 6px 8px;
+	padding: var(--size-2-3) var(--size-4-2);
 	display: flex;
 	justify-content: center;
 }
@@ -11,56 +12,82 @@
 	display: flex;
 	flex-wrap: wrap;
 	justify-content: center;
-	gap: 4px;
+	gap: var(--size-2-2);
 }
 
 .nav-files-container {
-	padding: 4px 8px 32px;
-	font-size: var(--font-ui-small);
+	padding: var(--size-4-1) var(--size-4-2) var(--size-4-8);
+	font-size: var(--nav-item-size);
 	height: calc(100% - 44px);
 	overflow-y: auto;
 	user-select: none;
 }
 
+/* Every row leaves room on the left for a collapse chevron, so the names of
+   files and folders line up. */
 .tree-item-self {
+	position: relative;
 	display: flex;
 	align-items: center;
-	gap: 4px;
-	padding: 3px 8px;
-	border-radius: var(--radius-s);
-	color: var(--text-muted);
+	padding: var(--nav-item-padding);
+	margin-bottom: var(--nav-item-margin-bottom);
+	border-radius: var(--nav-item-radius);
+	font-size: var(--nav-item-size);
+	font-weight: var(--nav-item-weight);
+	line-height: var(--line-height-tight);
+	color: var(--nav-item-color);
 	cursor: default;
-	white-space: nowrap;
+	white-space: var(--nav-item-white-space);
+}
+
+.tree-item-self:has(> .collapse-icon),
+.tree-item-self.mod-collapsible,
+.nav-folder-title {
+	padding: var(--nav-item-parent-padding);
 }
 
 .tree-item-self:hover {
-	background: var(--background-modifier-hover);
-	color: var(--text-normal);
+	background: var(--nav-item-background-hover);
+	color: var(--nav-item-color-hover);
+	font-weight: var(--nav-item-weight-hover);
 }
 
-.nav-file-title {
-	padding-left: 24px;
+.tree-item-self.is-active {
+	background: var(--nav-item-background-active);
+	color: var(--nav-item-color-active);
+	font-weight: var(--nav-item-weight-active);
 }
 
-.nav-file-title.is-active,
 .tree-item-self.is-selected {
-	background: var(--background-modifier-active-hover);
-	color: var(--text-normal);
+	background: var(--nav-item-background-selected);
+	color: var(--nav-item-color-selected);
 }
 
 .tree-item-inner {
+	flex: 1;
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
 
-.collapse-icon {
+/* The chevron sits in the row's left padding, centred over the indentation
+   guide of the children below it. */
+.tree-item-self > .collapse-icon {
 	display: flex;
-	color: var(--text-faint);
+	justify-content: center;
+	flex-shrink: 0;
+	width: var(--size-4-4);
+	margin-inline-start: calc(-1 * var(--size-4-5));
+	padding-inline-end: var(--size-2-2);
+	box-sizing: content-box;
+	color: var(--nav-collapse-icon-color);
 }
 
-.collapse-icon .svg-icon {
-	width: var(--icon-xs);
-	height: var(--icon-xs);
+.collapse-icon {
+	display: flex;
+	color: var(--collapse-icon-color);
+	--icon-size: var(--icon-xs);
+	--icon-stroke: var(--icon-xs-stroke-width);
 }
 
 /* Obsidian's collapse icon points down and turns to the side when collapsed;
@@ -69,18 +96,53 @@
 	transform: rotate(-90deg);
 }
 
+.tree-item-self > .collapse-icon.is-collapsed {
+	color: var(--nav-collapse-icon-color-collapsed);
+}
+
+/* An icon before the name (bookmarks, all properties). */
+.tree-item-icon:not(.collapse-icon) {
+	display: flex;
+	flex-shrink: 0;
+	margin-inline-end: var(--size-2-2);
+	color: var(--icon-color);
+	--icon-size: var(--icon-xs);
+	--icon-stroke: var(--icon-xs-stroke-width);
+}
+
 .tree-item-children {
-	padding-left: 12px;
-	margin-left: 10px;
-	border-left: 1px solid var(--background-modifier-border);
+	padding-inline-start: var(--nav-item-children-padding-start);
+	margin-inline-start: var(--nav-item-children-margin-start);
+	border-inline-start: var(--nav-indentation-guide-width) solid var(--nav-indentation-guide-color);
+}
+
+/* A count or other note at the end of a row (the tags pane). */
+.tree-item-flair-outer {
+	margin-inline-start: auto;
+	padding-inline-start: var(--size-2-3);
+}
+
+.tree-item-flair {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
 }
 
 .nav-file-tag {
-	margin-left: auto;
+	margin-inline-start: auto;
+	padding: 0 var(--size-2-2);
+	border-radius: var(--nav-tag-radius);
+	background: var(--nav-tag-background);
+	color: var(--nav-tag-color);
 	font-size: 10px;
+	font-weight: var(--nav-tag-weight);
+	line-height: var(--line-height-tight);
 	text-transform: uppercase;
-	padding: 0 4px;
-	border-radius: var(--radius-s);
-	background: var(--background-secondary-alt);
-	color: var(--text-muted);
+}
+
+.tree-item-self:hover .nav-file-tag {
+	color: var(--nav-tag-color-hover);
+}
+
+.tree-item-self.is-active .nav-file-tag {
+	color: var(--nav-tag-color-active);
 }

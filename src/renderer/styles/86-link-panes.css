@@ -1,16 +1,17 @@
 /* Backlinks, outgoing links and outline */
 .link-pane {
-	padding: 4px 8px 32px;
-	font-size: var(--font-ui-small);
+	padding: var(--size-4-1) var(--size-4-2) var(--size-4-8);
+	font-size: var(--nav-item-size);
+	line-height: var(--line-height-tight);
 	overflow-y: auto;
 }
 
 .link-pane-section-header {
 	display: flex;
 	align-items: center;
-	gap: 4px;
-	padding: 6px 2px;
-	font-weight: 600;
+	gap: var(--size-2-2);
+	padding: var(--size-2-3) var(--size-2-1);
+	font-weight: var(--font-semibold);
 	color: var(--text-muted);
 	cursor: pointer;
 }
@@ -19,16 +20,17 @@
 	color: var(--text-normal);
 }
 
+/* One line high, so it stays by the first line of a heading that wraps. */
 .link-pane-collapse {
 	display: flex;
-	width: 16px;
+	align-items: center;
+	justify-content: center;
+	width: var(--size-4-4);
+	height: calc(1em * var(--line-height-tight));
 	flex-shrink: 0;
-	color: var(--text-faint);
-}
-
-.link-pane-collapse svg {
-	width: 14px;
-	height: 14px;
+	color: var(--nav-collapse-icon-color);
+	--icon-size: var(--icon-xs);
+	--icon-stroke: var(--icon-xs-stroke-width);
 }
 
 .link-pane-count {
@@ -109,29 +111,32 @@
 	color: var(--text-faint);
 }
 
+/* Outline rows are tree rows whose chevron (or its empty place) leads the
+   name; the indentation guide falls under the chevron's centre. */
 .outline-item-self {
 	display: flex;
-	align-items: center;
-	padding: 3px 4px;
-	border-radius: var(--radius-s);
-	color: var(--text-muted);
+	align-items: flex-start;
+	padding: var(--size-4-1) var(--size-4-2) var(--size-4-1) var(--size-2-2);
+	margin-bottom: var(--nav-item-margin-bottom);
+	border-radius: var(--nav-item-radius);
+	color: var(--nav-item-color);
 	cursor: pointer;
 }
 
 .outline-item-self:hover {
-	background: var(--background-modifier-hover);
-	color: var(--text-normal);
+	background: var(--nav-item-background-hover);
+	color: var(--nav-item-color-hover);
 }
 
 .outline-item-self.is-active {
-	background: var(--background-modifier-active-hover, var(--background-modifier-hover));
-	color: var(--text-normal);
+	background: var(--nav-item-background-selected);
+	color: var(--nav-item-color-active);
 }
 
 .outline-item-children {
-	margin-left: 10px;
-	padding-left: 6px;
-	border-left: 1px solid var(--background-modifier-border);
+	padding-inline-start: var(--nav-item-children-padding-start);
+	margin-inline-start: var(--nav-item-children-margin-start);
+	border-inline-start: var(--nav-indentation-guide-width) solid var(--nav-indentation-guide-color);
 }
 
 /* Backlinks under a note, in the editor and the reading view */
