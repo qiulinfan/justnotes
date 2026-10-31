@@ -3,6 +3,7 @@ import * as YAML from "yaml";
 import type { App } from "./app";
 import { insertProperty, locateFrontmatter, readProperties, removeProperty, replaceFrontmatter, setProperty } from "./frontmatter-edit";
 import { parseMetadata, type Reference, type ReferenceCache } from "./metadata";
+import { texRelink, textParserFor } from "./metadata-text";
 import { getLinkpath, locateFrontMatter, parseLinktext } from "./metadata-utils";
 import { Modal } from "./ui/modal";
 import { normalizePath } from "./util";
@@ -73,8 +74,14 @@ export class FileManager {
 	}
 
 	async createNewMarkdownFile(folder: TFolder, name = "Untitled", content = "") {
+		return this.createNewNoteFile(folder, "md", name, content);
+	}
+
+	// justnotes' own: a new note of any note extension (md, tex, txt), named
+	// "Untitled" and numbered past the names the folder already has.
+	async createNewNoteFile(folder: TFolder, extension: string, name = "Untitled", content = "") {
 		const base = folder.isRoot() ? "" : `${folder.path}/`;
-		return this.app.vault.create(this.app.vault.getAvailablePath(`${base}${name}`, "md"), content);
+		return this.app.vault.create(this.app.vault.getAvailablePath(`${base}${name}`, extension), content);
 	}
 
 	async createNewMarkdownFileFromLinktext(linktext: string, sourcePath: string) {
@@ -102,31 +109,37 @@ export class FileManager {
 		if (file instanceof TFolder) Vault.recurseChildren(file, (f) => f instanceof TFile && moved.push(f));
 		else if (file instanceof TFile) moved.push(file);
 
-		const candidates: { source: TFile; ref: Reference; target: TFile }[] = [];
+		// `was` is the target's path before the move: a TeX path is rewritten
+		// relative to the folder its old form was relative to.
+		const candidates: { source: TFile; ref: Reference; target: TFile; was: string; from: string }[] = [];
 		for (const target of moved) {
 			for (const [path, refs] of cache.getBacklinksForFile(target).data) {
 				const source = vault.getFileByPath(path);
-				if (source) for (const ref of refs) candidates.push({ source, ref, target });
+				if (source) for (const ref of refs) candidates.push({ source, ref, target, was: target.path, from: source.path });
 			}
 		}
 		for (const source of moved) {
 			const own = cache.getFileCache(source);
 			for (const ref of [...(own?.links ?? []), ...(own?.embeds ?? []), ...(own?.frontmatterLinks ?? [])]) {
 				const target = cache.getFirstLinkpathDest(getLinkpath(ref.link), source.path);
-				if (target) candidates.push({ source, ref, target });
+				if (target) candidates.push({ source, ref, target, was: target.path, from: source.path });
 			}
 		}
 
 		await vault.rename(file, newPath);
 
-		const edits = new Map<TFile, Map<Reference, TFile>>();
+		const edits = new Map<TFile, Map<Reference, Relink>>();
 		let count = 0;
-		for (const { source, ref, target } of candidates) {
-			if (cache.getFirstLinkpathDest(getLinkpath(ref.link), source.path) === target) continue;
+		for (const { source, ref, target, was, from } of candidates) {
+			// A TeX path must still be right as TeX reads it, which the lenient
+			// link resolution cannot tell: it changes when its rewrite does.
+			if (ref.original.startsWith("\\")) {
+				if (texRelink(ref, { from, to: source.path }, target.path, was) === ref.original) continue;
+			} else if (cache.getFirstLinkpathDest(getLinkpath(ref.link), source.path) === target) continue;
 			let refs = edits.get(source);
 			if (!refs) edits.set(source, (refs = new Map()));
 			if (!refs.has(ref)) count++;
-			refs.set(ref, target);
+			refs.set(ref, { target, was, from });
 		}
 		if (edits.size && (vault.getConfig("alwaysUpdateLinks") || (await this.#confirmUpdate(edits.size, count)))) {
 			for (const [source, refs] of edits) await this.#rewrite(source, refs);
@@ -140,7 +153,7 @@ export class FileManager {
 		await this.#cacheClean();
 		for (const [path, refs] of this.app.metadataCache.getBacklinksForFile(file).data) {
 			const source = this.app.vault.getFileByPath(path);
-			if (source) await this.#rewrite(source, new Map(refs.map((ref) => [ref, target])));
+			if (source) await this.#rewrite(source, new Map(refs.map((ref) => [ref, { target, was: file.path, from: source.path }])));
 		}
 		await this.#cacheClean();
 	}
@@ -160,14 +173,14 @@ export class FileManager {
 	// Each link is looked up again in the current text, among the links
 	// written the same way, nearest its cached place: the note may have been
 	// edited since it was indexed.
-	async #rewrite(source: TFile, refs: Map<Reference, TFile>) {
+	async #rewrite(source: TFile, refs: Map<Reference, Relink>) {
 		await this.app.vault.process(source, (text) => {
 			const fm = locateFrontMatter(text);
-			const current = parseMetadata(text);
+			const current = (textParserFor(source.extension) ?? parseMetadata)(text);
 			const unclaimed = [...(current.links ?? []), ...(current.embeds ?? [])];
 			const splices = new Map<number, { to: number; text: string }>();
-			for (const [ref, target] of refs) {
-				const replacement = this.#relink(ref, target, source.path);
+			for (const [ref, relink] of refs) {
+				const replacement = this.#relink(ref, source.path, relink);
 				const position = (ref as ReferenceCache).position;
 				if (position) {
 					const found = claim(unclaimed, ref.original, position.start.offset);
@@ -184,8 +197,10 @@ export class FileManager {
 		});
 	}
 
-	#relink(ref: Reference, target: TFile, sourcePath: string) {
+	#relink(ref: Reference, sourcePath: string, { target, was, from }: Relink) {
 		const cache = this.app.metadataCache;
+		// A TeX source's \input-like command (metadata-text.ts).
+		if (ref.original.startsWith("\\")) return texRelink(ref, { from, to: sourcePath }, target.path, was);
 		const { path, subpath } = parseLinktext(ref.link);
 		const keepMd = /\.md$/i.test(path);
 		const original = ref.original;
@@ -304,4 +319,12 @@ export class FileManager {
 		}
 		return normalizePath(configured);
 	}
+}
+
+// A link's new target; `was` is the target's path and `from` the source's
+// before the move.
+interface Relink {
+	target: TFile;
+	was: string;
+	from: string;
 }

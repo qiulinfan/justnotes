@@ -5,6 +5,7 @@ import type { App } from "../api/app";
 import { setIcon } from "../api/icons";
 import { Keymap } from "../api/keymap";
 import { getAllTags } from "../api/metadata-utils";
+import { isIndexedNote } from "../api/note-files";
 import { Menu } from "../api/ui/menu";
 import { Setting } from "../api/ui/setting";
 import { debounce } from "../api/util";
@@ -108,7 +109,7 @@ abstract class BaseGraphView extends ItemView {
 		const files = vault.getFiles();
 		if (queries.some((q) => q.needsText)) {
 			for (const file of files) {
-				if (file.extension !== "md" || this.#texts.has(file.path)) continue;
+				if (!isIndexedNote(file) || this.#texts.has(file.path)) continue;
 				const text = await vault.cachedRead(file);
 				if (generation !== this.#generation) return;
 				this.#texts.set(file.path, text);

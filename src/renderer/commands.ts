@@ -59,10 +59,14 @@ export function registerCoreCommands(app: App) {
 	add("workspace:close", "Close current tab", [["Mod"], "w"], () => app.workspace.activeLeaf?.detach());
 	// The new note goes where "Default location for new notes" says, which can
 	// be the active note's folder.
-	add("file-explorer:new-file", "Create new note", [["Mod"], "n"], async () => {
-		const file = await app.fileManager.createNewMarkdownFile(app.fileManager.getNewFileParent(app.workspace.getActiveFile()?.path ?? ""));
+	const newNote = async (extension: string) => {
+		const file = await app.fileManager.createNewNoteFile(app.fileManager.getNewFileParent(app.workspace.getActiveFile()?.path ?? ""), extension);
 		await app.workspace.getLeaf(false).openFile(file);
-	});
+	};
+	add("file-explorer:new-file", "Create new note", [["Mod"], "n"], () => newNote("md"));
+	// justnotes' own: TeX and text notes, in the same place.
+	add("file-explorer:new-tex-file", "Create new TeX file", null, () => newNote("tex"));
+	add("file-explorer:new-text-file", "Create new text file", null, () => newNote("txt"));
 	// Also from inside the Properties block, so not an editor command.
 	app.commands.addCommand({
 		id: "markdown:add-metadata-property",

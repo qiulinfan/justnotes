@@ -1,5 +1,6 @@
 import type { CachedMetadata } from "../api/metadata";
 import { getAllTags, parseFrontMatterTags } from "../api/metadata-utils";
+import { isIndexedNote } from "../api/note-files";
 import { debounce } from "../api/util";
 import type { TFile } from "../api/vault";
 import { ItemView } from "../api/view";
@@ -134,7 +135,11 @@ export class SearchView extends ItemView {
 		const nameRe = re && new RegExp(re.source, re.flags.replace("g", ""));
 		let files = 0;
 		let matches = 0;
-		const all = this.app.vault.getMarkdownFiles().sort((a, b) => b.stat.mtime - a.stat.mtime);
+		// TeX and text notes have no tags, so a tag query reads Markdown only.
+		const all = this.app.vault
+			.getFiles()
+			.filter((f) => (tag === null ? isIndexedNote(f) : f.extension === "md"))
+			.sort((a, b) => b.stat.mtime - a.stat.mtime);
 		for (const file of all) {
 			const cache = tag === null ? null : this.app.metadataCache.getFileCache(file);
 			// Only a tagged note is worth reading for a tag.
@@ -154,7 +159,7 @@ export class SearchView extends ItemView {
 
 	#show(file: TFile, text: string, found: SearchMatch[]) {
 		const group = this.#resultsEl.createDiv("search-result");
-		const title = group.createDiv({ cls: "search-result-file-title", text: file.path.replace(/\.md$/, "") });
+		const title = group.createDiv({ cls: "search-result-file-title", text: file.extension === "md" ? file.path.slice(0, -3) : file.path });
 		title.addEventListener("click", () => this.#open(file, null));
 		const drag = this.app.dragManager;
 		drag.handleDrag(title, (evt) => drag.dragFile(evt, file, "search"));

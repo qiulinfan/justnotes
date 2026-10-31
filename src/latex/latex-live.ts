@@ -32,7 +32,6 @@ import { registerBibliography } from "./editor/bibliographyView";
 import { registerProseTools } from "./editor/proseTools";
 import { registerProjectOutline } from "./editor/projectOutline";
 import { registerProjectOperations } from "./editor/projectOperations";
-import { registerNewTexFile } from "./editor/newTexFile";
 import { TexView, VIEW_TYPE_TEX } from "./editor/texView";
 import { registerExport } from "./export/command";
 import { TexlabServer, resolveTexlab, texlabSettings } from "./lsp/texlab";
@@ -296,7 +295,6 @@ export class LatexLive {
     registerProseTools(this);
     registerProjectOutline(this);
     registerProjectOperations(this);
-    registerNewTexFile(this);
 
     this.addCommand({
       id: "trigger-completion",

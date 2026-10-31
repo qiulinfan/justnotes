@@ -1,3 +1,4 @@
+import { isNoteExtension } from "../api/note-files";
 // The graph view's data: its options (Obsidian's graph.json and the local
 // graph's view state), the search language its filter and groups use, and the
 // nodes and links it shows. No DOM here; the view lives in graph-view.ts.
@@ -338,7 +339,7 @@ export interface GraphSource {
 	filter?: (file: GraphFile) => boolean;
 }
 
-// The global graph: Markdown notes, attachments when shown, a node per
+// The global graph: notes (Markdown, TeX and text), attachments when shown, a node per
 // unresolved link text unless "existing files only", a node per tag when
 // shown; then, without orphans, every node no link touches is dropped.
 export function buildGraph(source: GraphSource, options: Pick<GraphOptions, "showTags" | "showAttachments" | "hideUnresolved" | "showOrphans">): GraphData {
@@ -350,7 +351,7 @@ export function buildGraph(source: GraphSource, options: Pick<GraphOptions, "sho
 	};
 	const notes: GraphFile[] = [];
 	for (const file of source.files) {
-		const isNote = file.extension === "md";
+		const isNote = isNoteExtension(file.extension);
 		if (!isNote && !options.showAttachments) continue;
 		if (source.filter && !source.filter(file)) continue;
 		add(file.path, isNote ? "file" : "attachment");

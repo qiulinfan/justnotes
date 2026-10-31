@@ -1,5 +1,6 @@
 import type { App } from "../../api/app";
 import type { CliData } from "../../api/plugin";
+import { isNoteExtension } from "../../api/note-files";
 import { normalizePath } from "../../api/util";
 import { TFile, TFolder } from "../../api/vault";
 import { CliError, NeedsApp, type Result, usage } from "../output";
@@ -61,6 +62,12 @@ export function folderParam(ctx: Ctx, params: CliData, key: string): TFolder | n
 
 export function inFolder(path: string, folder: TFolder | null) {
 	return !folder || folder.isRoot() || path.startsWith(`${folder.path}/`);
+}
+
+// A note of any kind: Markdown, TeX or text (api/note-files.ts).
+export function note(file: TFile) {
+	if (!isNoteExtension(file.extension)) throw usage(`${file.path} is not a note (Markdown, TeX or text).`);
+	return file;
 }
 
 export function markdown(file: TFile) {
