@@ -308,7 +308,7 @@ class RenameModal extends Modal {
 		const config = controller.configs[controller.viewIndex];
 		this.#input = this.contentEl.createEl("input", { type: "text", cls: "prompt-modal-input", value: config.getDisplayName(id) });
 		this.#input.addEventListener("keydown", (evt) => {
-			if (evt.key !== "Enter") return;
+			if (evt.key !== "Enter" || evt.isComposing) return;
 			evt.preventDefault();
 			// Reuse the key the base already has for this property; a new note
 			// property is written by its bare name, as Obsidian does.

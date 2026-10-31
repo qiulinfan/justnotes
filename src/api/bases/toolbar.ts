@@ -45,7 +45,7 @@ export class BasesToolbar {
 		}, 150, true);
 		this.#searchEl.addEventListener("input", () => search());
 		this.#searchEl.addEventListener("keydown", (evt) => {
-			if (evt.key !== "Escape") return;
+			if (evt.key !== "Escape" || evt.isComposing) return;
 			evt.stopPropagation();
 			this.#searchEl.value = "";
 			search();

@@ -308,6 +308,8 @@ export class TableView extends BasesView {
 		};
 		const field: HTMLElement = input;
 		field.addEventListener("keydown", (e) => {
+			// Enter and Escape belong to an input method while it composes.
+			if (e.isComposing) return;
 			if (e.key === "Enter" && (!editor.multiline || Keymap.isModifier(e, "Mod"))) {
 				e.preventDefault();
 				finish(true);
