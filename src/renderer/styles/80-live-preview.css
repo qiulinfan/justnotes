@@ -258,11 +258,10 @@
 	opacity: 1;
 }
 
-/* The room in a base's toolbar shrinks away before any of its items, so it
-   adds nothing to the width the toolbar needs. */
-.markdown-source-view.mod-cm6 .cm-embed-block .bases-toolbar::after {
-	content: "";
-	flex: 0 1 24px;
+/* The toolbar wraps, so room kept for the edit button on every row adds
+   nothing to the width the note needs. */
+.markdown-source-view.mod-cm6 .cm-embed-block .bases-toolbar {
+	padding-right: 34px;
 }
 
 .markdown-source-view.mod-cm6 .cm-embed-block:hover > .edit-block-button {
