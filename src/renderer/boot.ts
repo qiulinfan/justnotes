@@ -101,6 +101,9 @@ function handleWindowClose(app: App) {
 		app.saveLayoutState();
 		app.workspace.closePopoutsForUnload();
 	});
+	// A beforeunload handler (a plugin's) kept the page; main closes the
+	// popouts it let go of.
+	ipcRenderer.on("justnotes:unload-cancelled", () => app.workspace.unloadCancelled());
 }
 
 async function boot() {

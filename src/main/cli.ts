@@ -8,6 +8,7 @@ import { BUILTINS, builtinHelp, flagsOf, type PluginCommand } from "../cli/spec"
 import { pickVault } from "../cli/vaults";
 import { closeCli, serveCli } from "./cli-server";
 import { knownVaults, rememberVault } from "./ipc";
+import { restartArgs } from "./launch-args";
 
 // Runs `justnotes <command>` requests (src/cli/justnotes.ts): main picks the
 // vault, opening its window when it is not open yet, and the vault window's
@@ -119,9 +120,8 @@ async function mainCommand(windows: Map<string, BrowserWindow>, openVault: OpenV
 			}
 			case "restart": {
 				const { open } = openVaults(windows);
-				const args = process.argv.slice(1).filter((arg, i, all) => arg !== "--vault" && all[i - 1] !== "--vault");
 				later(() => {
-					app.relaunch({ args: [...args, ...open.flatMap((v) => ["--vault", v])] });
+					app.relaunch({ args: restartArgs(process.argv.slice(1), open) });
 					app.quit();
 				});
 				return { stdout: render({ data: { restarting: true }, text: "Restarting justnotes." }, params), stderr: "", code: 0 };

@@ -8,11 +8,20 @@ import { type CliAddress, type CliRequest, type CliResponse, EXIT_FAILURE, enter
 
 // Room for a note read from stdin (content=-).
 const MAX_REQUEST = 32 << 20;
+// The command writes its whole request as soon as it connects; a connection
+// that has not sent one complete request line by then is closed, so idle or
+// stalled clients cannot hold sockets open. Dispatching has no limit: a
+// request waits for its window and for long commands.
+const REQUEST_TIMEOUT = 10_000;
 
 // Starts listening, or resolves null when another live instance already
 // serves this profile (the socket answers), leaving that one alone. A socket
 // file nobody answers on is left from a crash and is replaced.
-export async function serveCli(address: CliAddress, dispatch: (req: CliRequest) => Promise<CliResponse>): Promise<net.Server | null> {
+export async function serveCli(
+	address: CliAddress,
+	dispatch: (req: CliRequest) => Promise<CliResponse>,
+	{ requestTimeout = REQUEST_TIMEOUT }: { requestTimeout?: number } = {},
+): Promise<net.Server | null> {
 	if (address.dir) {
 		privateDir(address.dir);
 		if (fs.existsSync(address.path)) {
@@ -20,7 +29,7 @@ export async function serveCli(address: CliAddress, dispatch: (req: CliRequest) 
 			fs.rmSync(address.path, { force: true });
 		}
 	}
-	const server = net.createServer((socket) => handle(socket, dispatch));
+	const server = net.createServer((socket) => handle(socket, dispatch, requestTimeout));
 	const listening = new Promise<void>((resolve, reject) => {
 		server.once("listening", resolve);
 		server.once("error", reject);
@@ -73,11 +82,13 @@ function answers(address: CliAddress) {
 	});
 }
 
-function handle(socket: net.Socket, dispatch: (req: CliRequest) => Promise<CliResponse>) {
+function handle(socket: net.Socket, dispatch: (req: CliRequest) => Promise<CliResponse>, requestTimeout: number) {
 	const reader = new LineReader(MAX_REQUEST);
 	let taken = false;
+	const timer = setTimeout(() => socket.destroy(), requestTimeout);
 	socket.setEncoding("utf8");
 	socket.on("error", () => {});
+	socket.on("close", () => clearTimeout(timer));
 	socket.on("data", async (chunk: string) => {
 		if (taken) return;
 		let request: unknown;
@@ -85,10 +96,12 @@ function handle(socket: net.Socket, dispatch: (req: CliRequest) => Promise<CliRe
 			request = reader.push(chunk);
 		} catch (err) {
 			taken = true;
+			clearTimeout(timer);
 			return reply(socket, { stdout: "", stderr: `Bad request: ${message(err)}`, code: EXIT_FAILURE });
 		}
 		if (request === undefined) return;
 		taken = true;
+		clearTimeout(timer);
 		if (!isRequest(request)) return reply(socket, { stdout: "", stderr: "Bad request", code: EXIT_FAILURE });
 		let response: CliResponse;
 		try {

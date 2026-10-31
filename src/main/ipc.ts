@@ -12,11 +12,7 @@ export { realPathOf, vaultNamed, vaultOf } from "../cli/vaults";
 
 // IPC handlers the renderer calls into.
 export function registerIpc() {
-	const { dialog, ipcMain } = electron;
-	ipcMain.handle("justnotes:pick-folder", async () => {
-		const picked = await dialog.showOpenDialog({ properties: ["openDirectory"] });
-		return picked.canceled ? null : picked.filePaths[0];
-	});
+	const { ipcMain } = electron;
 	ipcMain.handle("justnotes:request-url", (evt, req: RequestParams) => requestUrl(req, evt.sender.getUserAgent()));
 	// SecretStorage is synchronous in the renderer, which waits on sendSync
 	// until the reply is set.

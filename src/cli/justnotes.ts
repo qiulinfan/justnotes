@@ -26,6 +26,7 @@ import { pickVault, readKnownVaults } from "./vaults";
 const ROOT = path.resolve(import.meta.dirname, "../..");
 // How long a started app may take to answer.
 const LAUNCH_WAIT = 60_000;
+const RESTART_EVERY = 2000;
 
 export interface Options {
 	profile: string;
@@ -152,10 +153,26 @@ function appCommand(options: Options, vault: string): { command: string; args: s
 }
 
 // Starts the app for `vault` (with this profile) in the background, and waits
-// until it serves the profile's socket.
+// until it serves the profile's socket. The app runs once per profile: a start
+// while another instance holds the profile hands that instance the vault and
+// exits at once, so two commands starting the app together start one. If that
+// instance was quitting, the vault went nowhere and no socket comes up; a
+// started app that has exited without one is started again, at most every
+// RESTART_EVERY ms.
 async function launch(options: Options, vault: string) {
 	const { command, args, cwd, env } = appCommand(options, vault);
-	spawn(command, args, { cwd, env, detached: true, stdio: "ignore" }).unref();
+	let running = false;
+	let startedAt = 0;
+	const start = () => {
+		running = true;
+		startedAt = Date.now();
+		const child = spawn(command, args, { cwd, env, detached: true, stdio: "ignore" });
+		const exited = () => (running = false);
+		child.once("exit", exited);
+		child.once("error", exited);
+		child.unref();
+	};
+	start();
 	process.stderr.write(`Starting justnotes for ${vault}...\n`);
 	const deadline = Date.now() + LAUNCH_WAIT;
 	while (Date.now() < deadline) {
@@ -174,6 +191,7 @@ async function launch(options: Options, vault: string) {
 			process.chdir(cwd);
 			if (up) return;
 		} catch {}
+		if (!running && Date.now() - startedAt >= RESTART_EVERY) start();
 	}
 	throw new CliError("justnotes did not start within a minute.");
 }

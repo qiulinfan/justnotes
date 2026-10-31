@@ -6,6 +6,7 @@ import { enclosingVault } from "../cli/vaults";
 import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultNamed, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
+import { isLaunchData, isObsidianUrl, type LaunchData, type LaunchRequest, launchRequest } from "./launch-args";
 import { droppedSchemes, sameAppPage } from "./link-policy";
 import { microphoneRequest, systemMicrophoneAccess } from "./media";
 import { isPopoutOpen } from "./popout";
@@ -25,12 +26,21 @@ function argValue(name: string): string | undefined {
 const profile = argValue("--profile");
 if (profile) app.setPath("userData", path.resolve(profile));
 
+// One instance per profile: Electron's lock lives in the user data folder, so
+// instances with their own --profile stay independent. A second launch on a
+// profile that is running hands its arguments (--vault folders, Markdown
+// files, obsidian: URLs) to the running instance (second-instance below) and
+// quits, so `justnotes` commands racing to start the app start it once.
+const launchData: LaunchData = { argv: process.argv, cwd: process.cwd() };
+const primary = app.requestSingleInstanceLock(launchData);
+if (!primary) app.quit();
+const firstLaunch = launchRequest(process.argv.slice(1), process.cwd());
+
 // obsidian:// URLs are handled by the vault window (app.handleObsidianUrl),
 // never by the OS, which would open Obsidian itself. They arrive as clicked
 // links, window.open, macOS open-url events or launch arguments. justnotes does
 // not register itself as the scheme's handler: that would take it from an
 // installed Obsidian.
-const isObsidianUrl = (url: string) => /^obsidian:/i.test(url);
 // The only URLs a <webview> guest's popups may hand to the system.
 const isWebUrl = (url: string) => /^(https?|mailto):/i.test(url);
 // Pages whose renderer listens for URLs. Until then a page's URLs wait in
@@ -39,7 +49,7 @@ const isWebUrl = (url: string) => /^(https?|mailto):/i.test(url);
 // commits (a reload).
 const listening = new WeakSet<WebContents>();
 const queuedUrls = new WeakMap<WebContents, string[]>();
-const earlyUrls = process.argv.filter(isObsidianUrl);
+const earlyUrls = [...firstLaunch.urls];
 
 // Delivers an obsidian: URL to the window of `from`, or else to the focused one.
 function sendObsidianUrl(url: string, from?: WebContents) {
@@ -200,6 +210,8 @@ function setApplicationMenu() {
 // Each popout's vault page, whose links its own count as (a popout's page
 // listens for no obsidian: URLs).
 const popoutOpeners = new WeakMap<WebContents, WebContents>();
+// The popouts of each vault page kept open while the app quits (setupPopout).
+const heldPopouts = new WeakMap<WebContents, Set<BrowserWindow>>();
 
 // Set once the app quits (the menu, Cmd+Q, `justnotes quit` or `restart`).
 let quitting = false;
@@ -232,7 +244,9 @@ function setupPopout(child: BrowserWindow, opener: WebContents) {
 	// before-close flush (lifecycle.ts): the page would drop their leaves and
 	// save a layout without them. They stay until the page goes.
 	child.on("close", (evt) => {
-		if (quitting && !opener.isDestroyed()) evt.preventDefault();
+		if (!quitting || opener.isDestroyed()) return;
+		evt.preventDefault();
+		heldPopouts.set(opener, (heldPopouts.get(opener) ?? new Set()).add(child));
 	});
 	opener.once("destroyed", close);
 	opener.on("did-start-navigation", onNavigation);
@@ -241,6 +255,19 @@ function setupPopout(child: BrowserWindow, opener: WebContents) {
 		opener.off("destroyed", close);
 		opener.off("did-start-navigation", onNavigation);
 	});
+}
+
+// A beforeunload handler of the vault page (a plugin's) kept it from closing:
+// Electron shows no dialog, the page stays and a quit in progress is over,
+// as Electron cancels its own. The page has already let go of its popouts
+// (closePopoutsForUnload), so the ones the quit held close now instead of
+// staying open with no page driving them, and the page saves its layout
+// again.
+function unloadCancelled(contents: WebContents) {
+	quitting = false;
+	for (const child of heldPopouts.get(contents) ?? []) if (!child.isDestroyed()) child.close();
+	heldPopouts.delete(contents);
+	contents.send("justnotes:unload-cancelled");
 }
 
 // One window per vault, by the vault folder's real path. main creates every
@@ -299,6 +326,7 @@ function openVault(vault: string) {
 		return { action: "deny" };
 	});
 	contents.on("did-create-window", (child) => setupPopout(child, contents));
+	contents.on("will-prevent-unload", () => unloadCancelled(contents));
 	// A link without a handler must not navigate the window away from the app;
 	// it opens as from window.open instead. Chromium never asks about an about:
 	// URL; the page cancels those navigations itself (boot.ts).
@@ -316,8 +344,7 @@ function openVault(vault: string) {
 // arrive as open-file events, at launch before the app is ready; Windows and
 // Linux pass them as arguments. Those that come before the first windows
 // open wait in launchFiles.
-const isMarkdown = (file: string) => /\.(md|markdown)$/i.test(file);
-const launchFiles = process.argv.slice(1).filter((arg) => isMarkdown(arg) && fs.statSync(arg, { throwIfNoEntry: false })?.isFile());
+const launchFiles = [...firstLaunch.files];
 let started = false;
 app.on("open-file", (evt, file) => {
 	evt.preventDefault();
@@ -354,37 +381,58 @@ async function openFile(file: string) {
 // was opened with; without either the user picks a folder. The user chose
 // them, so links may open them from now on.
 async function openFirstVaults() {
-	let vaults = process.argv.flatMap((arg, i, all) => (all[i - 1] === "--vault" ? [arg] : []));
+	let vaults = firstLaunch.vaults;
 	const files = launchFiles.splice(0);
 	started = true;
 	if (!vaults.length && !files.length) {
 		const picked = await dialog.showOpenDialog({ properties: ["openDirectory"], title: "Open vault" });
-		if (picked.canceled || picked.filePaths.length === 0) return app.quit();
-		vaults = [picked.filePaths[0]];
+		vaults = picked.canceled ? [] : picked.filePaths.slice(0, 1);
 	}
-	for (const vault of vaults) {
-		const resolved = path.resolve(vault);
-		rememberVault(resolved);
-		openVault(resolved);
-	}
-	for (const file of files) await openFile(file);
+	await openLaunch({ vaults, files, urls: [] });
+	// A second launch may have opened a window while the picker was up.
 	if (!BrowserWindow.getAllWindows().length) app.quit();
 }
 
-remoteMain.initialize();
-registerSchemes();
-registerIpc();
-app.whenReady().then(() => {
-	handleSchemes();
-	handlePermissions(session.defaultSession);
-	setApplicationMenu();
-	// The packaged app carries the icon in its bundle; run from the repo, the
-	// Dock would show Electron's.
-	if (!app.isPackaged && process.platform === "darwin") {
-		const icon = path.join(__dirname, "..", "packaging", "icon.png");
-		if (fs.existsSync(icon)) app.dock?.setIcon(icon);
+function openLaunch(launch: LaunchRequest) {
+	for (const vault of launch.vaults) {
+		rememberVault(vault);
+		openVault(vault);
 	}
-	startCli(vaultWindows, openVault).catch((err) => console.error("The command line socket could not start", err));
-	return openFirstVaults();
-});
+	for (const url of launch.urls) sendObsidianUrl(url);
+	return launch.files.reduce((done, file) => done.then(() => openFile(file)), Promise.resolve());
+}
+
+// A second launch on this profile: what it was opened with opens here, or
+// with nothing to open, the focused (else the first) vault window comes to
+// the front. While the app quits its arguments are dropped; the `justnotes`
+// command starts the app again when no socket comes up.
+function onSecondInstance(argv: string[], cwd: string, data: unknown) {
+	if (quitting) return;
+	const sent = isLaunchData(data) ? data : { argv, cwd };
+	const launch = launchRequest(sent.argv.slice(1), sent.cwd);
+	if (launch.vaults.length || launch.files.length || launch.urls.length) return void openLaunch(launch);
+	const win = BrowserWindow.getFocusedWindow() ?? [...vaultWindows.values()][0];
+	if (win?.isMinimized()) win.restore();
+	win?.focus();
+}
+
+if (primary) {
+	remoteMain.initialize();
+	registerSchemes();
+	registerIpc();
+	app.on("second-instance", (_evt, argv, cwd, data) => onSecondInstance(argv, cwd, data));
+	app.whenReady().then(() => {
+		handleSchemes();
+		handlePermissions(session.defaultSession);
+		setApplicationMenu();
+		// The packaged app carries the icon in its bundle; run from the repo, the
+		// Dock would show Electron's.
+		if (!app.isPackaged && process.platform === "darwin") {
+			const icon = path.join(__dirname, "..", "packaging", "icon.png");
+			if (fs.existsSync(icon)) app.dock?.setIcon(icon);
+		}
+		startCli(vaultWindows, openVault).catch((err) => console.error("The command line socket could not start", err));
+		return openFirstVaults();
+	});
+}
 app.on("window-all-closed", () => app.quit());
