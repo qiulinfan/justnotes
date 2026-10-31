@@ -593,6 +593,11 @@ plain style. Development notes belong in this file.
   line syntax (heading marks, quote marks, list bullets, tasks, rules, block
   math) shows while the selection is on those lines.
 - `editorLivePreviewField` false means Source mode: no decorations at all.
+- Raw HTML: an `<img>` alone or inline becomes an `HtmlImageWidget` (its src
+  found as the reading view finds it); any other HTML block (`<p
+  align="center">`, `<div>`, `<details>`, ...) renders through
+  `MarkdownRenderer`, sanitized like the reading view, as a block widget
+  (`.cm-html-embed`) until the selection enters its lines.
 - The frontmatter is a block widget holding a `MetadataEditor` (also in the
   reading view's `mod-header`), unless "Properties in document"
   (`propertiesInDocument`) is `source` (YAML) or `hidden`; Live Preview

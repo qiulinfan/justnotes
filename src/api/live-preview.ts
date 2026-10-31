@@ -426,7 +426,8 @@ function dedent(line: string, indent: string) {
 const FOLD_TITLE = ".callout.is-collapsible > .callout-title";
 
 // A block rendered with MarkdownRenderer, as the reading view renders it:
-// tables (in .table-wrapper) and callouts (.cm-callout > .callout). The
+// tables (in .table-wrapper), callouts (.cm-callout > .callout) and HTML
+// blocks (.cm-html-embed, sanitized, vault sources resolved). The
 // renderer's own handlers follow links and fold callouts. A block in a list
 // item renders without the item's indentation, which alone would make it an
 // indented code block; `source` keeps the note's lines, for cell offsets.
@@ -434,7 +435,7 @@ class RenderedBlockWidget extends WidgetType {
 	constructor(
 		readonly source: string,
 		readonly indent: string,
-		readonly kind: "table" | "callout",
+		readonly kind: "table" | "callout" | "html",
 		readonly host: LivePreviewHost,
 	) {
 		super();
@@ -450,12 +451,14 @@ class RenderedBlockWidget extends WidgetType {
 	}
 
 	toDOM(view: EditorView) {
-		const el = createDiv(`cm-embed-block markdown-rendered ${this.kind === "table" ? "cm-table-widget" : "cm-callout"}`);
+		const kindClass = { table: "cm-table-widget", callout: "cm-callout", html: "cm-html-embed" }[this.kind];
+		const el = createDiv(`cm-embed-block markdown-rendered ${kindClass}`);
 		const body = this.kind === "table" ? el.createDiv("table-wrapper") : el;
 		const child = widgetComponent(view, el);
 		MarkdownRenderer.render(this.host.app, this.markdown, body, this.host.sourcePath(), child).catch((err) => console.error(err));
 		for (const table of body.findAll("table")) table.addClass("table-editor");
-		if (this.kind === "callout") {
+		if (this.kind === "html") editButton(view, el, (v) => v.posAtDOM(el));
+		else if (this.kind === "callout") {
 			editButton(view, el, (v) => v.posAtDOM(el));
 			// A press on a fold title must not put the caret beside the block,
 			// which would reveal its source; the click then folds it.
@@ -883,11 +886,21 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 				}
 				// An <img> on a line of its own, without a closing slash, is an
 				// HTML block rather than an inline tag.
+				// Any other HTML block renders as the reading view renders it, until
+				// the cursor enters its lines.
 				case "HTMLBlock": {
 					const block = state.sliceDoc(from, to);
-					if (touches(from, to) || !/^\s*<img\b[^>]*>\s*$/i.test(block)) return;
-					const widget = htmlImage(block.trim(), cx.resolveImage);
-					if (widget) decos.push(Decoration.replace({ widget }).range(from, to));
+					if (/^\s*<img\b[^>]*>\s*$/i.test(block)) {
+						if (touches(from, to)) return;
+						const widget = htmlImage(block.trim(), cx.resolveImage);
+						if (widget) decos.push(Decoration.replace({ widget }).range(from, to));
+						return false;
+					}
+					if (touchesLines(from, to) || !ownsLines(node)) return;
+					const first = doc.lineAt(from);
+					const last = doc.lineAt(to);
+					const widget = new RenderedBlockWidget(doc.sliceString(first.from, last.to), doc.sliceString(first.from, from), "html", host);
+					decos.push(Decoration.replace({ block: true, widget }).range(first.from, last.to));
 					return false;
 				}
 				case "internal-link":

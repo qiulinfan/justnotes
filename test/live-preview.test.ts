@@ -121,6 +121,15 @@ describe("block widgets", () => {
 		const images = decorate(html, html.length).filter((d) => d.widget === "HtmlImageWidget");
 		expect(images.map((d) => html.slice(d.from, d.to))).toEqual(['<img src="a.png" width="650">']);
 	});
+
+	// Before, any HTML block but a lone <img> stayed source, so a centred image
+	// in <p align="center"> never showed.
+	test("other HTML blocks render while the cursor is outside their lines", () => {
+		const html = 'text\n\n<p align="center"><img src="a.png"></p>\n\n<div>\nx\n</div>\n\nmore';
+		const rendered = (cursor: number) => decorate(html, cursor).filter((d) => d.block && d.widget === "RenderedBlockWidget").map((d) => html.slice(d.from, d.to));
+		expect(rendered(html.length)).toEqual(['<p align="center"><img src="a.png"></p>', "<div>\nx\n</div>"]);
+		expect(rendered(html.indexOf("x\n"))).toEqual(['<p align="center"><img src="a.png"></p>']);
+	});
 });
 
 // A note opens with the cursor at offset 0, which is inside its frontmatter.
