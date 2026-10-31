@@ -1,0 +1,473 @@
+/* Shared with obsidian-latex-live / obsidian-tinymist: keep byte-identical (canonical copy: obsidian-tinymist/src/editor/shared). */
+/* CodeMirror chrome for the plugins' editor views. Each view adds "lsp-cm-view" to the
+   element that holds its .cm-editor; tooltips and panels mount inside .cm-editor, so these
+   rules reach them. Obsidian's editor CSS only targets Markdown views (.cm-s-obsidian). */
+
+/* Caret: drawSelection() draws its own cursor, black unless EditorView.darkTheme is set. */
+.lsp-cm-view .cm-editor .cm-cursor,
+.lsp-cm-view .cm-editor .cm-dropCursor {
+  border-left-color: var(--caret-color, var(--text-normal));
+}
+.lsp-cm-view .cm-editor .cm-scroller {
+  line-height: var(--line-height-normal, 1.5);
+}
+
+/* Selection matches and search hits (CM defaults are bright green / yellow). */
+.lsp-cm-view .cm-editor .cm-selectionMatch {
+  background: var(--text-highlight-bg);
+}
+.lsp-cm-view .cm-editor .cm-searchMatch {
+  background: var(--text-highlight-bg);
+  outline: none;
+}
+.lsp-cm-view .cm-editor .cm-searchMatch.cm-searchMatch-selected {
+  background: var(--text-highlight-bg-active, var(--text-highlight-bg));
+  outline: 1px solid var(--interactive-accent);
+}
+
+/* Panels: search / replace, go to line. */
+.lsp-cm-view .cm-editor .cm-panels {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+.lsp-cm-view .cm-editor .cm-panels-top {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.lsp-cm-view .cm-editor .cm-panels-bottom {
+  border-top: 1px solid var(--background-modifier-border);
+}
+.lsp-cm-view .cm-editor .cm-panel {
+  padding: 4px 8px;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+}
+.lsp-cm-view .cm-editor .cm-panel label {
+  color: var(--text-muted);
+  font-size: inherit;
+}
+.lsp-cm-view .cm-editor .cm-panel .cm-textfield {
+  background: var(--background-modifier-form-field);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  padding: 2px 6px;
+  font-size: inherit;
+}
+.lsp-cm-view .cm-editor .cm-panel .cm-textfield:focus {
+  border-color: var(--interactive-accent);
+}
+.lsp-cm-view .cm-editor .cm-panel .cm-button {
+  background: var(--interactive-normal);
+  background-image: none;
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  padding: 2px 8px;
+  font-size: inherit;
+}
+.lsp-cm-view .cm-editor .cm-panel .cm-button:hover {
+  background: var(--interactive-hover);
+}
+.lsp-cm-view .cm-editor .cm-panel button[name="close"] {
+  color: var(--text-muted);
+}
+
+/* Tooltips: hover docs, diagnostics, completion. */
+.lsp-cm-view .cm-editor .cm-tooltip {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+}
+.lsp-cm-view .cm-editor .cm-tooltip-lint {
+  max-width: 560px;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+}
+/* Hover sections (render, lint, language server): CM separates them only in its light
+   theme, in a fixed grey. */
+.lsp-cm-view .cm-tooltip-hover > .cm-tooltip-section:not(:first-child) {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+/* Render hover (renderHover.ts): the rendering under the pointer, the first hover section,
+   on Obsidian's popover background. Rendered ink follows --text-normal (currentColor). */
+.lsp-cm-view .cm-tooltip-hover:has(> .lsp-render-hover) {
+  overflow: hidden;
+  box-shadow: var(--shadow-s);
+}
+.lsp-cm-view .lsp-render-hover {
+  max-width: min(640px, 80vw);
+  max-height: 50vh;
+  overflow: auto;
+  padding: 6px 10px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: var(--font-text);
+}
+/* MathJax's display margin (1em above and below) is for paragraphs. */
+.lsp-cm-view .lsp-render-hover mjx-container[display="true"] {
+  margin: 0;
+}
+.lsp-cm-view .lsp-render-hover.is-pending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+}
+.lsp-cm-view .lsp-render-hover-spinner {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--background-modifier-border);
+  border-top-color: var(--interactive-accent);
+  border-radius: 50%;
+  animation: lsp-render-hover-spin 0.8s linear infinite;
+}
+@keyframes lsp-render-hover-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* hoverError: the renderer's message, then the source it failed on. */
+.lsp-cm-view .lsp-render-hover-message {
+  color: var(--text-error);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+  white-space: pre-wrap;
+}
+.lsp-cm-view .lsp-render-hover-source {
+  margin: 4px 0 0;
+  padding: 0;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+  white-space: pre-wrap;
+}
+
+/* Cursor preview (renderHover.ts `cursorPreview`): the rendering of the formula at the
+   cursor, below it while it is typed. Clicks go through to the text under it; hidden while
+   the completion list (below the line too) is open. */
+.lsp-cm-view .cm-tooltip.lsp-cursor-preview {
+  overflow: hidden;
+  box-shadow: var(--shadow-s);
+  pointer-events: none;
+}
+.lsp-cm-view .cm-tooltip.lsp-cursor-preview.is-empty,
+.lsp-cm-view .cm-tooltip.lsp-cursor-preview.is-covered {
+  display: none;
+}
+/* The source being typed fails: its last rendering stays, marked. */
+.lsp-cm-view .lsp-cursor-preview.is-error > .lsp-render-hover {
+  border-left: 2px solid var(--text-error);
+  opacity: 0.7;
+}
+
+/* Live preview (livePreview.ts): constructs rendered in the editor's own lines. Block
+   widgets and theorem boxes never get vertical margins: CodeMirror's height map misses
+   margins (measured: ArrowDown skipped visible lines and the gutter drifted), so their
+   spacing is padding or goes on line decorations. */
+.lsp-cm-view .lsp-lp-render {
+  font-family: var(--font-text);
+}
+/* Inline math stays inline: an inline-block with overflow would sit on the text baseline by
+   its bottom edge. Display math inside a line may scroll. */
+.lsp-cm-view .lsp-lp-render.is-display:not(.is-block) {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  vertical-align: middle;
+}
+.lsp-cm-view .lsp-lp-render.is-block {
+  display: block;
+  margin: 0;
+  padding: 0.25em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.lsp-cm-view .lsp-lp-render mjx-container[display="true"] {
+  margin: 0;
+}
+.lsp-cm-view .lsp-lp-render:empty {
+  display: none;
+}
+/* The rendering under a revealed block, while its source is edited. */
+.lsp-cm-view .lsp-lp-render.is-below {
+  position: relative;
+  border-left: 2px solid var(--interactive-accent);
+  opacity: 0.8;
+}
+/* A newer source still rendering, or failing: the last rendering stays. */
+.lsp-cm-view .lsp-lp-render.is-pending {
+  opacity: 0.5;
+}
+.lsp-cm-view .lsp-lp-render.is-below.is-error::after {
+  content: "!";
+  position: absolute;
+  top: 0.25em;
+  right: 0.5em;
+  min-width: 1.3em;
+  padding: 0 0.3em;
+  border-radius: var(--radius-s, 4px);
+  background: var(--text-error);
+  color: var(--text-on-accent, #fff);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-smaller, 0.8em);
+  font-weight: 600;
+  line-height: 1.3em;
+  text-align: center;
+}
+.lsp-cm-view .lsp-lp-message {
+  color: var(--text-error);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+  white-space: pre-wrap;
+}
+/* Source kept because its render failed (the render hover shows the message). */
+.lsp-cm-view .lsp-lp-error {
+  text-decoration: underline dotted var(--text-error);
+  text-underline-offset: 3px;
+}
+/* Chips: \ref, \eqref, \cite, @label, <label>. */
+.lsp-cm-view .lsp-lp-chip {
+  padding: 0 0.3em;
+  border-radius: var(--radius-s, 4px);
+  background: var(--background-modifier-hover);
+  color: var(--text-accent);
+  font-family: var(--font-text);
+  /* The editor's text size, not the line's: a label chip on a heading stays small and plain. */
+  font-size: calc(var(--font-text-size, 16px) * 0.92);
+  font-weight: var(--font-normal, 400);
+}
+.lsp-cm-view .lsp-lp-chip.is-cite {
+  color: var(--text-muted);
+}
+.lsp-cm-view .lsp-lp-chip.is-label {
+  background: none;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-faint);
+}
+.lsp-cm-view .lsp-lp-chip.is-missing {
+  color: var(--text-warning);
+}
+/* Headings (line classes). */
+.lsp-cm-view .cm-line.lsp-lp-h1,
+.lsp-cm-view .cm-line.lsp-lp-h2,
+.lsp-cm-view .cm-line.lsp-lp-h3,
+.lsp-cm-view .cm-line.lsp-lp-h4,
+.lsp-cm-view .cm-line.lsp-lp-h5,
+.lsp-cm-view .cm-line.lsp-lp-h6 {
+  font-family: var(--font-text);
+  line-height: var(--line-height-tight, 1.3);
+}
+.lsp-cm-view .cm-line.lsp-lp-h1 {
+  font-size: var(--h1-size);
+  font-weight: var(--h1-weight, 700);
+  color: var(--h1-color, inherit);
+}
+.lsp-cm-view .cm-line.lsp-lp-h2 {
+  font-size: var(--h2-size);
+  font-weight: var(--h2-weight, 600);
+  color: var(--h2-color, inherit);
+}
+.lsp-cm-view .cm-line.lsp-lp-h3 {
+  font-size: var(--h3-size);
+  font-weight: var(--h3-weight, 600);
+  color: var(--h3-color, inherit);
+}
+.lsp-cm-view .cm-line.lsp-lp-h4 {
+  font-size: var(--h4-size);
+  font-weight: var(--h4-weight, 600);
+  color: var(--h4-color, inherit);
+}
+.lsp-cm-view .cm-line.lsp-lp-h5 {
+  font-size: var(--h5-size);
+  font-weight: var(--h5-weight, 600);
+  color: var(--h5-color, inherit);
+}
+.lsp-cm-view .cm-line.lsp-lp-h6 {
+  font-size: var(--h6-size);
+  font-weight: var(--h6-weight, 600);
+  color: var(--h6-color, inherit);
+}
+/* Text styles (marks on the content; the command and braces hidden). */
+.lsp-cm-view .lsp-lp-strong {
+  font-weight: var(--bold-weight, 700);
+}
+.lsp-cm-view .lsp-lp-em {
+  font-style: italic;
+}
+.lsp-cm-view .lsp-lp-u {
+  text-decoration: underline;
+}
+.lsp-cm-view .lsp-lp-sc {
+  font-variant: small-caps;
+}
+.lsp-cm-view .lsp-lp-tt {
+  padding: 0 0.15em;
+  border-radius: var(--radius-s, 4px);
+  background: var(--code-background);
+  font-family: var(--font-monospace);
+}
+/* List markers: bullets, numbers, description terms. */
+.lsp-cm-view .lsp-lp-bullet {
+  display: inline-block;
+  min-width: 1.2em;
+  color: var(--list-marker-color, var(--text-muted));
+  font-family: var(--font-text);
+}
+.lsp-cm-view .lsp-lp-bullet.is-term {
+  color: var(--text-normal);
+  font-weight: var(--bold-weight, 700);
+}
+/* Theorem-like boxes: a BlockWrapper element around the lines. The role classes carry
+   elegantbook's default (blue) scheme; a box sets --lp-box-color inline for its document's. */
+.lsp-cm-view .lsp-lp-box {
+  --lp-box-color: var(--interactive-accent);
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--lp-box-color) 55%, transparent);
+  border-left-width: 3px;
+  border-left-color: var(--lp-box-color);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--lp-box-color) 8%, transparent);
+}
+.lsp-cm-view .lsp-lp-box.is-main {
+  --lp-box-color: rgb(0, 166, 82);
+}
+.lsp-cm-view .lsp-lp-box.is-second {
+  --lp-box-color: rgb(255, 134, 24);
+}
+.lsp-cm-view .lsp-lp-box.is-third {
+  --lp-box-color: rgb(0, 174, 247);
+}
+.lsp-cm-view .lsp-lp-box-title {
+  color: var(--lp-box-color, var(--text-accent));
+  font-family: var(--font-text);
+  font-weight: 600;
+}
+/* A dark scheme colour (elegantbook's color=black) would be unreadable on a dark background:
+   the head keeps its hue, lightened; the border and background keep the colour itself. */
+.theme-dark .lsp-cm-view .lsp-lp-box-title {
+  color: oklch(from var(--lp-box-color, var(--text-accent)) max(l, 0.72) c h);
+}
+.lsp-cm-view .lsp-lp-qed {
+  margin-left: 0.5em;
+  color: var(--text-muted);
+}
+/* Images and paper frames (PDF crops, Typst paper renders): a white card; the dark-theme
+   invert follows the plugin's preview setting (is-inverted). */
+.lsp-cm-view .lsp-lp-image img {
+  max-width: 100%;
+  max-height: 320px;
+}
+.lsp-cm-view .lsp-lp-paper {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+}
+.lsp-cm-view .lsp-lp-paper.is-inverted {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Completion list. Obsidian's app.css hides .cm-completionDetail for every editor. */
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete > ul {
+  font-family: var(--font-monospace);
+}
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete > ul > li[role="option"] {
+  display: flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete .cm-completionIcon,
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete .cm-completionLabel {
+  flex: none;
+}
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete .cm-completionDetail {
+  display: inline;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 1em;
+  font-style: normal;
+  font-size: 0.9em;
+  color: var(--text-faint);
+}
+.lsp-cm-view .cm-tooltip.cm-tooltip-autocomplete .cm-completionMatchedText {
+  text-decoration: none;
+  font-weight: 600;
+  color: var(--text-accent);
+}
+/* Symbol glyph column (lspGlyphColumn) takes the kind icon's place. */
+.lsp-cm-view .cm-tooltip-autocomplete .lsp-completion-glyph {
+  flex: none;
+  width: 1.4em;
+  text-align: center;
+  font-family: var(--font-text);
+}
+.lsp-cm-view .cm-tooltip-autocomplete li:has(> .lsp-completion-glyph) > .cm-completionIcon {
+  display: none;
+}
+.lsp-cm-view .cm-tooltip-autocomplete li:has(> .cm-completionIcon-deprecated) > .cm-completionLabel {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.lsp-cm-view .cm-completionIcon-snippet::after {
+  content: "⧉";
+}
+.lsp-cm-view .cm-completionIcon-file::after {
+  content: "▭";
+}
+.lsp-cm-view .cm-completionIcon-folder::after {
+  content: "▸";
+}
+.lsp-cm-view .cm-completionIcon-reference::after {
+  content: "¶";
+}
+.lsp-cm-view .cm-completionIcon-color::after {
+  content: "●";
+}
+.lsp-cm-view .cm-tooltip.cm-completionInfo {
+  max-width: 420px;
+  max-height: 300px;
+  overflow: auto;
+  padding: 6px 10px;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+}
+.lsp-cm-view .cm-completionInfo .lsp-completion-info {
+  white-space: pre-wrap;
+}
+.lsp-cm-view .cm-completionInfo img {
+  max-height: 3em;
+}
+/* texlab's symbol images are black on opaque white. */
+.theme-dark .lsp-cm-view .cm-completionInfo img[src^="data:image/png"] {
+  filter: invert(1);
+}
+
+/* Snippet fields (CM's #00000022 is invisible on a dark background). */
+.lsp-cm-view .cm-editor .cm-snippetField {
+  background: var(--background-modifier-active-hover, var(--background-modifier-hover));
+  border-radius: 2px;
+}
+.lsp-cm-view .cm-editor .cm-snippetFieldPosition {
+  border-left-color: var(--text-accent);
+}
+
+/* YOLO ghost text: its own 60% opacity on --text-muted is too faint here. */
+.lsp-cm-view .cm-editor .yolo-ghost-text {
+  color: var(--text-muted);
+  opacity: 0.85;
+}
