@@ -41,7 +41,7 @@ export class EmptyView extends ItemView {
 export class FileExplorerView extends ItemView {
 	#treeEl!: HTMLElement;
 	#expanded = new Set<string>();
-	// Items picked with Mod-click and Shift-click, for one menu on all of them;
+	// Items picked with Alt-click and Shift-click, for one menu on all of them;
 	// a Shift range starts at the anchor, the item clicked before.
 	#selected = new Set<TAbstractFile>();
 	#anchor: TAbstractFile | null = null;
@@ -139,9 +139,9 @@ export class FileExplorerView extends ItemView {
 				self.createDiv({ cls: "tree-item-inner nav-file-title-content", text: child.extension === "md" ? child.basename : child.name });
 				if (child.extension !== "md") self.createDiv({ cls: "nav-file-tag", text: child.extension });
 				self.addEventListener("click", (evt) => {
-					if (!this.#select(evt, child)) this.app.workspace.getLeaf(false).openFile(child);
+					if (!this.#select(evt, child)) this.app.workspace.getLeaf(Keymap.isModEvent(evt)).openFile(child);
 				});
-				// Mod-click selects, so a middle click opens a new tab.
+				// A middle click opens a new tab, as Mod-click does.
 				self.addEventListener("auxclick", (evt) => {
 					if (evt.button === 1) this.app.workspace.getLeaf("tab").openFile(child);
 				});
@@ -155,13 +155,15 @@ export class FileExplorerView extends ItemView {
 		for (const el of this.#treeEl.findAll(".nav-file-title")) el.toggleClass("is-active", el.getAttr("data-path") === active);
 	}
 
-	// Mod-click adds the item to the selection or takes it out; Shift-click
+	// Alt-click adds the item to the selection or takes it out; Shift-click
 	// selects the rows from the anchor (else the open file) to it. True when
-	// the click selected; a plain click ends the selection and anchors there.
+	// the click selected; a plain click ends the selection and anchors there,
+	// and so does a Mod-click, which opens a new tab, split or window.
 	#select(evt: MouseEvent, item: TAbstractFile) {
+		const mod = Keymap.isModifier(evt, "Mod");
 		const anchor = this.#anchor ?? this.app.workspace.getActiveFile();
-		const range = evt.shiftKey && anchor ? this.#rowsBetween(anchor, item) : null;
-		const toggle = !range && Keymap.isModifier(evt, "Mod");
+		const range = !mod && evt.shiftKey && anchor ? this.#rowsBetween(anchor, item) : null;
+		const toggle = !mod && !range && Keymap.isModifier(evt, "Alt");
 		if (range) this.#selected = new Set(range);
 		else {
 			if (!toggle) this.#selected.clear();
