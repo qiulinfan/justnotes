@@ -311,19 +311,22 @@ export class HotkeyManager {
 }
 
 interface EditorContext {
-	editor: any;
+	editor?: any;
+	getMode?: () => string;
 }
 
 // Runs (or, when checking, only tests) a command with Obsidian's precedence:
 // editorCheckCallback over editorCallback over checkCallback over callback.
-// Editor callbacks need an active editor; mobile-only commands never run on
-// desktop. Returns whether the command can run (or ran).
+// Editor callbacks need an active editor that is shown, so not one in reading
+// view; mobile-only commands never run on desktop. Returns whether the command
+// can run (or ran).
 function runCommand(cmd: Command, checking: boolean, activeEditor: EditorContext | null) {
 	if (cmd.mobileOnly && !Platform.isMobile) return false;
 	if (cmd.editorCheckCallback || cmd.editorCallback) {
-		if (!activeEditor?.editor) return false;
-		if (cmd.editorCheckCallback) return !!cmd.editorCheckCallback(checking, activeEditor.editor, activeEditor);
-		if (!checking) cmd.editorCallback!(activeEditor.editor, activeEditor);
+		const editor = activeEditor?.getMode?.() === "preview" ? null : activeEditor?.editor;
+		if (!editor) return false;
+		if (cmd.editorCheckCallback) return !!cmd.editorCheckCallback(checking, editor, activeEditor);
+		if (!checking) cmd.editorCallback!(editor, activeEditor);
 		return true;
 	}
 	if (cmd.checkCallback) return !!cmd.checkCallback(checking);
