@@ -734,14 +734,16 @@ export class Canvas {
 		this.wrapperEl.removeClass("is-dragging");
 		if (!drag) return;
 		// A drag ends in a click on whatever is under the pointer; it must not
-		// follow a link or press a button there.
+		// follow a link or press a button there. The click comes in the
+		// canvas's own window, a popout's included.
 		if (drag.moved) {
+			const win = this.wrapperEl.win;
 			const swallow = (e: MouseEvent) => {
 				e.stopPropagation();
 				e.preventDefault();
 			};
-			window.addEventListener("click", swallow, { capture: true, once: true });
-			setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+			win.addEventListener("click", swallow, { capture: true, once: true });
+			win.setTimeout(() => win.removeEventListener("click", swallow, { capture: true }), 0);
 		}
 		switch (drag.kind) {
 			case "move":
