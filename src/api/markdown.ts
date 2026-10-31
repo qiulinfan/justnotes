@@ -1399,6 +1399,18 @@ function attachHandlers(owner: MarkdownRenderer, el: HTMLElement, sourcePath: ()
 		handledEvents.add(evt);
 		owner.onInternalLinkMouseover(evt, a as HTMLElement, a.getAttribute("data-href") ?? "", sourcePath());
 	});
+	// A link drags as a link (Obsidian's dragManager.dragLink): into a note it
+	// is inserted, onto a canvas it becomes a card.
+	owner.registerDomEvent(el, "dragstart", (evt: DragEvent) => {
+		const a = (evt.target as Element).closest?.("a.internal-link");
+		if (!a || !el.contains(a) || !handles(evt, a)) return;
+		handledEvents.add(evt);
+		// Kept from CodeMirror around a Live Preview widget, which would drag
+		// the editor's selection along and move it on a drop in the note.
+		evt.stopPropagation();
+		const drag = owner.app.dragManager;
+		drag.onDragStart(evt, drag.dragLink(evt, a.getAttribute("data-href") ?? "", sourcePath(), a.getText()));
+	});
 	owner.registerDomEvent(el, "contextmenu", (evt: MouseEvent) => {
 		if (evt.defaultPrevented) return;
 		const a = (evt.target as Element).closest("a.internal-link");

@@ -18,6 +18,7 @@ import { editorEditorField, editorInfoField, editorLivePreviewField } from "./ed
 import { setIcon } from "./icons";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
 import { inlineMathEnd, mathBlockClose } from "./markdown";
+import { parseLinktext } from "./metadata-utils";
 import type { MarkdownView } from "./markdown-view";
 import { debounce, moment } from "./util";
 import { TFile } from "./vault";
@@ -731,27 +732,39 @@ function pasteDefault(view: MarkdownView, evt: ClipboardEvent) {
 	return true;
 }
 
-// Notes and attachments dragged from the explorer are linked where they are
-// dropped, anywhere over the editor. Such a drag carries no data the browser
-// could drop, so the editor accepts it in dragover; a drop on the text has
-// been through the plugins' editor-drop and dropDefault first.
+// Notes and attachments dragged from the explorer, and links dragged from
+// rendered Markdown or the link panes, are linked where they are dropped,
+// anywhere over the editor. Such a drag carries no data the browser could
+// drop, so the editor accepts it in dragover; a drop on the text has been
+// through the plugins' editor-drop and dropDefault first.
 function linkDraggedFiles(view: MarkdownView) {
-	const dragged = () => DragManager.files(view.app.dragManager.draggable).filter((f): f is TFile => f instanceof TFile);
+	const { app } = view;
+	const links = (): string[] => {
+		const drag = app.dragManager.draggable;
+		const sourcePath = view.file?.path ?? "";
+		if (drag?.type === "link" && drag.linktext) {
+			const { path, subpath } = parseLinktext(drag.linktext);
+			const dest = path ? app.metadataCache.getFirstLinkpathDest(path, drag.sourcePath ?? "") : app.vault.getFileByPath(drag.sourcePath ?? "");
+			return [dest ? app.fileManager.generateMarkdownLink(dest, sourcePath, subpath) : `[[${drag.linktext}]]`];
+		}
+		return DragManager.files(drag)
+			.filter((f): f is TFile => f instanceof TFile)
+			.map((f) => app.fileManager.generateMarkdownLink(f, sourcePath));
+	};
 	return ViewPlugin.define((cm) => {
 		const onDragOver = (evt: DragEvent) => {
-			if (evt.defaultPrevented || !dragged().length) return;
+			if (evt.defaultPrevented || !links().length) return;
 			evt.preventDefault();
 			if (evt.dataTransfer) evt.dataTransfer.dropEffect = "link";
-			view.app.dragManager.setAction("Insert link here");
+			app.dragManager.setAction("Insert link here");
 		};
 		const onDrop = (evt: DragEvent) => {
-			const files = dragged();
-			if (evt.defaultPrevented || !files.length) return;
+			const text = links();
+			if (evt.defaultPrevented || !text.length) return;
 			evt.preventDefault();
 			const pos = cm.posAtCoords({ x: evt.clientX, y: evt.clientY }, false);
 			cm.dispatch({ selection: { anchor: pos } });
-			const sourcePath = view.file?.path ?? "";
-			view.editor.replaceSelection(files.map((f) => view.app.fileManager.generateMarkdownLink(f, sourcePath)).join("\n"), "input.drop");
+			view.editor.replaceSelection(text.join("\n"), "input.drop");
 			cm.focus();
 		};
 		cm.dom.addEventListener("dragover", onDragOver);

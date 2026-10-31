@@ -155,11 +155,14 @@ export class SearchView extends ItemView {
 		const group = this.#resultsEl.createDiv("search-result");
 		const title = group.createDiv({ cls: "search-result-file-title", text: file.path.replace(/\.md$/, "") });
 		title.addEventListener("click", () => this.#open(file, null));
+		const drag = this.app.dragManager;
+		drag.handleDrag(title, (evt) => drag.dragFile(evt, file, "search"));
 		const lines = text.split("\n");
 		for (const match of found) {
 			const el = group.createDiv("search-result-match");
 			appendMatch(el, lines[match.line] ?? "", match);
 			el.addEventListener("click", () => this.#open(file, match));
+			drag.handleDrag(el, (evt) => drag.dragFile(evt, file, "search"));
 		}
 	}
 

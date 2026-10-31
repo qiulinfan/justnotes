@@ -108,6 +108,11 @@ async function openAt(app: App, file: TFile, eState: Record<string, unknown>, ev
 const byName = (a: TFile, b: TFile) => a.basename.localeCompare(b.basename, undefined, { numeric: true }) || a.path.localeCompare(b.path);
 
 // A section with a heading that folds it; `onToggle` hears the new state.
+// A row that drags its file, as Obsidian's search results and link panes do.
+function dragFile(app: App, el: HTMLElement, file: TFile, source: string) {
+	app.dragManager.handleDrag(el, (evt) => app.dragManager.dragFile(evt, file, source));
+}
+
 function section(parent: HTMLElement, title: string, collapsed: boolean, onToggle: (collapsed: boolean) => void) {
 	const el = parent.createDiv("link-pane-section");
 	const header = el.createDiv("link-pane-section-header");
@@ -285,6 +290,7 @@ export class BacklinkList {
 		const title = group.createDiv({ cls: "search-result-file-title", text: file.basename });
 		title.setAttr("aria-label", file.path);
 		title.addEventListener("click", (evt) => openAt(this.app, file, {}, evt));
+		dragFile(this.app, title, file, "backlink");
 		return group;
 	}
 
@@ -293,6 +299,7 @@ export class BacklinkList {
 		appendMatch(row.createSpan("link-pane-match-text"), content, match);
 		const eState = { cursor: { from: { line: at.line, ch: at.from }, to: { line: at.line, ch: at.to } }, line: at.line };
 		row.addEventListener("click", (evt) => openAt(this.app, file, eState, evt));
+		dragFile(this.app, row, file, "backlink");
 		return row;
 	}
 
@@ -403,10 +410,13 @@ export class OutgoingLinkView extends ActiveFilePane {
 			const row = links.body.createDiv({ cls: "search-result-file-title", text: dest.extension === "md" ? dest.basename : dest.name });
 			row.setAttr("aria-label", dest.path);
 			row.addEventListener("click", (evt) => openAt(this.app, dest, {}, evt));
+			dragFile(this.app, row, dest, "outgoing-link");
 		}
 		for (const link of unresolved) {
 			const row = links.body.createDiv({ cls: "search-result-file-title is-unresolved", text: link });
 			row.addEventListener("click", (evt) => this.app.workspace.openLinkText(link, file.path, Keymap.isModEvent(evt)));
+			const drag = this.app.dragManager;
+			drag.handleDrag(row, (evt) => drag.dragLink(evt, link, file.path, link, "outgoing-link"));
 		}
 		if (!resolved.length && !unresolved.length) links.body.createDiv({ cls: "link-pane-empty", text: "No links found." });
 		const unlinked = section(el, "Unlinked mentions", this.#unlinkedCollapsed, (c) => {
@@ -427,6 +437,7 @@ export class OutgoingLinkView extends ActiveFilePane {
 			row.createSpan({ cls: "link-pane-count", text: String(found.length) });
 			row.setAttr("aria-label", dest.path);
 			row.addEventListener("click", (evt) => openAt(this.app, dest, {}, evt));
+			dragFile(this.app, row, dest, "outgoing-link");
 		}
 		unlinked.count.setText(String(count));
 		if (!count) unlinked.body.createDiv({ cls: "link-pane-empty", text: "No unlinked mentions found." });
@@ -585,6 +596,9 @@ export class OutlineView extends ActiveFilePane {
 					add(children, node.children);
 				}
 				self.addEventListener("click", (evt) => openAt(this.app, file, { line: heading.position.start.line }, evt));
+				// A heading drags as a link to it.
+				const drag = this.app.dragManager;
+				drag.handleDrag(self, (evt) => drag.dragLink(evt, `${this.app.metadataCache.fileToLinktext(file, "")}#${heading.heading}`, "", heading.heading, "outline"));
 			}
 		};
 		add(el, this.#roots);

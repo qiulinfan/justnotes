@@ -4,14 +4,19 @@ import type { TAbstractFile, TFile, TFolder } from "./vault";
 
 // What is being dragged inside the window, in the shape of Obsidian's private
 // `app.dragManager.draggable`: plugins that accept drops read it (terminal
-// 3.29 types the dragged files' paths), and the editor turns it into links.
+// 3.29 types the dragged files' paths), the editor turns it into links and
+// the canvas into cards. A "link" drag (a link in rendered Markdown, an
+// outline heading, an unresolved outgoing link) carries the link text and the
+// path it resolves from.
 export interface DragData {
-	type: "file" | "folder" | "files";
+	type: "file" | "folder" | "files" | "link";
 	icon: string;
 	title: string;
 	source?: string;
 	file?: TAbstractFile;
 	files?: TAbstractFile[];
+	linktext?: string;
+	sourcePath?: string;
 }
 
 // A transparent image hides Chromium's own drag image; the ghost below
@@ -42,10 +47,26 @@ export class DragManager {
 		return { type: "files", icon: "lucide-files", title: `${files.length} files`, source, files };
 	}
 
+	dragLink(_evt: DragEvent, linktext: string, sourcePath: string, title?: string, source?: string): DragData {
+		return { type: "link", icon: "lucide-link", title: title ?? linktext, source, linktext, sourcePath };
+	}
+
+	// Makes `el` a drag source: `get` gives what it drags, or null for none.
+	handleDrag(el: HTMLElement, get: (evt: DragEvent) => DragData | null) {
+		el.draggable = true;
+		el.addEventListener("dragstart", (evt) => {
+			const data = get(evt);
+			if (data) this.onDragStart(evt, data);
+		});
+	}
+
 	// Starts a drag of `data` from `evt`'s element; it ends with the drag.
 	onDragStart(evt: DragEvent, data: DragData) {
 		this.draggable = data;
 		if (evt.dataTransfer) {
+			// A link's own drag data (its URL, the text) would be dropped as
+			// text; the drop targets read `draggable` instead.
+			evt.dataTransfer.clearData();
 			evt.dataTransfer.effectAllowed = "all";
 			evt.dataTransfer.setDragImage(this.#blank, 0, 0);
 		}

@@ -248,6 +248,11 @@ plain style. Development notes belong in this file.
   private drag API: `draggable` holds `{ type: "file" | "folder" | "files",
   file | files, title, icon, source }` until `dragend`, and drop targets name
   their action with `setAction` on the ghost that follows the pointer.
+  Search results, backlink and outgoing-link rows drag their file;
+  `dragLink` (`type: "link"`, `linktext`, `sourcePath`) is what links in
+  rendered Markdown, outline headings and unresolved outgoing links drag.
+  `onDragStart` clears the element's own drag data (an anchor's URL), so
+  targets read only `draggable` and CodeMirror inserts no text.
   Terminal 3.29 reads it to type the dragged paths; the editor accepts the drag
   in `dragover` on its whole DOM (the drag carries no data, so the browser would
   not drop it) and inserts links where it lands.
