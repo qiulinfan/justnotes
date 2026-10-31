@@ -148,7 +148,8 @@ async function createWindow() {
 		return { action: "deny" };
 	});
 	// A link without a handler must not navigate the window away from the app;
-	// it opens as from window.open instead.
+	// it opens as from window.open instead. Chromium never asks about an about:
+	// URL; the page cancels those navigations itself (boot.ts).
 	contents.on("will-navigate", (evt) => {
 		if (!evt.isMainFrame || samePage(evt.url, contents.getURL())) return;
 		evt.preventDefault();

@@ -71,6 +71,16 @@ function buildShell(app: App) {
 	gear.addEventListener("click", () => app.setting.open());
 }
 
+// Main's will-navigate guard keeps a link from replacing this page, but
+// Chromium commits an about: URL (an <a href="about:blank#x"> in a plugin's
+// view, say) without asking main, so the page cancels that navigation itself.
+// Main's link policy sends about: nowhere either.
+function keepAppPage() {
+	navigation.addEventListener("navigate", (evt) => {
+		if (new URL(evt.destination.url).protocol === "about:") evt.preventDefault();
+	});
+}
+
 // Before the window closes, main asks the renderer to save open views, the
 // layout and plugins' quit tasks, and waits for the reply. A reload cannot
 // wait, so it saves only the layout.
@@ -87,6 +97,7 @@ function handleWindowClose(app: App) {
 }
 
 async function boot() {
+	keepAppPage();
 	installDomExtensions();
 	installTooltips();
 	const vaultPath = new URLSearchParams(location.search).get("vault");
