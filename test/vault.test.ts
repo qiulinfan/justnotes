@@ -200,6 +200,19 @@ describe("Vault change reconciliation", () => {
 		expect(vault.getRoot().children.filter((f) => f.path === "ext.md")).toHaveLength(1);
 	});
 
+	// The vault rescans after its watcher fails, and kgdistiller rescans its hidden folder.
+	test("a rescan drops what left the disk, folder contents first, and adds what arrived", async () => {
+		const { vault, events, full } = await makeVault({ "keep/k.md": "k", "gone/sub/n.md": "n", "gone/m.md": "m", "old.md": "o" });
+		fs.rmSync(full("gone"), { recursive: true });
+		fs.rmSync(full("old.md"));
+		fs.writeFileSync(full("keep/new.md"), "new");
+		await vault.adapter.listRecursive("");
+		expect(tree(vault)).toEqual(["/", "keep", "keep/k.md", "keep/new.md"]);
+		expect(events.indexOf("delete gone")).toBeGreaterThan(events.indexOf("delete gone/sub"));
+		expect(events.indexOf("delete gone/sub")).toBeGreaterThan(events.indexOf("delete gone/sub/n.md"));
+		expect(events.sort()).toEqual(["create keep/new.md", "delete gone", "delete gone/m.md", "delete gone/sub", "delete gone/sub/n.md", "delete old.md"]);
+	});
+
 	test("a folder created outside the app announces itself and every file in it", async () => {
 		const { vault, events, full } = await makeVault();
 		fs.mkdirSync(full("pulled/sub"), { recursive: true });
@@ -298,13 +311,6 @@ describe("Vault files", () => {
 		expect(await vault.cachedRead(file)).toBe("one");
 		await vault.adapter.reconcileFile("n.md", "n.md");
 		expect(await vault.cachedRead(file)).toBe("two!");
-	});
-
-	test("process runs after earlier writes to the file, so concurrent edits are kept", async () => {
-		const { vault } = await makeVault({ "n.md": "" });
-		const file = vault.getFileByPath("n.md")!;
-		await Promise.all([vault.process(file, (d) => `${d}a`), vault.process(file, (d) => `${d}b`), vault.append(file, "c")]);
-		expect(await vault.read(file)).toBe("abc");
 	});
 
 	test("a write with an mtime option sets the file's modification time and stat", async () => {

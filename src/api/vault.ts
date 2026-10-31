@@ -124,6 +124,24 @@ function respell(path: string, find: (lower: string) => string | undefined, keep
 // replaces by delete-then-create reads as one modification.
 const DELETE_GRACE = 100;
 
+// A write waits this long at most for the reads of its file begun before it:
+// a read that hangs (a FIFO, a stalled network mount) must not hold up every
+// write in the vault. A read given up on may see the write half done.
+const READ_WAIT = 1000;
+
+// Writes through a handle and takes the stat from it before closing: the stat
+// is that of these bytes, even when another program writes the file right after.
+async function put(full: string, flag: "w" | "a", data: string | Uint8Array, mtime?: number) {
+	const handle = await fs.promises.open(full, flag);
+	try {
+		await handle.writeFile(data);
+		if (mtime !== undefined) await handle.utimes(new Date(), new Date(mtime));
+		return await handle.stat();
+	} finally {
+		await handle.close();
+	}
+}
+
 // The desktop adapter. It owns the file table and the watchers, and reports
 // every change of a visible path to the vault through one handler, whether the
 // change came from the watcher, from the vault API or from an adapter call.
@@ -136,9 +154,21 @@ export class FileSystemAdapter {
 	insensitive = false;
 	#handler: AdapterChange | null = null;
 	#queue: Promise<unknown> = Promise.resolve();
+	// Per file, the write putting its bytes on disk and the reads under way:
+	// a read waits for that write and a write for the reads begun before it
+	// (up to READ_WAIT), so no read sees a file half written. A read never
+	// waits for writes still queued, as code running inside the queue may
+	// read. Writes go in place: a temporary file renamed over a note would
+	// give it a new birth time (its stat.ctime) and drop its mode and
+	// extended attributes such as Finder tags.
+	#writing = new Map<string, Promise<void>>();
+	#reading = new Map<string, Set<Promise<unknown>>>();
 	// Lowercased path to its key in `files`, for case-insensitive volumes.
 	#lower = new Map<string, string>();
-	#written = new Map<string, DataWriteOptions>();
+	// Folder key ("" for the root) to the keys of the entries directly in it.
+	#children = new Map<string, Set<string>>();
+	// While an own write is taken in: the stat of its bytes and the ctime asked for.
+	#written = new Map<string, { stat: fs.Stats; ctime?: number }>();
 	#pendingDeletes = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor(basePath: string) {
@@ -212,12 +242,32 @@ export class FileSystemAdapter {
 	#add(norm: string, entry: FileEntry) {
 		this.files[norm] = entry;
 		this.#lower.set(norm.toLowerCase(), norm);
+		const parent = parentOf(norm);
+		let children = this.#children.get(parent);
+		if (!children) this.#children.set(parent, (children = new Set()));
+		children.add(norm);
 	}
 
 	#drop(norm: string) {
 		delete this.files[norm];
 		const lower = norm.toLowerCase();
 		if (this.#lower.get(lower) === norm) this.#lower.delete(lower);
+		const parent = parentOf(norm);
+		const children = this.#children.get(parent);
+		if (children?.delete(norm) && !children.size) this.#children.delete(parent);
+	}
+
+	// The keys of the entries below a folder, at any depth.
+	#below(norm: string) {
+		const out: string[] = [];
+		const walk = (folder: string) => {
+			for (const child of this.#children.get(folder) ?? []) {
+				out.push(child);
+				walk(child);
+			}
+		};
+		walk(norm);
+		return out;
 	}
 
 	async exists(normalizedPath: string, sensitive?: boolean) {
@@ -278,28 +328,90 @@ export class FileSystemAdapter {
 	}
 
 	read(normalizedPath: string) {
-		return fs.promises.readFile(this.getFullPath(normalizedPath), "utf8");
+		return this.#readTurn(normalizedPath, (full) => fs.promises.readFile(full, "utf8"));
 	}
 
-	async readBinary(normalizedPath: string) {
-		const b = await fs.promises.readFile(this.getFullPath(normalizedPath));
-		return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+	readBinary(normalizedPath: string) {
+		return this.#readTurn(normalizedPath, async (full) => {
+			const b = await fs.promises.readFile(full);
+			return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+		});
+	}
+
+	// One key per file for the read and write turns: on a case-insensitive
+	// volume every spelling of a path names the same file.
+	#turnKey(normalizedPath: string) {
+		const norm = key(normalizedPath);
+		return this.insensitive ? norm.toLowerCase() : norm;
+	}
+
+	#readTurn<T>(normalizedPath: string, read: (full: string) => Promise<T>): Promise<T> {
+		const turn = this.#turnKey(normalizedPath);
+		const start = () => read(this.getFullPath(normalizedPath));
+		const writing = this.#writing.get(turn);
+		const run = writing ? writing.then(start) : start();
+		let reads = this.#reading.get(turn);
+		if (!reads) this.#reading.set(turn, (reads = new Set()));
+		reads.add(run);
+		const done = () => {
+			reads.delete(run);
+			if (!reads.size && this.#reading.get(turn) === reads) this.#reading.delete(turn);
+		};
+		run.then(done, done);
+		return run;
+	}
+
+	// Puts a file's bytes on disk once the reads begun before have finished;
+	// reads begun meanwhile wait for it. Runs inside #serial, so writes of
+	// one file never overlap.
+	async #writeTurn<T>(norm: string, write: () => Promise<T>): Promise<T> {
+		const turn = this.#turnKey(norm);
+		const begun = [...(this.#reading.get(turn) ?? [])];
+		let finish = () => {};
+		const writing = new Promise<void>((resolve) => (finish = resolve));
+		this.#writing.set(turn, writing);
+		try {
+			if (begun.length) await this.#awaitReads(turn, begun);
+			return await write();
+		} finally {
+			if (this.#writing.get(turn) === writing) this.#writing.delete(turn);
+			finish();
+		}
+	}
+
+	// Reads still under way after READ_WAIT are given up on, so later writes
+	// no longer wait for them. Those reads are still in the file's set, as a
+	// set leaves the map only once empty.
+	async #awaitReads(turn: string, begun: Promise<unknown>[]) {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const late = new Promise<void>((resolve) => (timer = setTimeout(resolve, READ_WAIT)));
+		await Promise.race([Promise.allSettled(begun), late]);
+		clearTimeout(timer);
+		const reads = this.#reading.get(turn);
+		if (!reads) return;
+		for (const read of begun) reads.delete(read);
+		if (!reads.size) this.#reading.delete(turn);
+	}
+
+	// Whether a write is putting the file's bytes on disk at the moment.
+	isWriting(normalizedPath: string) {
+		return this.#writing.has(this.#turnKey(normalizedPath));
 	}
 
 	write(normalizedPath: string, data: string, options?: DataWriteOptions) {
-		return this.#mutate(normalizedPath, (full) => fs.promises.writeFile(full, data, "utf8"), options);
+		return this.#mutate(normalizedPath, "w", data, options);
 	}
 
 	writeBinary(normalizedPath: string, data: ArrayBuffer, options?: DataWriteOptions) {
-		return this.#mutate(normalizedPath, (full) => fs.promises.writeFile(full, new Uint8Array(data)), options);
+		return this.#mutate(normalizedPath, "w", new Uint8Array(data), options);
 	}
 
 	append(normalizedPath: string, data: string, options?: DataWriteOptions) {
-		return this.#mutate(normalizedPath, (full) => fs.promises.appendFile(full, data, "utf8"), options);
+		return this.#mutate(normalizedPath, "a", data, options);
 	}
 
 	appendBinary(normalizedPath: string, data: ArrayBuffer, options?: DataWriteOptions) {
-		return this.#mutate(normalizedPath, (full) => fs.promises.appendFile(full, new Uint8Array(data)), options);
+		return this.#mutate(normalizedPath, "a", new Uint8Array(data), options);
 	}
 
 	// Serialized with every other change, so no write lands between the read
@@ -308,30 +420,29 @@ export class FileSystemAdapter {
 		return this.#serial(async () => {
 			const norm = this.#respell(key(normalizedPath));
 			const full = this.getFullPath(norm);
-			const before = await fs.promises.readFile(full, "utf8");
-			const data = fn(before);
-			if (data !== before) {
-				await fs.promises.writeFile(full, data, "utf8");
-				await this.#reconcileWrite(norm, full, options);
-			}
+			const { data, stat } = await this.#writeTurn(norm, async () => {
+				const before = await fs.promises.readFile(full, "utf8");
+				const after = fn(before);
+				return { data: after, stat: after === before ? null : await put(full, "w", after, options?.mtime) };
+			});
+			if (stat) await this.#reconcileWrite(norm, stat, options?.ctime);
 			return data;
 		});
 	}
 
-	#mutate(normalizedPath: string, write: (full: string) => Promise<void>, options?: DataWriteOptions) {
+	#mutate(normalizedPath: string, flag: "w" | "a", data: string | Uint8Array, options?: DataWriteOptions) {
 		return this.#serial(async () => {
 			const norm = this.#respell(key(normalizedPath));
 			const full = this.getFullPath(norm);
 			await fs.promises.mkdir(nodePath.dirname(full), { recursive: true });
-			await write(full);
-			await this.#reconcileWrite(norm, full, options);
+			const stat = await this.#writeTurn(norm, () => put(full, flag, data, options?.mtime));
+			await this.#reconcileWrite(norm, stat, options?.ctime);
 		});
 	}
 
 	// Node cannot set a birth time, so a requested ctime is kept in the file table.
-	async #reconcileWrite(norm: string, full: string, options?: DataWriteOptions) {
-		if (options?.mtime !== undefined) await fs.promises.utimes(full, new Date(), new Date(options.mtime));
-		this.#written.set(norm, options ?? {});
+	async #reconcileWrite(norm: string, stat: fs.Stats, ctime?: number) {
+		this.#written.set(norm, { stat, ctime });
 		try {
 			await this.reconcileFile(this.#realPath(norm), norm, true);
 		} finally {
@@ -528,11 +639,9 @@ export class FileSystemAdapter {
 		if (!fresh) {
 			const norm = key(realPath);
 			const present = new Set(names.map((n) => key(join(norm, n))));
-			const prefix = norm ? `${norm}/` : "";
-			for (const p of Object.keys(this.files)) {
-				if (!p.startsWith(prefix) || p.includes("/", prefix.length) || present.has(p)) continue;
+			for (const p of [...(this.#children.get(norm) ?? [])]) {
 				const entry = this.files[p];
-				if (entry) await this.reconcileDeletion(entry.realpath, p, true);
+				if (entry && !present.has(p)) await this.reconcileDeletion(entry.realpath, p, true);
 			}
 		}
 		await Promise.all(names.map((name) => this.listRecursiveChild(realPath, name)));
@@ -569,7 +678,9 @@ export class FileSystemAdapter {
 	async reconcileFileInternal(realPath: string, normalizedPath: string) {
 		if (!normalizedPath) return;
 		// An own write reports 'modified' even when the stat looks unchanged,
-		// but only for an entry that existed before it.
+		// but only for an entry that existed before it. It records the stat of
+		// its own bytes: when another program has written the file since, the
+		// stat on disk differs from it, and the watcher reports that write too.
 		const written = this.#written.get(normalizedPath);
 		const before = this.files[normalizedPath];
 		let s: fs.Stats;
@@ -584,12 +695,13 @@ export class FileSystemAdapter {
 		await this.#ensureParent(normalizedPath);
 		if (this.files[normalizedPath]?.type === "folder") await this.reconcileDeletion(realPath, normalizedPath, true);
 		const entry = this.files[normalizedPath];
+		const bytes = written?.stat ?? s;
 		if (!entry) {
-			const stat = { ctime: written?.ctime ?? birth(s), mtime: s.mtimeMs, size: s.size };
+			const stat = { ctime: written?.ctime ?? birth(bytes), mtime: bytes.mtimeMs, size: bytes.size };
 			this.#add(normalizedPath, { type: "file", realpath: realPath, ...stat });
 			this.trigger("file-created", normalizedPath, undefined, { ...stat });
 		} else if ((written && entry === before) || entry.mtime !== s.mtimeMs || entry.size !== s.size) {
-			const stat = { ctime: written?.ctime ?? entry.ctime, mtime: s.mtimeMs, size: s.size };
+			const stat = { ctime: written?.ctime ?? entry.ctime, mtime: bytes.mtimeMs, size: bytes.size };
 			Object.assign(entry, stat, { realpath: realPath });
 			this.trigger("modified", normalizedPath, undefined, { ...stat });
 		}
@@ -643,10 +755,7 @@ export class FileSystemAdapter {
 	async reconcileDeletion(realPath: string, normalizedPath: string, skipTimeout?: boolean) {
 		if (!this.files[normalizedPath]) return;
 		if (!skipTimeout) return this.#deleteLater(realPath, normalizedPath);
-		const prefix = `${normalizedPath}/`;
-		const doomed = Object.keys(this.files)
-			.filter((p) => p.startsWith(prefix))
-			.sort((a, b) => b.length - a.length);
+		const doomed = this.#below(normalizedPath).sort((a, b) => b.length - a.length);
 		doomed.push(normalizedPath);
 		for (const p of doomed) {
 			const entry = this.files[p];
@@ -695,8 +804,7 @@ export class FileSystemAdapter {
 		const fromReal = this.files[from].realpath;
 		const toReal = this.#realPath(to);
 		const prefix = `${from}/`;
-		for (const p of Object.keys(this.files)) {
-			if (p !== from && !p.startsWith(prefix)) continue;
+		for (const p of [from, ...this.#below(from)]) {
 			const entry = this.files[p];
 			this.#drop(p);
 			entry.realpath = toReal + entry.realpath.slice(fromReal.length);
@@ -1038,9 +1146,11 @@ export class Vault extends Events {
 		return text;
 	}
 
+	// While a write is putting the file on disk, the text comes from disk once
+	// it is done.
 	async cachedRead(file: TFile) {
 		const hit = this.#contents.get(file.path);
-		if (hit && hit.mtime === file.stat.mtime && hit.size === file.stat.size) return hit.text;
+		if (hit && hit.mtime === file.stat.mtime && hit.size === file.stat.size && !this.adapter.isWriting(file.path)) return hit.text;
 		return this.read(file);
 	}
 

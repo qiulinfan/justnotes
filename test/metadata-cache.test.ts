@@ -57,6 +57,16 @@ describe("getFirstLinkpathDest", () => {
 		expect(cache.getFirstLinkpathDest("foo/baz", "other/qux.md")?.path).toBe("deep/path/foo/baz.md");
 		expect(cache.getFirstLinkpathDest("../foo/bar", "baz/qux.md")?.path).toBe("foo/bar.md");
 	});
+
+	// The notes vault has dozens of notes named review.md, one per source folder.
+	test("among notes that share a name, one in the source's folder wins, then the shortest path, then the first by name", async () => {
+		const { cache } = await makeCache({ "z/sub/review.md": "", "qq/sub/review.md": "", "b/sub/review.md": "", "a/deeper/review.md": "" });
+		expect(cache.getFirstLinkpathDest("sub/review", "qq/sub/x.md")?.path).toBe("qq/sub/review.md");
+		expect(cache.getLinkpathDest("sub/review", "qq/sub/x.md").map((f) => f.path)).toEqual(["qq/sub/review.md", "b/sub/review.md", "z/sub/review.md"]);
+		expect(cache.getFirstLinkpathDest("sub/review", "c/x.md")?.path).toBe("b/sub/review.md");
+		expect(cache.getFirstLinkpathDest("review", "c/x.md")?.path).toBe("b/sub/review.md");
+		expect(cache.getLinkpathDest("review", "c/x.md").map((f) => f.path)).toEqual(["b/sub/review.md", "z/sub/review.md", "qq/sub/review.md", "a/deeper/review.md"]);
+	});
 });
 
 describe("fileToLinktext", () => {
