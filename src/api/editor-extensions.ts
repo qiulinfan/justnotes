@@ -13,7 +13,7 @@ import { IterMode, NodeProp, type NodePropSource, type Parser, type SyntaxNode }
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import { type BlockContext, type Element, type LeafBlock, type LeafBlockParser, type Line, type MarkdownConfig, parseCode, parser as commonmark } from "@lezer/markdown";
 import type { App } from "./app";
-import { importFile } from "./attachments";
+import { imageLink, importFile, isImageFile } from "./attachments";
 import { DragManager } from "./drag-manager";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
 import { editorSettings } from "./editor-settings";
@@ -691,15 +691,21 @@ function followVault(view: MarkdownView) {
 // selected text links that text.
 const URL_ONLY = /^[a-z][\w+.-]*:\/\/\S+$/i;
 
+// An image as the "Pasted and dropped images as" setting writes it; any
+// other file as generateMarkdownLink links it (an embed unless it is a note,
+// as in Obsidian).
+function fileLink(app: App, file: TFile, sourcePath: string) {
+	return isImageFile(file) ? imageLink(app, file, sourcePath, editorSettings(app).pastedImageFormat) : app.fileManager.generateMarkdownLink(file, sourcePath);
+}
+
 async function attach(view: MarkdownView, files: File[], pasted: boolean) {
 	const { app } = view;
 	const sourcePath = view.file?.path ?? "";
 	const links: string[] = [];
 	for (const file of files) {
 		// A file dragged from inside the vault is linked, not copied.
-		// generateMarkdownLink embeds files that are no notes, as Obsidian's does.
 		const target = await importFile(app, file, sourcePath, pasted);
-		links.push(app.fileManager.generateMarkdownLink(target, sourcePath));
+		links.push(fileLink(app, target, sourcePath));
 	}
 	view.editor.replaceSelection(links.join("\n"), "input.paste");
 }
@@ -743,7 +749,7 @@ function linkDraggedFiles(view: MarkdownView) {
 		}
 		return DragManager.files(drag)
 			.filter((f): f is TFile => f instanceof TFile)
-			.map((f) => app.fileManager.generateMarkdownLink(f, sourcePath));
+			.map((f) => fileLink(app, f, sourcePath));
 	};
 	return ViewPlugin.define((cm) => {
 		const onDragOver = (evt: DragEvent) => {

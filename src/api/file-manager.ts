@@ -2,19 +2,12 @@ import * as nodePath from "node:path";
 import * as YAML from "yaml";
 import type { App } from "./app";
 import { insertProperty, locateFrontmatter, readProperties, removeProperty, replaceFrontmatter, setProperty } from "./frontmatter-edit";
+import { encodePath, encodeSubpath } from "./link-encoding";
 import { parseMetadata, type Reference, type ReferenceCache } from "./metadata";
 import { getLinkpath, locateFrontMatter, parseLinktext } from "./metadata-utils";
 import { Modal } from "./ui/modal";
 import { normalizePath } from "./util";
 import { type DataWriteOptions, type TAbstractFile, TFile, TFolder, Vault } from "./vault";
-
-// Markdown link destinations: spaces and '#' in a path must be encoded; a
-// block subpath keeps its '^' readable. Letters beyond ASCII stay as written
-// (附件/图 1.png gives 附件/图%201.png), as in Obsidian's links and the
-// owner's notes.
-const encodeAscii = (text: string) => text.replace(/[\0-\x7f]+/g, (run) => encodeURI(run));
-const encodePath = (path: string) => encodeAscii(path).replace(/#/g, "%23");
-const encodeSubpath = (subpath: string) => encodeAscii(subpath).replace(/%5E/g, "^");
 
 // Takes the ref written as `original` nearest to `offset` out of `refs`.
 function claim(refs: ReferenceCache[], original: string, offset: number) {

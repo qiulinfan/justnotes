@@ -1,5 +1,5 @@
 import type { App } from "./app";
-import { editorSettings, setEditorSetting } from "./editor-settings";
+import { editorSettings, type PastedImageFormat, setEditorSetting } from "./editor-settings";
 import { setIcon } from "./icons";
 import { ALWAYS_ON, CORE_PLUGIN_INFO, implementedCorePlugins } from "./internal-plugins";
 import type { Hotkey } from "./keymap";
@@ -334,6 +334,15 @@ class EditorTab extends SettingTab {
 					.setValue(settings.selectionScrollSpeed)
 					.setInstant(true)
 					.onChange((value) => setEditorSetting(this.app, "selectionScrollSpeed", value)),
+			);
+		new Setting(group.listEl)
+			.setName("Pasted and dropped images as")
+			.setDesc("How an image pasted or dropped into a note is written: an HTML <img> with a zoom style, as Typora writes it, a wikilink embed, or a Markdown image link.")
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOptions({ html: "HTML img", wikilink: "Wikilink embed", markdown: "Markdown link" })
+					.setValue(settings.pastedImageFormat)
+					.onChange((value) => setEditorSetting(this.app, "pastedImageFormat", value as PastedImageFormat)),
 			);
 	}
 }

@@ -781,6 +781,17 @@ plain style. Development notes belong in this file.
   (`caretPositionFromPoint`) after each step. Measure with real CDP mouse
   events (press, moves past the scroller's edge, scrollTop over a held
   second); the frame loop needs the test window shown.
+- Pasted and dropped images as (`html` default, `wikilink`, `markdown`;
+  `imageLink` in `attachments.ts`): an image file pasted, dropped from
+  outside or dragged from the explorer into a note is written as Typora
+  writes it and as the owner's notes hold it, `<img src="<path>"
+  alt="<name>" style="zoom:100%;" />` with the src relative to the note,
+  forward slashes, spaces kept (only a `"` is %-escaped) and the file's
+  basename as alt; or `![[linktext]]`, or `![](linktext)` with the
+  destination encoded as `generateMarkdownLink` encodes it, both following
+  `newLinkFormat` whatever `useMarkdownLinks` says. Other files keep
+  `generateMarkdownLink`. Pasted files are still saved by `importFile` into
+  the attachment folder.
 
 ## CSS
 
