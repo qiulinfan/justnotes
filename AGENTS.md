@@ -403,7 +403,8 @@ plain style. Development notes belong in this file.
   `alwaysUpdateLinks`), trash per `trashOption` for `delete` and the
   uninstall commands. Core plugins cannot be toggled (core-plugins.json is
   Obsidian's); `bookmark` goes through the Bookmarks instance's `addItem`
-  when that core plugin exists; history commands read File recovery's
+  when that core plugin exists (`url=` checked as the dialog checks it, a
+  bad URL is status 2); history commands read File recovery's
   snapshots (`fileRecoveryOf`), only while it is enabled; `workspace:load`
   applies a layout from workspaces.json. `dev:console` and `dev:errors` read
   buffers `dev-capture.ts` fills from boot (console methods wrapped, window

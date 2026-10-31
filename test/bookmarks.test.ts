@@ -15,6 +15,11 @@ import {
 	serializeBookmarks,
 	urlTitle,
 } from "../src/renderer/bookmarks-data";
+import { APP_COMMANDS } from "../src/cli/commands/app";
+import type { Ctx } from "../src/cli/commands/context";
+import { EXIT_USAGE } from "../src/cli/protocol";
+import { runBuiltin } from "../src/cli/run";
+import { BUILTINS } from "../src/cli/spec";
 
 installLanguageExtensions();
 
@@ -263,3 +268,22 @@ describe("the bookmarks instance and bookmarks.json", () => {
 	});
 });
 
+// Obsidian's CLI syntax, `bookmark url=... title=...`, through the instance.
+describe("the bookmark command", () => {
+	test("url= saves a URL bookmark in Obsidian's format; a URL that cannot open is refused and nothing is written", async () => {
+		const { app, writes, files } = fakeVault({});
+		const instance = new BookmarksInstance(app);
+		app.internalPlugins = { getEnabledPluginById: (id: string) => (id === "bookmarks" ? instance : null) };
+		await instance.load();
+		const ctx = { app, live: true, version: "0.0.0", cwd: "/" } as Ctx;
+		const run = (...words: string[]) => runBuiltin(BUILTINS.get("bookmark")!, APP_COMMANDS.bookmark, ctx, words);
+		expect((await run("url=javascript:alert(1)")).code).toBe(EXIT_USAGE);
+		await instance.saveData();
+		expect(writes).toEqual([]);
+		expect((await run("url=example.com/docs", "title=Docs")).code).toBe(0);
+		await instance.saveData();
+		const saved = parseBookmarks(files[".obsidian/bookmarks.json"])!.items;
+		expect(saved).toMatchObject([{ type: "url", url: "https://example.com/docs", title: "Docs" }]);
+		expect(Object.keys(saved[0])).toEqual(["type", "ctime", "url", "title"]);
+	});
+});
