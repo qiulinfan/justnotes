@@ -341,8 +341,8 @@ plain style. Development notes belong in this file.
   close) opens a menu above it: the known vaults (`vaults.json` plus open
   windows, by name, a vault sharing its name with another labelled with the
   folder above it; the current one checked, a missing folder disabled), Open
-  another vault… and Manage vaults…. Help runs `app:open-help` (help.obsidian.md
-  through main's link policy), Settings opens settings. `app:open-vault`
+  another vault… and Manage vaults…. Help runs `app:open-help` (justnotes' GitHub
+  page through main's link policy; Obsidian's opens its own help), Settings opens settings. `app:open-vault`
   ("Open another vault") opens Manage vaults, as Obsidian's command opens its
   vault manager. Manage vaults (a modal, `.mod-vault-manager`, justnotes'
   own classes) lists the vaults with Open (Switch for one open in another

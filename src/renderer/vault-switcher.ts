@@ -13,7 +13,9 @@ import type { VaultResult, VaultRow } from "../main/vault-switcher";
 // buttons. The vaults, and everything that opens, adds or forgets one, live
 // in main (main/vault-switcher.ts), which owns vaults.json and the windows.
 
-const HELP_URL = "https://help.obsidian.md";
+// justnotes' own page, which says what works; Obsidian's help would describe
+// features justnotes does not have.
+const HELP_URL = "https://github.com/qiulinfan/justnotes";
 const revealLabel = process.platform === "darwin" ? "Reveal in Finder" : process.platform === "win32" ? "Show in system explorer" : "Show in folder";
 
 const listVaults = (): Promise<VaultRow[]> => ipcRenderer.invoke("justnotes:vaults");
