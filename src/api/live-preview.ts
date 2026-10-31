@@ -408,15 +408,25 @@ export function tableCellOffset(source: string, row: number, col: number) {
 	return offset + Math.min(at, line.length);
 }
 
+// A line of an indented block without the block's own indentation: all of
+// it, or as much leading whitespace as the line has.
+function dedent(line: string, indent: string) {
+	if (line.startsWith(indent)) return line.slice(indent.length);
+	return line.slice(Math.min(/^[ \t]*/.exec(line)![0].length, indent.length));
+}
+
 // The title of a foldable callout, which folds it on a click.
 const FOLD_TITLE = ".callout.is-collapsible > .callout-title";
 
 // A block rendered with MarkdownRenderer, as the reading view renders it:
 // tables (in .table-wrapper) and callouts (.cm-callout > .callout). The
-// renderer's own handlers follow links and fold callouts.
+// renderer's own handlers follow links and fold callouts. A block in a list
+// item renders without the item's indentation, which alone would make it an
+// indented code block; `source` keeps the note's lines, for cell offsets.
 class RenderedBlockWidget extends WidgetType {
 	constructor(
 		readonly source: string,
+		readonly indent: string,
 		readonly kind: "table" | "callout",
 		readonly host: LivePreviewHost,
 	) {
@@ -427,11 +437,16 @@ class RenderedBlockWidget extends WidgetType {
 		return other.source === this.source && other.kind === this.kind;
 	}
 
+	// The block as the renderer gets it.
+	get markdown() {
+		return this.source.split("\n").map((line) => dedent(line, this.indent)).join("\n");
+	}
+
 	toDOM(view: EditorView) {
 		const el = createDiv(`cm-embed-block markdown-rendered ${this.kind === "table" ? "cm-table-widget" : "cm-callout"}`);
 		const body = this.kind === "table" ? el.createDiv("table-wrapper") : el;
 		const child = widgetComponent(view, el);
-		MarkdownRenderer.render(this.host.app, this.source, body, this.host.sourcePath(), child).catch((err) => console.error(err));
+		MarkdownRenderer.render(this.host.app, this.markdown, body, this.host.sourcePath(), child).catch((err) => console.error(err));
 		for (const table of body.findAll("table")) table.addClass("table-editor");
 		if (this.kind === "callout") {
 			editButton(view, el, (v) => v.posAtDOM(el));
@@ -478,13 +493,6 @@ type CodeBlockProcessor = (source: string, el: HTMLElement, ctx: any) => any;
 function codeBlockProcessor(language: string): CodeBlockProcessor | undefined {
 	const processors = MarkdownPreviewRenderer.codeBlockPostProcessors;
 	return Object.hasOwn(processors, language) ? processors[language] : undefined;
-}
-
-// A line of a fence's content without the fence's own indentation: all of
-// it, or as much leading whitespace as the line has.
-function dedent(line: string, indent: string) {
-	if (line.startsWith(indent)) return line.slice(indent.length);
-	return line.slice(Math.min(/^[ \t]*/.exec(line)![0].length, indent.length));
 }
 
 // A fenced block whose language has a code-block processor (a plugin's,
@@ -752,7 +760,8 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					eachLine(from, to, (l) => addLine(l.from, "HyperMD-callout"));
 					if (touchesLines(from, to) || !ownsLines(node)) return;
 					const last = doc.lineAt(to);
-					decos.push(Decoration.replace({ block: true, widget: new RenderedBlockWidget(doc.sliceString(first.from, last.to), "callout", host) }).range(first.from, last.to));
+					const widget = new RenderedBlockWidget(doc.sliceString(first.from, last.to), doc.sliceString(first.from, from), "callout", host);
+					decos.push(Decoration.replace({ block: true, widget }).range(first.from, last.to));
 					return false;
 				}
 				case "QuoteMark": {
@@ -808,7 +817,8 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (touchesLines(from, to) || !ownsLines(node)) return false;
 					const first = doc.lineAt(from);
 					const last = doc.lineAt(to);
-					decos.push(Decoration.replace({ block: true, widget: new RenderedBlockWidget(doc.sliceString(first.from, last.to), "table", host) }).range(first.from, last.to));
+					const widget = new RenderedBlockWidget(doc.sliceString(first.from, last.to), doc.sliceString(first.from, from), "table", host);
+					decos.push(Decoration.replace({ block: true, widget }).range(first.from, last.to));
 					return false;
 				}
 				case "Link": {

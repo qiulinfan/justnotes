@@ -4,7 +4,7 @@ import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { type Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 import { obsidianMarkdown } from "../src/api/editor-extensions";
-import { type LivePreviewHost, livePreview } from "../src/api/live-preview";
+import { type LivePreviewHost, livePreview, tableCellOffset } from "../src/api/live-preview";
 import { MarkdownPreviewRenderer, renderMarkdownSections } from "../src/api/markdown";
 
 // Live Preview and the reading view must show the same thing for the same
@@ -79,6 +79,33 @@ describe("math", () => {
 			expect(livePreviewMath(doc)).toEqual(formulas);
 		});
 	}
+});
+
+describe("callouts and tables in list items", () => {
+	// Indented by a tab or four spaces under a list item, these are still a
+	// callout and a table in the reading view; Live Preview must not render
+	// them as indented code. A click in a cell maps through the note's lines.
+	const html = (markdown: string) =>
+		renderMarkdownSections(markdown)
+			.sections.map((s) => s.html)
+			.join("");
+	const block = (doc: string) => widgets(doc).find((w) => w.constructor.name === "RenderedBlockWidget");
+
+	test("a tab-indented callout", () => {
+		const doc = "- item\n\t> [!note] Title\n\t> body\n\nend";
+		expect(html(doc)).toMatch(/class="callout"/);
+		expect(html(block(doc).markdown)).toMatch(/class="callout"/);
+	});
+
+	test("a table indented by four spaces", () => {
+		const doc = "- item\n    | a | b |\n    | - | - |\n    | 1 | 2 |\n\nend";
+		const widget = block(doc);
+		expect(html(doc)).toMatch(/<table/);
+		expect(html(widget.markdown)).toMatch(/<table/);
+		expect(html(widget.markdown)).not.toMatch(/<pre/);
+		const tableStart = doc.indexOf("    | a");
+		expect(doc.slice(tableStart + tableCellOffset(widget.source, 1, 1))).toStartWith("2 |");
+	});
 });
 
 describe("code-block processors", () => {
