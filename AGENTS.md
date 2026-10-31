@@ -769,6 +769,11 @@ plain style. Development notes belong in this file.
   theme's, as themes restate them. A row's collapse chevron sits in its left
   padding, over the children's indentation guide, so file and folder names
   line up.
+- Main-area tabs are `--tab-width` (200px) wide, as Obsidian's, and shrink
+  evenly when they no longer fit, down to their icon; past that the tab bar
+  scrolls. The width is a `width`, not only a flex basis: a flex container's
+  intrinsic size counts its items' content, so a basis alone squeezed the tabs
+  to their titles beside free space.
 - Links take their colours from the `--link-*` variables, and a base `a` rule
   gives plain anchors in plugin views the link colour. Live Preview's link
   marks carry `.internal-link` and `.external-link`, so the reading view's link
