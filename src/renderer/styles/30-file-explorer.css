@@ -15,6 +15,7 @@
 	font-size: var(--font-ui-small);
 	height: calc(100% - 44px);
 	overflow-y: auto;
+	user-select: none;
 }
 
 .tree-item-self {
@@ -37,7 +38,8 @@
 	padding-left: 24px;
 }
 
-.nav-file-title.is-active {
+.nav-file-title.is-active,
+.tree-item-self.is-selected {
 	background: var(--background-modifier-active-hover);
 	color: var(--text-normal);
 }
