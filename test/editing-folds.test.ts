@@ -54,11 +54,11 @@ function folds(doc: string, heading: boolean, indent: boolean) {
 // Obsidian folds headings and indented lists only; justnotes reads the same
 // two settings.
 describe("folding", () => {
-	// The languages of the code here (in a fenced block, a style and a script)
+	// The languages of the code here (in fenced blocks, styles and scripts)
 	// are loaded, as in an editor that has shown them, so their own syntax
 	// folds would be offered if they were kept.
 	beforeAll(async () => {
-		for (const name of ["js", "css"]) await LanguageDescription.matchLanguageName(languages, name, true)?.load();
+		for (const name of ["js", "css", "html", "markdown"]) await LanguageDescription.matchLanguageName(languages, name, true)?.load();
 	});
 
 	// A list item's own text wrapping onto more lines folds no more than a
@@ -75,5 +75,11 @@ describe("folding", () => {
 	test("HTML blocks, with the CSS and JavaScript in them, do not fold", () => {
 		const html = ["<div>", "<p>text</p>", "</div>", "", "<style>", ".a {", "  color: red;", "}", "</style>", "", "<script>", "function a() {", "  return 1;", "}", "</script>"].join("\n");
 		expect(folds(html, true, true)).toEqual([]);
+	});
+
+	// A heading in a markdown fence is code, not a section of the note.
+	test("HTML and Markdown fences, with what is nested in them, do not fold", () => {
+		const fences = ["```html", "<style>", ".a {", "  color: red;", "}", "</style>", "<script>", "function a() {", "  return 1;", "}", "</script>", "```", "", "```markdown", "# Inside", "text", "<div>", "<p>text</p>", "</div>", "```"].join("\n");
+		expect(folds(fences, true, true)).toEqual([]);
 	});
 });

@@ -2,14 +2,14 @@ import { autocompletion, closeBrackets, closeBracketsKeymap } from "@codemirror/
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
 import { html } from "@codemirror/lang-html";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { bracketMatching, codeFolding, foldGutter, foldNodeProp, foldService, HighlightStyle, indentOnInput, indentUnit, Language, LanguageDescription, LanguageSupport, ParseContext, syntaxHighlighting, syntaxTree } from "@codemirror/language";
+import { bracketMatching, codeFolding, foldGutter, foldNodeProp, foldService, HighlightStyle, indentOnInput, indentUnit, Language, languageDataProp, LanguageDescription, LanguageSupport, ParseContext, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range, type StateCommand } from "@codemirror/state";
 import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { type Input, IterMode, NodeProp, type NodePropSource, Parser, type SyntaxNode, type TreeFragment } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
-import type { BlockContext, Element, LeafBlock, LeafBlockParser, Line, MarkdownConfig } from "@lezer/markdown";
+import { type BlockContext, type Element, type LeafBlock, type LeafBlockParser, type Line, type MarkdownConfig, parseCode, parser as commonmark } from "@lezer/markdown";
 import type { App } from "./app";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
 import { setIcon } from "./icons";
@@ -515,9 +515,14 @@ function foldless(lang: Language): Language | null {
 
 // A fenced block's language from language-data with its folds left out, or
 // its description while it is not loaded (lang-markdown loads it and parses
-// again) and for a stream language, which has no folds.
+// again) and for a stream language, which has no folds. That leaves the folds
+// of the languages a fenced one nests, so HTML and Markdown fences get
+// versions nesting fold-free ones; Vue, Angular, PHP, Liquid and Jinja fences
+// still fold the HTML, CSS and JavaScript in them.
 function codeLanguage(info: string): Language | LanguageDescription | null {
 	const found = LanguageDescription.matchLanguageName(languages, info, true);
+	if (found?.name === "HTML") return htmlFence;
+	if (found?.name === "Markdown") return markdownFence;
 	const lang = found?.support?.language;
 	return (lang && foldless(lang)) ?? found;
 }
@@ -536,11 +541,28 @@ class NestedCode extends Parser {
 	}
 }
 
-// HTML in a note, as lang-markdown parses it (closing tags not matched), with
-// no folds of its own or of the code in it: every script's as JavaScript and
-// every style's as CSS.
-const htmlSupport = html({ matchClosingTags: false, nestedLanguages: [{ tag: "script", parser: new NestedCode("javascript") }, { tag: "style", parser: new NestedCode("css") }] });
-const htmlTags = new LanguageSupport(foldless(htmlSupport.language)!, htmlSupport.support);
+// HTML with no folds of its own or of the code in it: every script's as
+// JavaScript and every style's as CSS.
+function foldlessHtml(matchClosingTags: boolean) {
+	const support = html({ matchClosingTags, nestedLanguages: [{ tag: "script", parser: new NestedCode("javascript") }, { tag: "style", parser: new NestedCode("css") }] });
+	return new LanguageSupport(foldless(support.language)!, support.support);
+}
+
+// HTML in a note, as lang-markdown parses it (closing tags not matched), and
+// in an html fence, as language-data does.
+const htmlTags = foldlessHtml(false);
+const htmlFence = foldlessHtml(true).language;
+
+// A markdown fence parses as language-data's Markdown does (CommonMark, with
+// HTML, and Markdown's language data), from lezer's parser without
+// lang-markdown's folds and heading marks: its heading folds would take the
+// fence's headings for the note's.
+const markdownFence = new Language(
+	markdownLanguage.data,
+	commonmark.configure([parseCode({ htmlParser: htmlTags.language.parser }), { props: [languageDataProp.add({ Document: markdownLanguage.data })] }]),
+	[],
+	"markdown",
+);
 
 // The Markdown language with Obsidian's syntax and folds.
 export function markdownSupport(fold: FoldSettings): Extension {
