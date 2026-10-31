@@ -515,36 +515,45 @@ export abstract class TextFileView extends EditableFileView {
 
 	// A change on disk the document has not taken in yet (a watcher event on
 	// its way, or one the vault skipped) is merged in first, so the write never
-	// drops it.
+	// drops it. Reading, merging and writing are one vault.process step, so no
+	// other write lands between the read and the write.
 	async #write(file: TFile) {
 		if (!this.#shows(file) || this.app.vault.getAbstractFileByPath(file.path) !== file) return;
 		if (!this.dirty && this.getViewData() === this.data) return;
 		const doc = this.#docFor(file);
-		if (doc) {
-			const disk = await this.#read(file);
+		let data = null as string | null;
+		const take = () => {
+			data = this.getViewData();
+			this.requestSave.cancel();
+			this.dirty = false;
+			this.data = data;
+			// Mirrors showing this text have nothing left to save.
+			for (const view of doc?.views ?? []) {
+				view.data = data;
+				if (view !== this && view.getViewData() === data) {
+					view.requestSave.cancel();
+					view.dirty = false;
+				}
+			}
+			return data;
+		};
+		try {
+			if (!doc) await this.app.vault.modify(file, take());
+			else {
+				await this.app.vault.process(file, (disk) => {
+					if (!this.#shows(file) || this.#docFor(file) !== doc) return disk;
+					if (disk !== doc.base && !this.#takeIn(doc, disk)) return disk;
+					return take();
+				});
+			}
+		} catch (err) {
 			// Gone from disk: the vault reports the delete soon. The view stays
 			// dirty, so the text is written if the file comes back.
-			if (disk === null || !this.#shows(file) || this.#docFor(file) !== doc) return;
-			if (disk !== doc.base && !this.#takeIn(doc, disk)) return;
-		}
-		const data = this.getViewData();
-		this.requestSave.cancel();
-		this.dirty = false;
-		this.data = data;
-		// Mirrors showing this text have nothing left to save.
-		for (const view of doc?.views ?? []) {
-			view.data = data;
-			if (view !== this && view.getViewData() === data) {
-				view.requestSave.cancel();
-				view.dirty = false;
-			}
-		}
-		try {
-			await this.app.vault.modify(file, data);
-		} catch (err) {
-			this.dirty = true;
+			if (doc && data === null && isMissing(err)) return;
+			if (data !== null) this.dirty = true;
 			throw err;
 		}
+		if (data === null) return;
 		if (doc) doc.base = data;
 		else this.#adopt(file, data);
 	}
