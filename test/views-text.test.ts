@@ -200,15 +200,35 @@ describe("TextFileView saves", () => {
 
 	// After a save that only removed lines, a capture holds every line of the
 	// saved text, as a write built on it does: the removal stays.
-	test("a capture built on the text from before a save that removed a line keeps the line removed", async () => {
-		const { vault, view, file, full } = await editedNote("line1\nline2\nline3\n");
-		view.text = "line1\nline3\n";
+	const removals: [string, string, string, string, string][] = [
+		["a line", "line1\nline2\nline3\n", "line1\nline3\n", "line1\nline2\nline3\n- captured\n", "line1\nline3\n- captured\n"],
+		["a blank line", "line1\n\nline3\n", "line1\nline3\n", "line1\n\nline3\n- captured\n", "line1\nline3\n- captured\n"],
+	];
+	for (const [name, note, saved, captured, merged] of removals) {
+		test(`a capture built on the text from before a save that removed ${name} keeps it removed`, async () => {
+			const { vault, view, file, full } = await editedNote(note);
+			view.text = saved;
+			view.requestSave();
+			await view.save();
+			await vault.modify(file, captured);
+			await view.save();
+			expect(fs.readFileSync(full, "utf8")).toBe(merged);
+			expect(view.text).toBe(merged);
+		});
+	}
+
+	// The save deleted a line's text and added a blank line, which the capture's
+	// line can stand in for: the capture holds every line of the saved text,
+	// but also the deleted text, so it was not made from the saved text.
+	test("a capture built on the text from before a save that emptied a line and added a blank one keeps the line empty", async () => {
+		const { vault, view, file, full } = await editedNote("# Todo\n- milk\n- bob\n");
+		view.text = "# Todo\n- milk\n\n\n";
 		view.requestSave();
 		await view.save();
-		await vault.modify(file, "line1\nline2\nline3\n- captured\n");
+		await vault.modify(file, "# Todo\n- milk\n- bob\n- cap\n");
 		await view.save();
-		expect(fs.readFileSync(full, "utf8")).toBe("line1\nline3\n- captured\n");
-		expect(view.text).toBe("line1\nline3\n- captured\n");
+		expect(fs.readFileSync(full, "utf8")).toBe("# Todo\n- milk\n\n\n- cap\n");
+		expect(view.text).toBe("# Todo\n- milk\n\n\n- cap\n");
 	});
 
 	const afterSave: [string, string][] = [

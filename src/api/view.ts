@@ -427,6 +427,9 @@ function addsLines(from: string, text: string) {
 	return true;
 }
 
+// The lines of `text` that hold text, in order.
+const textLines = (text: string) => text.split("\n").filter((line) => line.trim()).join("\n");
+
 // The base a change on disk is merged against: the text the document last
 // took in, unless the change was made from the text its last write replaced
 // (a capture that read the note just before a save and wrote it right after).
@@ -450,11 +453,14 @@ function addsLines(from: string, text: string) {
 function mergeBase(doc: TextDoc, text: string) {
 	const prior = doc.prior;
 	if (!prior || Date.now() - prior.at > 1000 || !addsLines(prior.text, text) || doc.seen.has(digest(text))) return doc.base;
-	// Made from the written text: it holds every line of it. (When the write
-	// only removed or emptied lines, a capture of the replaced text does too,
-	// and the merge below decides; a line appended right after a write that
-	// removed the final newline then comes out without its own.)
-	if (addsLines(doc.base, text) && !addsLines(doc.base, prior.text)) return doc.base;
+	// Made from the written text: it holds every line of it. But a change that
+	// holds every line of the replaced text (as this one does) still has any
+	// line with text the write dropped, so it was not made from such a write;
+	// and a capture of the replaced text also holds every line of a write that
+	// only removed blank lines. For those the merge below decides: a line
+	// appended right after a write that removed the final newline comes out
+	// without its own.
+	if (addsLines(doc.base, text) && addsLines(textLines(prior.text), doc.base) && !addsLines(doc.base, prior.text)) return doc.base;
 	const kept = mergeText(prior.text, doc.base, text);
 	return !kept.conflicts && kept.text !== text ? prior.text : doc.base;
 }
