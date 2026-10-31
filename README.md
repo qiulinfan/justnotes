@@ -43,10 +43,13 @@ vault 就是一个放 Markdown 文件的文件夹. 已有的 Obsidian vault 可�
 - 全文搜索 (`⌘⇧F`), 直接读文件, 没有索引. `tag:#标签` 按标签搜 (正文和 frontmatter, 含子标签).
 - Bases: `.base` 文件和 `base` 代码块, 表格, 卡片和列表视图, 排序, 分组, 筛选, 公式, 在表格里改属性.
 - 命令面板 (`⌘P`), 快速切换 (`⌘O`), 设置 (`⌘,`). vault 里 `.obsidian/hotkeys.json` 的快捷键会生效.
-- 核心插件: 反向链接 (含未链接的提及, 可以一键改成链接), 出链, 大纲, 日记, 模板, 字数统计. 开哪些跟 vault 的 `core-plugins.json` 走, 设置 (比如模板文件夹) 要在 Obsidian 里改.
-- 测过的 Obsidian 插件: Copy Location, Quick LaTeX, Completr, YOLO Completion Only, Background, kgdistiller, LaTeX Live, Git, omp, QuickAdd, Terminal, Tinymist Typst.
+- 核心插件: 反向链接 (侧栏和笔记底部, 含未链接的提及, 可以一键改成链接), 出链, 大纲 (可搜索, 跟随光标), 标签, 关系图谱 (全局和局部), Canvas, 日记, 模板, 笔记合并, 文件恢复, 所有属性, 字数统计. 开哪些跟 vault 的 `core-plugins.json` 走, 设置 (比如模板文件夹) 要在 Obsidian 里改.
+- 属性: 在 Live Preview 和阅读视图里直接改, 按类型显示 (文本, 列表, 数字, 勾选, 日期, 标签).
+- 标签页可以拖动: 重排, 换到别的组, 拖到边上分屏, 拖出窗口变成弹出窗口. 文件栏的文件可以拖进笔记 (插入链接) 或终端 (输入路径).
+- 命令行: `bun run cli -- <命令>` 运行插件注册的命令 (比如 QuickAdd 的), `bun run cli -- help` 列出全部.
+- 测过的 Obsidian 插件: Copy Location, Quick LaTeX, Completr, YOLO Completion Only, Background, kgdistiller, LaTeX Live, Git, omp, QuickAdd, Terminal, Tinymist Typst, Translate.
 
-还没有的: 笔记底部的反向链接, 关系图谱, Canvas 和其他核心插件, 在属性面板里改属性, 弹出窗口 (会开成标签页), 拖动标签页, 自动上传到云盘.
+还没有的: 书签, 幻灯片, 随机笔记这类其余核心插件, Obsidian 自带的命令行命令 (只有插件注册的), 从文件栏把文件拖进 Canvas.
 
 justnotes 只读 `.obsidian/` 里的配置, 不会写, 所以和 Obsidian 交替打开同一个 vault 没问题.
 

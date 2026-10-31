@@ -475,7 +475,13 @@ provider). QuickAdd's capture into the active canvas and into a configured
 card were tested on a synthetic vault. In a popout window Markdown editing,
 Completr's and the link suggests, latex-live's math, QuickAdd's modals and
 menus and a terminal moved there (its `onWindowMigrated` reopens xterm) were
-tested live.
+tested live. All thirteen, translate (0.1.0) included, also loaded with no
+errors in the real notes vault, where translate's hold-Shift popup returned a
+DeepSeek translation (one paid call of a fraction of a cent; it reads its key
+from a file under `~/Desktop/apis`), and the core plugin panes, a popout and
+the CLI worked; the vault's git state was unchanged afterwards. Loading
+rewrites `plugins/terminal/data.json` and obsidian-git's
+`obsidian_askpass.sh`, as in Obsidian.
 
 ## Verify
 
