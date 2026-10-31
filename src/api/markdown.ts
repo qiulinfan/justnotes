@@ -900,22 +900,36 @@ export function loadMermaid() {
 // ---------------------------------------------------------------------------
 // From HTML to the page: section bookkeeping, placeholders, embeds.
 
-// Each rendered top-level block (or a section's wrapper) maps to its line
-// range for getSectionInfo. The records are shared, so a reading view can
-// shift a kept section's lines in place.
-const sectionInfo = new WeakMap<Element, MarkdownSectionInformation>();
+// Each rendered top-level block (or reading-view section) records the
+// renderer it belongs to, which handles events in it, and its line range for
+// getSectionInfo. The range is null in an embed, whose text is only part of
+// its note, as in Obsidian. A reading view shifts a kept section's lines in
+// the shared record.
+interface RenderedBlock {
+	owner: MarkdownRenderer;
+	info: MarkdownSectionInformation | null;
+}
+const renderedBlocks = new WeakMap<Element, RenderedBlock>();
 
-function sectionInfoOf(el: HTMLElement): MarkdownSectionInformation | null {
-	for (let node: Element | null = el; node; node = node.parentElement) {
-		const info = sectionInfo.get(node);
-		if (info) return { ...info };
+// The nearest block around `el` below `root`; with `owner`, the nearest of
+// its own, so the blocks of a render nested inside (an embed) are passed over.
+function nearestBlock(el: Element, root: Element, owner?: MarkdownRenderer) {
+	for (let node: Element | null = el; node && node !== root; node = node.parentElement) {
+		const block = renderedBlocks.get(node);
+		if (block && (!owner || block.owner === owner)) return block;
 	}
 	return null;
 }
 
-function transferSection(from: Element, to: Element) {
-	const info = sectionInfo.get(from);
-	if (info) sectionInfo.set(to, info);
+// getSectionInfo for what `owner` rendered into `root`.
+function sectionInfoIn(el: Element, owner: MarkdownRenderer, root: Element): MarkdownSectionInformation | null {
+	const info = root.contains(el) ? nearestBlock(el, root, owner)?.info : null;
+	return info ? { ...info } : null;
+}
+
+function transferBlock(from: Element, to: Element) {
+	const block = renderedBlocks.get(from);
+	if (block) renderedBlocks.set(to, block);
 }
 
 interface RenderJob {
@@ -1224,13 +1238,15 @@ function runPostProcessors(el: HTMLElement, ctx: MarkdownPostProcessorContext, p
 	}
 }
 
+// `containerEl` is the root of the render: the static render's el or the
+// reading view.
 function postProcessorContext(job: RenderJob, docId: string, frontmatter: unknown, containerEl: HTMLElement, el: HTMLElement) {
 	return {
 		docId,
 		sourcePath: job.sourcePath,
 		frontmatter,
 		addChild: (child: Component) => job.parent.addChild(child),
-		getSectionInfo: sectionInfoOf,
+		getSectionInfo: (target: HTMLElement) => sectionInfoIn(target, job.owner, containerEl),
 		containerEl,
 		el,
 		promises: job.promises,
@@ -1240,15 +1256,22 @@ function postProcessorContext(job: RenderJob, docId: string, frontmatter: unknow
 // ---------------------------------------------------------------------------
 // Events on rendered output, shared by every renderer: links open in the app
 // (never by navigating the window), tags search, footnotes scroll, code
-// copies, callouts fold. A nested render (an embed) handles its own events
-// first with its own source path; the outer one then leaves them alone.
+// copies, callouts fold. Each renderer acts only on the blocks it rendered,
+// with its own source path: an embed's inner render handles the events in
+// its blocks, and a later render into the same el handles those in its own.
 const handledEvents = new WeakSet<Event>();
 
 function attachHandlers(owner: MarkdownRenderer, el: HTMLElement, sourcePath: () => string, taskLines: boolean) {
+	// Content outside any rendered block (a plugin's own) goes to the first renderer.
+	const handles = (evt: Event, target: Element) => {
+		if (handledEvents.has(evt)) return false;
+		const block = nearestBlock(target, el);
+		return !block || block.owner === owner;
+	};
 	const click = (evt: MouseEvent) => {
-		if (evt.defaultPrevented || handledEvents.has(evt)) return;
-		handledEvents.add(evt);
 		const target = evt.target as Element;
+		if (evt.defaultPrevented || !handles(evt, target)) return;
+		handledEvents.add(evt);
 		const a = target.closest("a");
 		if (a && el.contains(a)) {
 			if (a.hasClass("internal-link")) return owner.onInternalLinkClick(evt, a, a.getAttribute("data-href") ?? "", sourcePath());
@@ -1269,7 +1292,7 @@ function attachHandlers(owner: MarkdownRenderer, el: HTMLElement, sourcePath: ()
 		}
 		const box = target.closest("input.task-list-item-checkbox") as HTMLInputElement | null;
 		if (box && el.contains(box)) {
-			const info = taskLines ? sectionInfoOf(box) : null;
+			const info = taskLines ? sectionInfoIn(box, owner, el) : null;
 			return owner.onCheckboxClick(evt, box, info ? info.lineStart + Number(box.dataset.line ?? 0) : null);
 		}
 		const embed = target.closest(".markdown-embed-link, .file-embed");
@@ -1293,16 +1316,15 @@ function attachHandlers(owner: MarkdownRenderer, el: HTMLElement, sourcePath: ()
 		if (evt.button === 1) click(evt);
 	});
 	owner.registerDomEvent(el, "mouseover", (evt: MouseEvent) => {
-		if (handledEvents.has(evt)) return;
 		const a = (evt.target as Element).closest("a.internal-link");
-		if (!a || !el.contains(a) || (evt.relatedTarget instanceof Node && a.contains(evt.relatedTarget))) return;
+		if (!a || !el.contains(a) || !handles(evt, a) || (evt.relatedTarget instanceof Node && a.contains(evt.relatedTarget))) return;
 		handledEvents.add(evt);
 		owner.onInternalLinkMouseover(evt, a as HTMLElement, a.getAttribute("data-href") ?? "", sourcePath());
 	});
 	owner.registerDomEvent(el, "contextmenu", (evt: MouseEvent) => {
-		if (evt.defaultPrevented || handledEvents.has(evt)) return;
+		if (evt.defaultPrevented) return;
 		const a = (evt.target as Element).closest("a.internal-link");
-		if (!a || !el.contains(a)) return;
+		if (!a || !el.contains(a) || !handles(evt, a)) return;
 		handledEvents.add(evt);
 		owner.onInternalLinkContextMenu(evt, a as HTMLElement, a.getAttribute("data-href") ?? "", sourcePath());
 	});
@@ -1438,7 +1460,7 @@ class StaticRenderer extends MarkdownRenderer {
 // (plugins rely on that: `:scope > p`, `> :first-child`, reading el without
 // awaiting), and the post processors run once on `el`, after the math and
 // highlighting are in; that waits only for a library that has not loaded yet.
-// getSectionInfo maps each block to its lines in `markdown`.
+// getSectionInfo maps each block to its lines in `markdown`, except in an embed.
 async function renderStatic(app: App, markdown: string, el: HTMLElement, sourcePath: string, component: Component, embedStack: string[]) {
 	// Some plugins pass no component; the output then has no owner to unload it.
 	const owner = new StaticRenderer(app, el, sourcePath);
@@ -1450,9 +1472,9 @@ async function renderStatic(app: App, markdown: string, el: HTMLElement, sourceP
 	for (const section of toSections(markdown, tokens, env, breaksFor(app))) {
 		if (!section.html) continue;
 		const frag = toDom(section.html, app, sourcePath);
-		const info = { text: markdown, lineStart: section.lineStart, lineEnd: section.lineEnd };
+		const info = embedStack.length ? null : { text: markdown, lineStart: section.lineStart, lineEnd: section.lineEnd };
 		for (const node of Array.from(frag.children) as HTMLElement[]) {
-			sectionInfo.set(node, info);
+			renderedBlocks.set(node, { owner, info });
 			added.push(node);
 		}
 		el.appendChild(frag);
@@ -1502,7 +1524,7 @@ export class MarkdownPreviewRenderer {
 				const pre = code.parentElement!;
 				const div = createDiv(`block-language-${language}`);
 				pre.replaceWith(div);
-				transferSection(pre, div);
+				transferBlock(pre, div);
 				try {
 					const result = handler(code.textContent ?? "", div, ctx);
 					if (isPromise(result)) results.push(result.catch((err) => console.error(err)));
@@ -1621,7 +1643,7 @@ export class MarkdownPreviewRenderer {
 	}
 
 	getSectionInfo(el: HTMLElement) {
-		return sectionInfoOf(el);
+		return sectionInfoIn(el, this.owner, this.previewEl);
 	}
 
 	#create(section: MarkdownRenderedSection, text: string, before: HTMLElement): PreviewSection {
@@ -1632,7 +1654,7 @@ export class MarkdownPreviewRenderer {
 		const first = frag.firstElementChild;
 		const el = createDiv(first?.hasClass("frontmatter") ? "el-pre mod-frontmatter mod-ui" : `el-${first?.tagName.toLowerCase() ?? "div"}`);
 		el.appendChild(frag);
-		sectionInfo.set(el, info);
+		renderedBlocks.set(el, { owner: this.owner, info });
 		this.sizerEl.insertBefore(el, before);
 		return { ...section, el, info, component };
 	}
