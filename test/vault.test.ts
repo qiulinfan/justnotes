@@ -200,6 +200,19 @@ describe("Vault change reconciliation", () => {
 		expect(vault.getRoot().children.filter((f) => f.path === "ext.md")).toHaveLength(1);
 	});
 
+	// The vault rescans after its watcher fails, and kgdistiller rescans its hidden folder.
+	test("a rescan drops what left the disk, folder contents first, and adds what arrived", async () => {
+		const { vault, events, full } = await makeVault({ "keep/k.md": "k", "gone/sub/n.md": "n", "gone/m.md": "m", "old.md": "o" });
+		fs.rmSync(full("gone"), { recursive: true });
+		fs.rmSync(full("old.md"));
+		fs.writeFileSync(full("keep/new.md"), "new");
+		await vault.adapter.listRecursive("");
+		expect(tree(vault)).toEqual(["/", "keep", "keep/k.md", "keep/new.md"]);
+		expect(events.indexOf("delete gone")).toBeGreaterThan(events.indexOf("delete gone/sub"));
+		expect(events.indexOf("delete gone/sub")).toBeGreaterThan(events.indexOf("delete gone/sub/n.md"));
+		expect(events.sort()).toEqual(["create keep/new.md", "delete gone", "delete gone/m.md", "delete gone/sub", "delete gone/sub/n.md", "delete old.md"]);
+	});
+
 	test("a folder created outside the app announces itself and every file in it", async () => {
 		const { vault, events, full } = await makeVault();
 		fs.mkdirSync(full("pulled/sub"), { recursive: true });

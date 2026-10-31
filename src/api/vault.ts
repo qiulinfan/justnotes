@@ -147,6 +147,8 @@ export class FileSystemAdapter {
 	#reading = new Map<string, Set<Promise<unknown>>>();
 	// Lowercased path to its key in `files`, for case-insensitive volumes.
 	#lower = new Map<string, string>();
+	// Folder key ("" for the root) to the keys of the entries directly in it.
+	#children = new Map<string, Set<string>>();
 	#written = new Map<string, DataWriteOptions>();
 	#pendingDeletes = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -221,12 +223,32 @@ export class FileSystemAdapter {
 	#add(norm: string, entry: FileEntry) {
 		this.files[norm] = entry;
 		this.#lower.set(norm.toLowerCase(), norm);
+		const parent = parentOf(norm);
+		let children = this.#children.get(parent);
+		if (!children) this.#children.set(parent, (children = new Set()));
+		children.add(norm);
 	}
 
 	#drop(norm: string) {
 		delete this.files[norm];
 		const lower = norm.toLowerCase();
 		if (this.#lower.get(lower) === norm) this.#lower.delete(lower);
+		const parent = parentOf(norm);
+		const children = this.#children.get(parent);
+		if (children?.delete(norm) && !children.size) this.#children.delete(parent);
+	}
+
+	// The keys of the entries below a folder, at any depth.
+	#below(norm: string) {
+		const out: string[] = [];
+		const walk = (folder: string) => {
+			for (const child of this.#children.get(folder) ?? []) {
+				out.push(child);
+				walk(child);
+			}
+		};
+		walk(norm);
+		return out;
 	}
 
 	async exists(normalizedPath: string, sensitive?: boolean) {
@@ -588,11 +610,9 @@ export class FileSystemAdapter {
 		if (!fresh) {
 			const norm = key(realPath);
 			const present = new Set(names.map((n) => key(join(norm, n))));
-			const prefix = norm ? `${norm}/` : "";
-			for (const p of Object.keys(this.files)) {
-				if (!p.startsWith(prefix) || p.includes("/", prefix.length) || present.has(p)) continue;
+			for (const p of [...(this.#children.get(norm) ?? [])]) {
 				const entry = this.files[p];
-				if (entry) await this.reconcileDeletion(entry.realpath, p, true);
+				if (entry && !present.has(p)) await this.reconcileDeletion(entry.realpath, p, true);
 			}
 		}
 		await Promise.all(names.map((name) => this.listRecursiveChild(realPath, name)));
@@ -703,10 +723,7 @@ export class FileSystemAdapter {
 	async reconcileDeletion(realPath: string, normalizedPath: string, skipTimeout?: boolean) {
 		if (!this.files[normalizedPath]) return;
 		if (!skipTimeout) return this.#deleteLater(realPath, normalizedPath);
-		const prefix = `${normalizedPath}/`;
-		const doomed = Object.keys(this.files)
-			.filter((p) => p.startsWith(prefix))
-			.sort((a, b) => b.length - a.length);
+		const doomed = this.#below(normalizedPath).sort((a, b) => b.length - a.length);
 		doomed.push(normalizedPath);
 		for (const p of doomed) {
 			const entry = this.files[p];
@@ -755,8 +772,7 @@ export class FileSystemAdapter {
 		const fromReal = this.files[from].realpath;
 		const toReal = this.#realPath(to);
 		const prefix = `${from}/`;
-		for (const p of Object.keys(this.files)) {
-			if (p !== from && !p.startsWith(prefix)) continue;
+		for (const p of [from, ...this.#below(from)]) {
 			const entry = this.files[p];
 			this.#drop(p);
 			entry.realpath = toReal + entry.realpath.slice(fromReal.length);
