@@ -1,5 +1,10 @@
-import { describe, expect, test } from "bun:test";
-import { mergeText, textChanges } from "../src/api/view";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { installLanguageExtensions } from "../src/api/dom";
+import { Vault } from "../src/api/vault";
+import { mergeText, TextFileView, textChanges } from "../src/api/view";
 
 const apply = (text: string, changes: { from: number; to: number; insert: string }[]) => {
 	let out = "";
@@ -91,5 +96,80 @@ describe("textChanges", () => {
 		const prev = "head\nmiddle\ntail";
 		const changes = textChanges(prev, "head\nmiddle!\ntail");
 		expect(changes).toEqual([{ from: 11, to: 11, insert: "!" }]);
+	});
+});
+
+// A plugin writes the note (a capture, processFrontMatter) while the open view
+// saves its unsaved edits: the file keeps both, and a note deleted meanwhile
+// does not come back.
+describe("TextFileView saves", () => {
+	// Saving never touches a view's DOM, so its elements are inert stand-ins.
+	const inert: any = new Proxy(() => inert, { get: (_target, key) => (key === "then" ? undefined : key === "contains" ? () => false : inert) });
+	const globals = globalThis as { createDiv?: unknown; document?: unknown };
+	beforeAll(() => {
+		installLanguageExtensions();
+		globals.createDiv = () => inert;
+		globals.document = inert;
+	});
+	afterAll(() => {
+		delete globals.createDiv;
+		delete globals.document;
+	});
+
+	class NoteView extends TextFileView {
+		text = "";
+		getViewType() {
+			return "note";
+		}
+		getViewData() {
+			return this.text;
+		}
+		setViewData(data: string) {
+			this.text = data;
+		}
+		clear() {
+			this.text = "";
+		}
+	}
+
+	const open: { vault: Vault; view: NoteView; dir: string }[] = [];
+	afterEach(() => {
+		for (const { vault, view, dir } of open.splice(0)) {
+			view.unload();
+			vault.close();
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	// The note open in a view with " edit" typed on its first line.
+	async function editedNote(text: string) {
+		const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "justnotes-view-")));
+		fs.writeFileSync(path.join(dir, "n.md"), text);
+		const vault = new Vault(dir);
+		await vault.load();
+		const view = new NoteView({ app: { vault }, updateHeader() {} } as any);
+		open.push({ vault, view, dir });
+		view.load();
+		const file = vault.getFileByPath("n.md")!;
+		await view.loadFile(file);
+		view.text = text.replace("\n", " edit\n");
+		view.requestSave();
+		return { vault, view, file, full: path.join(dir, "n.md") };
+	}
+
+	test("a plugin's write that lands while the view saves is merged, not overwritten", async () => {
+		const { vault, view, file, full } = await editedNote("line1\nline2\nline3\n");
+		await Promise.all([view.save(), vault.modify(file, "line1\nline2\nline3 plugin\n")]);
+		expect(fs.readFileSync(full, "utf8")).toBe("line1 edit\nline2\nline3 plugin\n");
+		expect(view.text).toBe("line1 edit\nline2\nline3 plugin\n");
+		expect(view.dirty).toBe(false);
+	});
+
+	test("a save racing an outside delete keeps the edits unsaved and does not re-create the file", async () => {
+		const { view, full } = await editedNote("line1\nline2\n");
+		fs.rmSync(full);
+		await view.save();
+		expect(fs.existsSync(full)).toBe(false);
+		expect(view.dirty).toBe(true);
 	});
 });
