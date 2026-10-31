@@ -52,6 +52,11 @@ vault 就是一个放 Markdown 文件的文件夹. 已有的 Obsidian vault 可�
 - 属性: 在 Live Preview 和阅读视图里直接改, 按类型显示 (文本, 列表, 数字, 勾选, 日期, 标签).
 - 标签页可以拖动: 重排, 换到别的组, 拖到边上分屏, 拖出窗口变成弹出窗口. 文件栏的文件可以拖进笔记 (插入链接) 或终端 (输入路径).
 - 命令行 `justnotes`: Obsidian 自带的命令行命令 (同名同语法, Publish 和 Sync 除外) 加上插件注册的命令, 另外每个命令都能 `--json`, 只读的命令不开 app 也能用, 需要 app 时会自己启动它. `justnotes help` 列出全部, `justnotes completion fish` 生成补全. 放进 PATH: `ln -s "$PWD/src/cli/justnotes.ts" ~/.local/bin/justnotes` (需要 Bun).
+- tex 和 txt 也是笔记: `.tex` 用内置的 LaTeX 编辑器 (就是 LaTeX Live: 补全, 实时预览, 用本机 TeX 编译, PDF 预览和 SyncTeX 双向跳转, 导出 HTML), `.txt` 用纯文本编辑器. 它们在文件栏, 快速切换, 搜索, 大纲, 图谱, 反向链接里都和 md 一样, `[[main.tex]]` 这种链接也能用. 往 `.tex` 里粘贴图片会存成附件, 弹出一个小表单选宽度, 标题, 标签. 需要装 TeX (MacTeX 或 TeX Live), 补全需要 texlab.
+- 代码和数据文件 (json, yaml, cpp, py, rust, ts, js, css, html 等) 在 justnotes 里直接打开, 有语法高亮, 也能改.
+- 内置终端: 在标签页里开你的登录 shell, 字体, 配色和背景图沿用 Ghostty 的配置. 命令面板 "Terminal: Open terminal" 或侧栏按钮打开.
+- 默认显示所有类型的文件.
+- LaTeX 和终端在设置的 "Core plugins" 页可以关掉. 开着时 justnotes 不加载社区插件 latex-live 和 terminal (它们在 Obsidian 里照常用).
 - 测过的 Obsidian 插件: Copy Location, Quick LaTeX, Completr, YOLO Completion Only, Background, kgdistiller, LaTeX Live, Git, omp, QuickAdd, Terminal, Translate.
 
 还没有的: 设置里的 vim 键位, 内联标题, 拼写检查语言, 幻灯片的演讲者备注.
