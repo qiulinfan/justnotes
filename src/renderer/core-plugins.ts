@@ -1,5 +1,6 @@
 import type { App } from "../api/app";
 import { installBacklinksInDocument } from "./backlinks-in-document";
+import { installCanvas } from "./canvas-view";
 import { installDailyNotes } from "./daily-notes";
 import { installFileRecovery } from "./file-recovery";
 import { installGraph, registerGraphViews } from "./graph-view";
@@ -40,6 +41,7 @@ export function installCorePlugins(app: App) {
 	}
 	if (enabled("backlink")) installBacklinksInDocument(app);
 	if (enabled("graph")) installGraph(app);
+	if (enabled("canvas")) installCanvas(app);
 	if (enabled("daily-notes")) installDailyNotes(app);
 	if (enabled("templates")) registerTemplateCommands(app);
 	if (enabled("note-composer")) installNoteComposer(app);

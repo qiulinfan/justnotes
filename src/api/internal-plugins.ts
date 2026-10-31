@@ -48,6 +48,7 @@ const IMPLEMENTED = new Set([
 	"global-search",
 	"graph",
 	"backlink",
+	"canvas",
 	"outgoing-link",
 	"tag-pane",
 	"outline",

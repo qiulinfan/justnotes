@@ -1,0 +1,535 @@
+/* Canvas: the view of .canvas files, with Obsidian's class names */
+.view-content.canvas-view {
+	padding: 0;
+	overflow: hidden;
+}
+
+.canvas-wrapper {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	background: var(--canvas-background);
+	outline: none;
+	user-select: none;
+	--canvas-color: var(--text-muted-rgb, 128, 128, 128);
+	--zoom-multiplier: 1;
+}
+
+.canvas-wrapper.is-space-held,
+.canvas-wrapper.is-space-held .canvas-node {
+	cursor: grab;
+}
+
+.canvas-wrapper.is-dragging {
+	cursor: grabbing;
+}
+
+/* A preset colour is one of the theme's channels; a custom one is set inline. */
+.mod-canvas-color-1 {
+	--canvas-color: var(--canvas-color-1);
+}
+
+.mod-canvas-color-2 {
+	--canvas-color: var(--canvas-color-2);
+}
+
+.mod-canvas-color-3 {
+	--canvas-color: var(--canvas-color-3);
+}
+
+.mod-canvas-color-4 {
+	--canvas-color: var(--canvas-color-4);
+}
+
+.mod-canvas-color-5 {
+	--canvas-color: var(--canvas-color-5);
+}
+
+.mod-canvas-color-6 {
+	--canvas-color: var(--canvas-color-6);
+}
+
+.canvas-background {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background-image: radial-gradient(circle, var(--canvas-dot-pattern) 1px, transparent 1.2px);
+}
+
+.canvas-background.is-hidden {
+	background-image: none;
+}
+
+.canvas {
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform-origin: 0 0;
+	isolation: isolate;
+}
+
+.canvas-edges {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 1px;
+	height: 1px;
+	overflow: visible;
+	z-index: 1;
+	pointer-events: none;
+}
+
+.canvas-path {
+	pointer-events: auto;
+}
+
+.canvas-path .canvas-display-path {
+	fill: none;
+	stroke: rgb(var(--canvas-color));
+	stroke-width: calc(3px * max(1, var(--zoom-multiplier) * 0.6));
+	stroke-linecap: round;
+}
+
+.canvas-path .canvas-interaction-path {
+	fill: none;
+	stroke: transparent;
+	stroke-width: calc(18px * max(1, var(--zoom-multiplier) * 0.6));
+	cursor: pointer;
+}
+
+.canvas-path .canvas-path-end {
+	fill: rgb(var(--canvas-color));
+	stroke: rgb(var(--canvas-color));
+	stroke-width: 1px;
+	stroke-linejoin: round;
+}
+
+.canvas-path.is-selected .canvas-display-path,
+.canvas-path:hover .canvas-display-path {
+	filter: drop-shadow(0 0 3px rgba(var(--canvas-color), 0.8));
+}
+
+.canvas-path.is-selected .canvas-display-path {
+	stroke-width: calc(4px * max(1, var(--zoom-multiplier) * 0.6));
+}
+
+.canvas-path.is-creating {
+	pointer-events: none;
+}
+
+.canvas-path-label-wrapper {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 3;
+	cursor: pointer;
+}
+
+.canvas-path-label {
+	width: max-content;
+	max-width: 300px;
+	padding: 2px 8px;
+	border-radius: var(--radius-s);
+	background: var(--canvas-background);
+	color: var(--text-normal);
+	font-size: var(--font-ui-medium);
+	white-space: pre-wrap;
+	text-align: center;
+}
+
+.canvas-path-label-wrapper.is-themed .canvas-path-label {
+	color: rgb(var(--canvas-color));
+}
+
+.canvas-path-label-wrapper.is-selected .canvas-path-label {
+	box-shadow: 0 0 0 2px rgba(var(--canvas-color), 0.6);
+}
+
+.canvas-node {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 2;
+}
+
+.canvas-node-group {
+	z-index: 0;
+}
+
+.canvas-node-container {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	border-radius: var(--radius-m);
+	border: 2px solid rgb(var(--canvas-color));
+	background: var(--background-primary);
+	box-shadow: var(--shadow-s);
+}
+
+.canvas-node.is-themed .canvas-node-container {
+	background: linear-gradient(rgba(var(--canvas-color), 0.07), rgba(var(--canvas-color), 0.07)), var(--background-primary);
+}
+
+.canvas-node:not(.is-themed) .canvas-node-container {
+	border-color: var(--background-modifier-border);
+}
+
+.canvas-node-group .canvas-node-container {
+	background: rgba(var(--canvas-color), 0.05);
+	box-shadow: none;
+}
+
+.canvas-node-group:not(.is-themed) .canvas-node-container {
+	border-color: var(--background-modifier-border-hover);
+	background: rgba(128, 128, 128, 0.04);
+}
+
+.canvas-node.is-selected .canvas-node-container {
+	border-color: var(--interactive-accent);
+	box-shadow:
+		0 0 0 calc(2px * var(--zoom-multiplier)) var(--interactive-accent),
+		var(--shadow-s);
+}
+
+.canvas-node-content {
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	color: var(--text-normal);
+}
+
+.canvas-node.is-selected .canvas-node-content,
+.canvas-node.is-editing .canvas-node-content {
+	overflow: auto;
+}
+
+.canvas-node-content.markdown-embed .markdown-preview-view {
+	padding: 8px 16px;
+	background: transparent;
+	overflow: visible;
+	font-size: var(--font-text-size);
+}
+
+.canvas-node-content .markdown-preview-sizer > :first-child {
+	margin-top: 0;
+}
+
+.canvas-node-content .markdown-preview-sizer > :last-child {
+	margin-bottom: 0;
+}
+
+.canvas-node.is-editing .canvas-node-container {
+	cursor: text;
+	user-select: text;
+}
+
+.canvas-node-content .markdown-source-view .cm-editor {
+	height: auto;
+	min-height: 100%;
+	background: transparent;
+}
+
+.canvas-node-content .markdown-source-view .cm-scroller {
+	padding: 8px 0;
+}
+
+.canvas-node-content .markdown-source-view .cm-content {
+	padding: 0 16px;
+}
+
+.canvas-node-content.image-embed {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.canvas-node-content.image-embed img {
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	pointer-events: none;
+}
+
+.canvas-node-content.media-embed {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.canvas-node-content.media-embed video {
+	width: 100%;
+	height: 100%;
+}
+
+.canvas-file-card,
+.canvas-link-card,
+.canvas-node-placeholder {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 12px;
+	text-align: center;
+	overflow-wrap: anywhere;
+	color: var(--text-muted);
+}
+
+.canvas-file-card-icon .svg-icon,
+.canvas-link-card-icon .svg-icon {
+	width: 28px;
+	height: 28px;
+}
+
+.canvas-link-card-host {
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.canvas-link-card-url {
+	font-size: var(--font-ui-smaller);
+}
+
+.canvas-node-label,
+.canvas-group-label {
+	position: absolute;
+	bottom: 100%;
+	left: 0;
+	max-width: 100%;
+	padding: 0 4px 4px;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	color: var(--canvas-card-label-color);
+	font-size: calc(var(--font-ui-small) * max(1, var(--zoom-multiplier) * 0.7));
+}
+
+.canvas-node-label {
+	cursor: pointer;
+}
+
+.canvas-node-label:hover {
+	color: var(--text-accent);
+}
+
+.canvas-group-label {
+	padding: 2px 8px;
+	margin-bottom: 4px;
+	border-radius: var(--radius-s);
+	background: rgba(var(--canvas-color), 0.15);
+	color: var(--text-normal);
+	font-size: calc(var(--font-ui-medium) * max(1, var(--zoom-multiplier) * 0.7));
+}
+
+.canvas-node-group.is-themed .canvas-group-label {
+	background: rgba(var(--canvas-color), 0.3);
+}
+
+/* Resizing from the edges and corners of the one selected node. */
+.canvas-node-resizer {
+	position: absolute;
+	display: none;
+	--handle: calc(10px * var(--zoom-multiplier));
+}
+
+.has-single-selection .canvas-node.is-selected:not(.is-editing) .canvas-node-resizer,
+.canvas-node.is-editing .canvas-node-resizer {
+	display: block;
+}
+
+.canvas-node-resizer[data-resize="top"],
+.canvas-node-resizer[data-resize="bottom"] {
+	left: var(--handle);
+	right: var(--handle);
+	height: var(--handle);
+	cursor: ns-resize;
+}
+
+.canvas-node-resizer[data-resize="left"],
+.canvas-node-resizer[data-resize="right"] {
+	top: var(--handle);
+	bottom: var(--handle);
+	width: var(--handle);
+	cursor: ew-resize;
+}
+
+.canvas-node-resizer[data-resize^="top"] {
+	top: calc(var(--handle) / -2);
+}
+
+.canvas-node-resizer[data-resize^="bottom"] {
+	bottom: calc(var(--handle) / -2);
+}
+
+.canvas-node-resizer[data-resize$="left"] {
+	left: calc(var(--handle) / -2);
+}
+
+.canvas-node-resizer[data-resize$="right"] {
+	right: calc(var(--handle) / -2);
+}
+
+.canvas-node-resizer[data-resize*="-"] {
+	width: var(--handle);
+	height: var(--handle);
+}
+
+.canvas-node-resizer[data-resize="top-left"],
+.canvas-node-resizer[data-resize="bottom-right"] {
+	cursor: nwse-resize;
+}
+
+.canvas-node-resizer[data-resize="top-right"],
+.canvas-node-resizer[data-resize="bottom-left"] {
+	cursor: nesw-resize;
+}
+
+/* Edges are dragged out of the middle of a side. */
+.canvas-node-connection-point {
+	position: absolute;
+	display: none;
+	width: calc(24px * var(--zoom-multiplier));
+	height: calc(24px * var(--zoom-multiplier));
+	transform: translate(-50%, -50%);
+	cursor: crosshair;
+	z-index: 1;
+}
+
+.canvas-node:hover:not(.is-editing) .canvas-node-connection-point,
+.canvas-node.is-selected:not(.is-editing) .canvas-node-connection-point {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.canvas-wrapper.is-dragging .canvas-node:not(.is-selected) .canvas-node-connection-point {
+	display: none;
+}
+
+.canvas-node-connection-point-inner {
+	width: 40%;
+	height: 40%;
+	border-radius: 50%;
+	background: var(--background-primary);
+	border: 2px solid var(--interactive-accent);
+}
+
+.canvas-node-connection-point:hover .canvas-node-connection-point-inner {
+	background: var(--interactive-accent);
+}
+
+.canvas-node-connection-point[data-side="top"] {
+	top: 0;
+	left: 50%;
+}
+
+.canvas-node-connection-point[data-side="bottom"] {
+	top: 100%;
+	left: 50%;
+}
+
+.canvas-node-connection-point[data-side="left"] {
+	top: 50%;
+	left: 0;
+}
+
+.canvas-node-connection-point[data-side="right"] {
+	top: 50%;
+	left: 100%;
+}
+
+.canvas-node-group .canvas-node-connection-point {
+	display: none !important;
+}
+
+.canvas-selection {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 4;
+	pointer-events: none;
+	border: calc(1px * var(--zoom-multiplier)) solid var(--interactive-accent);
+	background: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.1);
+}
+
+.canvas-controls {
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	z-index: 5;
+}
+
+.canvas-control-group {
+	display: flex;
+	flex-direction: column;
+	border-radius: var(--radius-m);
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: var(--shadow-s);
+	overflow: hidden;
+}
+
+.canvas-control-item {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 6px;
+	color: var(--text-muted);
+	cursor: pointer;
+}
+
+.canvas-control-item:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.canvas-control-item .svg-icon {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+.canvas-card-menu {
+	position: absolute;
+	bottom: 16px;
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	gap: 4px;
+	padding: 4px;
+	z-index: 5;
+	border-radius: var(--radius-m);
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: var(--shadow-s);
+}
+
+.canvas-card-menu-button {
+	display: flex;
+	padding: 8px;
+	border-radius: var(--radius-s);
+	color: var(--text-muted);
+	cursor: pointer;
+}
+
+.canvas-card-menu-button:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.canvas-message {
+	position: absolute;
+	top: 40%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	max-width: 80%;
+	color: var(--text-muted);
+	text-align: center;
+}
+
+.canvas-wrapper.is-broken .canvas-card-menu {
+	display: none;
+}

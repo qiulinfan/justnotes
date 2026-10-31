@@ -105,6 +105,16 @@ body {
 	--color-pink: rgb(var(--color-pink-rgb));
 	--shadow-s: 0 1px 2px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(0, 0, 0, 0.1);
 	--shadow-l: 0 8px 32px rgba(0, 0, 0, 0.25);
+	/* Canvas: the preset card and edge colours as channels, the dot grid. */
+	--canvas-background: var(--background-primary);
+	--canvas-card-label-color: var(--text-faint);
+	--canvas-dot-pattern: var(--background-modifier-border-hover);
+	--canvas-color-1: var(--color-red-rgb);
+	--canvas-color-2: var(--color-orange-rgb);
+	--canvas-color-3: var(--color-yellow-rgb);
+	--canvas-color-4: var(--color-green-rgb);
+	--canvas-color-5: var(--color-cyan-rgb);
+	--canvas-color-6: var(--color-purple-rgb);
 	/* Stacking layers, lowest first. Host overlays sit on them too, so a
 	   plugin overlay on a layer stacks against them as in Obsidian. */
 	--layer-cover: 5;

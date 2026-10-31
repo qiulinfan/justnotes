@@ -732,6 +732,31 @@ function dropDefault(view: MarkdownView, evt: DragEvent) {
 	return true;
 }
 
+// A Markdown editor that belongs to no MarkdownView (a canvas card being
+// edited): the language, Live Preview, highlighting and the editing keymaps,
+// with links and embeds resolved from `host.sourcePath()`. Nothing folds.
+export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
+	return [
+		editorLivePreviewField,
+		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }])),
+		indentation.of(indentConfig(host.app)),
+		history(),
+		drawSelection(),
+		dropCursor(),
+		indentOnInput(),
+		bracketMatching(),
+		closeBrackets(),
+		EditorView.lineWrapping,
+		markdownSupport({ heading: false, indent: false }),
+		livePreview(host),
+		livePreviewState,
+		syntaxHighlighting(obsidianHighlight),
+		syntaxHighlighting(codeHighlight),
+		highlightedCode,
+		keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, { key: "Tab", run: indentOrInsertTab, shift: indentLess }]),
+	];
+}
+
 // The CodeMirror configuration of a Markdown editor: language, highlighting,
 // keymaps, Live Preview, and the hooks that connect it to its view.
 // `plugins` holds the extensions plugins registered.

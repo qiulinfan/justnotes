@@ -106,7 +106,7 @@ plain style. Development notes belong in this file.
   per `intervalMinutes` (default 5) after edits, pruned after `keepDays`
   (default 7); a restore snapshots the current text first. Templates insert a
   template's frontmatter at the top, adding only the properties the note
-  lacks. Not there yet: the other core plugins (canvas, bookmarks,
+  lacks. Not there yet: the other core plugins (bookmarks,
   ...), the Tags view's Mod-click to add a tag to the search, links to an
   extracted heading (`[[Note#Heading]]`) are not redirected to the new note.
 - Graph view (`graph-data.ts` for options, queries and nodes, tested;
@@ -125,6 +125,22 @@ plain style. Development notes belong in this file.
   Obsidian. A hidden page runs no `requestAnimationFrame`: frame-time checks
   over CDP need the test window shown (`showInactive()` on the remote
   window); the ~560-note courses text copy runs at the display rate.
+- Canvas (`canvas-data.ts`: format, merge, geometry; `canvas-nodes.ts`;
+  `canvas-view.ts`) registers its view, the `canvas` extension, `canvas:new-file`,
+  the ribbon button and the folder menu's "New canvas" only when enabled.
+  `view.canvas` keeps Obsidian's private names that plugins read: `nodes` and
+  `edges` (Maps by id), `selection` (a Set), `getData`/`setData`,
+  `requestSave`, `createTextNode({pos, size, text, focus})`, `selectOnly`,
+  `deselectAll`, `zoomToFit`; a text node has `text` and `setText`, a file
+  node `file` (the TFile). QuickAdd's capture into the active canvas uses
+  exactly those (one selected text or file card); its capture to a configured
+  card reads and rewrites the file with `JSON.stringify(data, null, "\t")`.
+  Files are written in Obsidian's layout (one node or edge per line), only
+  after a change, and keep unknown fields of nodes, edges and the file in
+  place. Renaming a file or folder rewrites the canvases that show it, open
+  or not. Link cards show the URL, not the page. Not there yet: dragging
+  files in from the explorer or the OS, node z-order changes, snapping,
+  editing a note card in place (double-click opens it in a tab), export.
 - Keyboard: a capture-phase `keydown` listener walks the keymap scope stack
   before CodeMirror sees the key; the active scope follows keyboard focus. The
   root scope has one catch-all handler that runs command hotkeys; plugins may
@@ -227,7 +243,10 @@ plain style. Development notes belong in this file.
   a line diff3), including lines one side added next to a line the other side
   changed; a real conflict keeps both versions and shows a notice. The take-in
   during a save, the reload on vault `modify` and the quit flush all merge
-  this way.
+  this way. A view whose text is structured data registers its own merge with
+  `mergeWith` (the canvas merges by node and edge id, field by field, so a
+  merge never yields broken JSON; a field changed on both sides takes the
+  file's value).
 - For a second after a save the document remembers the text the save replaced
   (`prior`), for QuickAdd's capture, which reads, computes and then writes:
   merged against the save, it would undo it. `mergeBase` merges a change
@@ -366,9 +385,9 @@ copies: copy-location, quick-latex, obsidian-completr, yolo (live completion,
 paid: only within the owner's small test budget), background, kgdistiller
 (0.1.5 and 3.0.2), latex-live (0.2.0; 0.1.7 loads), obsidian-git, omp-sidebar,
 quickadd, terminal and obsidian-tinymist (0.1.0, its YOLO bridge against a
-local mock provider). Known gaps: popout windows, a canvas view (QuickAdd's
-capture into the active canvas), `app.metadataTypeManager`, editable
-properties, tab drag and drop.
+local mock provider). QuickAdd's capture into the active canvas and into a configured card
+were tested on a synthetic vault. Known gaps: popout windows,
+`app.metadataTypeManager`, editable properties, tab drag and drop.
 
 ## Verify
 
