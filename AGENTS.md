@@ -51,6 +51,8 @@ plain style. Development notes belong in this file.
     `markdown-preview.ts` (reading view), `markdown.ts` (MarkdownRenderer, post
     processors, code-block registry, the math grammar, MathJax/pdf.js/Prism/
     Mermaid loaders), `live-preview.ts` and `editor-*.ts` (CodeMirror 6),
+    `selection-scroll.ts` (drag-select scrolling), `editor-settings.ts`
+    (justnotes' own Editor tab), `attachments.ts` (pasted and dropped files),
     `vault.ts`, `metadata*.ts` (the cache; `metadata-types.ts`, the
     `metadataTypeManager`; `metadata-editor.ts` and `metadata-widgets.ts`,
     the Properties block), `frontmatter-edit.ts`, `file-manager.ts`, `keymap.ts`,
@@ -375,7 +377,8 @@ plain style. Development notes belong in this file.
   `enabled-core-plugins` (the Core plugins toggles, over `core-plugins.json`), `custom-css`
   (theme and snippets), `justnotes-expanded` (explorer folders),
   `property-types` (property type changes made in justnotes, layered over
-  `types.json`; an empty type unassigns one). The language
+  `types.json`; an empty type unassigns one), `justnotes-editor` (the
+  Editor settings tab, `editor-settings.ts`). The language
   is localStorage `language`, else `en`; never the OS locale.
 
 ## Command line
@@ -749,6 +752,35 @@ plain style. Development notes belong in this file.
   handlers (from 6.4.12; recheck it when upgrading lang-html). Other types,
   such as `math/tex`, stay text. Fences match language-data by name or alias,
   not extension: `md` and `htm` fences stay plain.
+
+## Editor settings
+
+- The settings window's first tab, Editor, holds justnotes' own options
+  (`editorSettings(app)` reads them live, so a change applies at once);
+  Obsidian's editor options stay in app.json and are set in Obsidian.
+- Selection scroll speed (1 to 10, default 5; `selection-scroll.ts`): while
+  a drag-select is at or past the top or bottom edge of what scrolls
+  (counting from 10 px inside it, so a note reaching the bottom of the screen
+  still scrolls), a frame loop scrolls at `selectionScrollSpeed`: at 5 about
+  1100 px/s at the edge, 3100 at 30 px past, 12000 at 120 px past, linear in
+  the setting. CodeMirror's own is 160, 570 and 1800 (a 50 ms interval of
+  0.7 px per px past + 8), Chromium's in the reading view 1300, 4900 and
+  11800. In editors `editorSelectionScroll` takes over CodeMirror's vertical
+  scrolling: it reaches into the internal mouse selection
+  (`view.inputState.mouseSelection`, @codemirror/view 6: `setScrollSpeed`,
+  `select`, `lastEvent`, `dragging`, `scrollParents`), turns off its vertical
+  speed and extends the selection through its `select(lastEvent)` after each
+  step, as CodeMirror's own scroll does; recheck these names when upgrading
+  @codemirror/view (without them CodeMirror's scrolling is left alone). In
+  rendered Markdown outside editors (reading view, hover previews)
+  `installNativeSelectionScroll` (every window) does the same for the native
+  selection: once a press has dragged a selection, the scroller gets
+  `.is-selection-scrolling` (overflow-y hidden) until release, which is the
+  only way found to keep Chromium's autoscroll off it (cancelling mousemove
+  does not), and the selection's focus moves to the text at the edge
+  (`caretPositionFromPoint`) after each step. Measure with real CDP mouse
+  events (press, moves past the scroller's edge, scrollTop over a held
+  second); the frame loop needs the test window shown.
 
 ## CSS
 

@@ -1,4 +1,5 @@
 import type { App } from "./app";
+import { editorSettings, setEditorSetting } from "./editor-settings";
 import { setIcon } from "./icons";
 import { ALWAYS_ON, CORE_PLUGIN_INFO, implementedCorePlugins } from "./internal-plugins";
 import type { Hotkey } from "./keymap";
@@ -49,7 +50,7 @@ export class SettingModal extends Modal {
 		this.searchResultsEl.hide();
 		this.#groupsEl = this.tabHeadersEl.createDiv("vertical-tab-header-group-container");
 		this.tabContentContainer = this.contentEl.createDiv("vertical-tab-content-container");
-		this.settingTabs = [new HotkeysTab(app), new CorePluginsTab(app), new CommunityPluginsTab(app)];
+		this.settingTabs = [new EditorTab(app), new HotkeysTab(app), new CorePluginsTab(app), new CommunityPluginsTab(app)];
 		const escape = this.scope.keys.find((h) => h.key === "Escape");
 		if (escape) this.scope.unregister(escape);
 		this.scope.register([], "Escape", () => {
@@ -307,6 +308,33 @@ export class SettingModal extends Modal {
 	#reveal(name: string) {
 		const names = this.tabContentContainer.findAll(".setting-item-name");
 		names.find((el) => el.getText() === name)?.scrollIntoView({ block: "center" });
+	}
+}
+
+// justnotes' own editor settings (editor-settings.ts); Obsidian's editor
+// options stay in app.json, set in Obsidian.
+class EditorTab extends SettingTab {
+	constructor(app: App) {
+		super(app);
+		this.id = "editor";
+		this.name = "Editor";
+		this.icon = "pencil";
+	}
+
+	display() {
+		this.containerEl.empty();
+		const settings = editorSettings(this.app);
+		const group = new SettingGroup(this.containerEl).setHeading("Editor");
+		new Setting(group.listEl)
+			.setName("Selection scroll speed")
+			.setDesc("How fast a note scrolls while you drag a selection past its top or bottom edge, in the editor and the reading view. It speeds up the farther the pointer goes past the edge; 1 is a little faster than Obsidian.")
+			.addSlider((slider) =>
+				slider
+					.setLimits(1, 10, 1)
+					.setValue(settings.selectionScrollSpeed)
+					.setInstant(true)
+					.onChange((value) => setEditorSetting(this.app, "selectionScrollSpeed", value)),
+			);
 	}
 }
 

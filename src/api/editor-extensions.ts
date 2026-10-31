@@ -16,11 +16,13 @@ import type { App } from "./app";
 import { importFile } from "./attachments";
 import { DragManager } from "./drag-manager";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
+import { editorSettings } from "./editor-settings";
 import { setIcon } from "./icons";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
 import { inlineMathEnd, mathBlockClose } from "./markdown";
 import { parseLinktext } from "./metadata-utils";
 import type { MarkdownView } from "./markdown-view";
+import { editorSelectionScroll } from "./selection-scroll";
 import { debounce } from "./util";
 import { TFile } from "./vault";
 
@@ -797,6 +799,7 @@ export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
 		markdownSupport({ heading: false, indent: false }),
 		livePreview(host),
 		livePreviewState,
+		editorSelectionScroll(() => editorSettings(host.app).selectionScrollSpeed),
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),
 		highlightedCode,
@@ -839,6 +842,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		markdownSupport(fold),
 		livePreview(host),
 		livePreviewState,
+		editorSelectionScroll(() => editorSettings(app).selectionScrollSpeed),
 		activeLine,
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),
