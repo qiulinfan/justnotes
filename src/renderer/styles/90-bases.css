@@ -199,6 +199,13 @@
 	font: inherit;
 }
 
+.bases-cell-input.mod-multiline {
+	display: block;
+	min-width: 12em;
+	resize: vertical;
+	white-space: pre;
+}
+
 .bases-group-heading td {
 	padding: 10px 8px 4px;
 	font-weight: 600;

@@ -1,20 +1,22 @@
 // The built-in table: one row per entry, a section per group, a summary row,
 // and note properties edited in place.
 import { setIcon } from "../icons";
+import { Keymap } from "../keymap";
 import { Menu } from "../ui/menu";
+import { Notice } from "../ui/notice";
 import { BatchRenderer } from "./batches";
+import { cellEditor } from "./cell-edit";
 import { summariesOf, viewData } from "./config";
 import type { QueryController } from "./controller";
 import type { BasesEntry } from "./entry";
 import { frontmatterOf } from "./file-fields";
-import { propertyType } from "./frontmatter";
+import { propertyType, wrapProperty } from "./frontmatter";
 import { openRenameProperty } from "./options";
 import { type BasesPropertyId, parsePropertyId } from "./property";
 import { BUILT_IN_SUMMARIES } from "./query";
 import { BooleanValue, NullValue, NumberValue, renderContextOf, renderInternalLink, type Value } from "./values";
 import { BasesView, type BasesViewRegistration } from "./view";
 
-const LIST_TYPES = ["multitext", "tags", "aliases"];
 const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 });
 
 // The frontmatter key a property name refers to: exact, then ignoring case.
@@ -252,18 +254,32 @@ export class TableView extends BasesView {
 		});
 	}
 
+	// A list is edited one item per line in a textarea, where Enter starts a new
+	// item and Mod+Enter or leaving the cell saves.
 	#edit(td: HTMLElement, entry: BasesEntry, name: string) {
-		if (td.querySelector("input")) return;
+		if (td.querySelector(".bases-cell-input")) return;
 		const fm = frontmatterOf(this.app, entry.file) ?? {};
 		const key = frontmatterKey(fm, name);
-		const raw = fm[key];
-		const list = Array.isArray(raw) || LIST_TYPES.includes(propertyType(this.app, key) ?? "");
-		const numeric = typeof raw === "number" || propertyType(this.app, key) === "number";
-		const original = raw === null || raw === undefined ? "" : list ? (Array.isArray(raw) ? raw : [raw]).join(", ") : String(raw);
+		const editor = cellEditor(fm[key], propertyType(this.app, key));
+		if (!editor) {
+			new Notice(`"${name}" cannot be edited in the table: it holds values that are not plain text.`);
+			return;
+		}
 		td.empty();
-		const input = td.createEl("input", { type: "text", cls: "bases-cell-input", value: original });
-		input.focus();
-		input.select();
+		const input = editor.multiline
+			? td.createEl("textarea", { cls: "bases-cell-input mod-multiline", attr: { placeholder: "One value per line" } })
+			: td.createEl("input", { type: "text", cls: "bases-cell-input" });
+		input.value = editor.text;
+		if (input instanceof HTMLTextAreaElement) {
+			const fit = () => (input.rows = Math.min(12, input.value.split("\n").length + 1));
+			fit();
+			input.addEventListener("input", fit);
+			input.focus();
+			input.setSelectionRange(input.value.length, input.value.length);
+		} else {
+			input.focus();
+			input.select();
+		}
 		this.#editing = true;
 		let done = false;
 		const finish = (save: boolean) => {
@@ -274,21 +290,25 @@ export class TableView extends BasesView {
 				this.#stale = false;
 				queueMicrotask(() => this.onDataUpdated());
 			}
-			const text = input.value.trim();
+			const text = input.value;
 			td.empty();
-			if (!save || text === original.trim()) {
+			if (!save || !editor.changed(text)) {
 				this.#cell(td, entry, `note.${name}`);
 				return;
 			}
-			td.setText(text);
+			// The new value shows until the base reruns with it.
+			const shown = editor.parse(text, fm[key]);
+			if (shown !== undefined) wrapProperty(this.app, key, shown, entry.file.path).renderTo(td, renderContextOf(this.app));
 			this.app.fileManager.processFrontMatter(entry.file, (data) => {
-				if (!text) delete data[key];
-				else if (list) data[key] = text.split(",").map((s) => s.trim()).filter(Boolean);
-				else data[key] = numeric && Number.isFinite(Number(text)) ? Number(text) : text;
+				const k = frontmatterKey(data, name);
+				const value = editor.parse(text, data[k]);
+				if (value === undefined) delete data[k];
+				else data[k] = value;
 			});
 		};
-		input.addEventListener("keydown", (e) => {
-			if (e.key === "Enter") {
+		const field: HTMLElement = input;
+		field.addEventListener("keydown", (e) => {
+			if (e.key === "Enter" && (!editor.multiline || Keymap.isModifier(e, "Mod"))) {
 				e.preventDefault();
 				finish(true);
 			} else if (e.key === "Escape") {
@@ -297,7 +317,7 @@ export class TableView extends BasesView {
 				finish(false);
 			}
 		});
-		input.addEventListener("blur", () => finish(true));
+		field.addEventListener("blur", () => finish(true));
 	}
 }
 
