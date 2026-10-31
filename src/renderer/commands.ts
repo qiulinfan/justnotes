@@ -145,13 +145,14 @@ function registerEditorCommands(app: App) {
 	cm("unfold-all", "Unfold all headings and lists", unfoldAll);
 
 	// Link commands apply only with a link under the cursor, so their keys
-	// (Mod+Enter, Alt+Enter) otherwise keep their editing meaning.
+	// (Mod+Enter, Alt+Enter) otherwise keep their editing meaning. A URL opens
+	// as a clicked one does, through the main process's window.open handler.
 	const linkAt = (editor: Editor) => clickableTokenAt(editor.cm.state, editor.cm.state.selection.main.head);
 	const follow = (pane: false | PaneType) => (editor: Editor, view: any) => {
 		const token = linkAt(editor);
 		if (!token) return;
 		if (token.type === "tag") searchTag(app, token.text);
-		else if (token.type === "external-link") require("electron").shell.openExternal(token.text);
+		else if (token.type === "external-link") window.open(token.text, "_blank");
 		else app.workspace.openLinkText(token.text, view?.file?.path ?? "", pane);
 	};
 	const hasLink = (editor: Editor) => !!linkAt(editor);

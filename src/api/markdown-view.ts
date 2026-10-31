@@ -141,14 +141,16 @@ export class MarkdownView extends TextFileView {
 	}
 
 	// Rendered links open on click, as in Obsidian's Live Preview; a link to a
-	// heading or block of this note (even in a pinned tab) moves within it.
+	// heading or block of this note (even in a pinned tab) moves within it. A
+	// URL goes through window.open to the main process, which decides where
+	// each scheme opens.
 	onLinkClick(evt: MouseEvent) {
 		const el = evt.button === 0 ? (evt.target as HTMLElement).closest("[data-href]") : null;
 		if (!el) return false;
 		evt.preventDefault();
 		const href = el.getAttribute("data-href")!;
 		const newLeaf = Keymap.isModEvent(evt);
-		if (SCHEME.test(href)) require("electron").shell.openExternal(href);
+		if (SCHEME.test(href)) window.open(href, "_blank");
 		else if (href.startsWith("#") && !newLeaf) this.setEphemeralState({ subpath: safeDecode(href) });
 		else this.app.workspace.openLinkText(safeDecode(href), this.file?.path ?? "", newLeaf);
 		return true;
@@ -171,7 +173,7 @@ export class MarkdownView extends TextFileView {
 					.setTitle("Open link")
 					.setIcon("external-link")
 					.setSection("selection-link")
-					.onClick(() => require("electron").shell.openExternal(href)),
+					.onClick(() => window.open(href, "_blank")),
 			);
 			menu.addItem((i) =>
 				i

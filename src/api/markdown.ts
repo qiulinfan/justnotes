@@ -1461,7 +1461,7 @@ export class MarkdownRenderer extends MarkdownRenderChild {
 	onExternalLinkClick(evt: MouseEvent, _target: HTMLElement, href: string) {
 		evt.preventDefault();
 		if (/^\s*(?:javascript|vbscript|data):/i.test(href)) return;
-		// The main process hands new windows to the system browser.
+		// The main process decides where each scheme opens.
 		window.open(href, "_blank");
 	}
 

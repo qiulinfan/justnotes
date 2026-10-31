@@ -25,8 +25,13 @@ if (profile) app.setPath("userData", path.resolve(profile));
 // not register itself as the scheme's handler: that would take it from an
 // installed Obsidian.
 const isObsidianUrl = (url: string) => /^obsidian:/i.test(url);
-// The only URLs a link or window.open may hand to the system.
+// The only URLs a <webview> guest's popups may hand to the system.
 const isWebUrl = (url: string) => /^(https?|mailto):/i.test(url);
+// Schemes a link never hands to the system: file: (a note must not launch a
+// local program) and schemes that run code or show the browser's or the app's
+// own pages. justnotes registers no scheme of its own (protocol.ts); its page
+// is file:.
+const droppedSchemes = new Set(["file:", "javascript:", "data:", "blob:", "about:", "chrome:", "chrome-extension:", "devtools:", "view-source:"]);
 // Pages whose renderer listens for URLs; until then they wait in pendingUrls.
 // A page stops listening when a new document commits (a reload).
 const listening = new WeakSet<WebContents>();
@@ -38,12 +43,20 @@ function sendObsidianUrl(url: string, from?: WebContents) {
 	else pendingUrls.push(url);
 }
 
-// A link or window.open from the app page: web and mail URLs open in the
-// system's apps, obsidian: URLs in the vault window, and anything else
-// (file:, other schemes) nowhere.
+// Where a link opened from the app page goes, whether it arrives as
+// window.open, as a navigation of the window or as a scheme Chromium would
+// hand to the system: obsidian: URLs go to the vault window, the dropped
+// schemes nowhere, and every other scheme (http, mailto, zotero:, other apps'
+// schemes) to the system, as Obsidian hands any scheme to it.
 function openUrl(url: string, from: WebContents) {
-	if (isObsidianUrl(url)) sendObsidianUrl(url, from);
-	else if (isWebUrl(url)) void shell.openExternal(url);
+	let scheme: string;
+	try {
+		scheme = new URL(url).protocol;
+	} catch {
+		return;
+	}
+	if (scheme === "obsidian:") sendObsidianUrl(url, from);
+	else if (!droppedSchemes.has(scheme)) shell.openExternal(url).catch((err) => console.error("Could not open", url, err));
 }
 
 // Plugins also reach this process's shell through remote; obsidian: URLs given
@@ -61,15 +74,14 @@ ipcMain.handle("justnotes:obsidian-urls", (evt) => {
 
 // A link to a scheme Chromium does not handle, when not caught as a main-frame
 // navigation (from an iframe, say), makes Electron ask for the openExternal
-// permission and then hand the URL to the OS. Every other permission keeps
-// Electron's default (granted).
-function keepObsidianLinksInApp() {
+// permission and then hand the URL to the OS. openUrl decides instead. Every
+// other permission keeps Electron's default (granted).
+function routeExternalLinks() {
 	session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+		if (permission !== "openExternal") return callback(true);
+		callback(false);
 		const url = "externalURL" in details ? details.externalURL : undefined;
-		if (permission === "openExternal" && url && isObsidianUrl(url)) {
-			callback(false);
-			sendObsidianUrl(url, contents);
-		} else callback(true);
+		if (url) openUrl(url, contents);
 	});
 }
 
@@ -148,7 +160,7 @@ registerSchemes();
 registerIpc();
 app.whenReady().then(() => {
 	handleSchemes();
-	keepObsidianLinksInApp();
+	routeExternalLinks();
 	return createWindow();
 });
 app.on("window-all-closed", () => app.quit());
