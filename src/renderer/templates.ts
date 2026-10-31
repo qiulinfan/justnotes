@@ -59,10 +59,15 @@ function frontmatterEntries(body: string) {
 // their values, as Obsidian does.
 export function templateEdits(doc: string, from: number, to: number, template: string): TextEdit[] {
 	const fm = FRONTMATTER.exec(template);
-	if (!fm) return [{ from, to, insert: template }];
+	const own = FRONTMATTER.exec(doc);
+	if (!fm) {
+		// The body never goes inside the note's frontmatter.
+		const at = own ? Math.max(from, own[0].length) : from;
+		const gap = own && at === own[0].length && !own[0].endsWith("\n") ? "\n" : "";
+		return [{ from: at, to: Math.max(to, at), insert: gap + template }];
+	}
 	const body = template.slice(fm[0].length);
 	const lines = (fm[1] ?? "").replace(/\r?\n$/, "");
-	const own = FRONTMATTER.exec(doc);
 	if (!own) {
 		if (!lines.trim()) return [{ from, to, insert: body }];
 		const block = `---\n${lines}\n---\n`;
