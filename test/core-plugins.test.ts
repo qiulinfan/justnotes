@@ -5,6 +5,7 @@ import { dailyNoteDate, dailyNotePath } from "../src/renderer/daily-notes";
 import { lineDiff, snapshotDue } from "../src/renderer/file-recovery";
 import { findMentions, headingAt, headingTree, mentionSkips, outlineMatches } from "../src/renderer/link-panes";
 import { addText, composeText, headingSection, mergeText, noteName, sectionReplacement } from "../src/renderer/note-composer";
+import { contentScale, slideSources } from "../src/renderer/slides";
 import { sortTags, type TagNode, tagTree } from "../src/renderer/tag-pane";
 import { fillTemplate, templateEdits } from "../src/renderer/templates";
 import { countWords } from "../src/renderer/word-count";
@@ -200,5 +201,29 @@ describe("daily notes", () => {
 describe("word count", () => {
 	test("each Chinese character is a word, punctuation alone is none, line breaks are no characters", () => {
 		expect(countWords("学习 smooth manifolds — 今天\nok")).toEqual({ words: 7, characters: 26 });
+	});
+});
+
+describe("slides", () => {
+	test("a note splits at its top-level --- rules; the frontmatter is no slide", () => {
+		const note = ["---", "title: Talk", "---", "# One", "", "---", "", "## Two", "text", "", "- - -", "", "Three"].join("\n");
+		expect(slideSources(note)).toEqual(["# One", "## Two\ntext", "Three"]);
+	});
+
+	test("--- under a paragraph, in code, in math or in a quote, and other rules, divide nothing", () => {
+		const note = ["Heading", "---", "", "```", "a", "---", "b", "```", "", "$$", "x", "---", "$$", "", "> q", "> ---", "", "***", "", "end"].join("\n");
+		expect(slideSources(note)).toEqual([note]);
+	});
+
+	test("empty slides are dropped; a note with no text is one empty slide", () => {
+		expect(slideSources("A\n\n---\n\n---\n\nB\n\n---\n")).toEqual(["A", "B"]);
+		expect(slideSources("---\ntags: x\n---\n")).toEqual([""]);
+	});
+
+	test("content larger than its slide shrinks to fit, never grows, and scrolls past the minimum scale", () => {
+		expect(contentScale(800, 300, 960, 700)).toEqual({ scale: 1, scrolls: false });
+		expect(contentScale(960, 1400, 960, 700)).toEqual({ scale: 0.5, scrolls: false });
+		expect(contentScale(1200, 700, 960, 700)).toEqual({ scale: 0.8, scrolls: false });
+		expect(contentScale(960, 3500, 960, 700)).toEqual({ scale: 0.5, scrolls: true });
 	});
 });

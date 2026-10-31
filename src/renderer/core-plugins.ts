@@ -7,6 +7,7 @@ import { installFileRecovery } from "./file-recovery";
 import { installGraph, registerGraphViews } from "./graph-view";
 import { registerLinkPanes } from "./link-panes";
 import { installNoteComposer } from "./note-composer";
+import { installSlides } from "./slides";
 import { TagView } from "./tag-pane";
 import { registerTemplateCommands } from "./templates";
 import { installWordCount } from "./word-count";
@@ -50,6 +51,7 @@ export function installCorePlugins(app: App) {
 	if (enabled("note-composer")) installNoteComposer(app);
 	if (enabled("file-recovery")) installFileRecovery(app);
 	if (enabled("word-count")) installWordCount(app);
+	if (enabled("slides")) installSlides(app);
 }
 
 // The right sidebar of a vault opened for the first time: the panes the vault
