@@ -1,14 +1,17 @@
 import { autocompletion, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
+import { cssLanguage } from "@codemirror/lang-css";
+import { html } from "@codemirror/lang-html";
+import { javascriptLanguage, jsxLanguage, tsxLanguage, typescriptLanguage } from "@codemirror/lang-javascript";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { bracketMatching, codeFolding, foldGutter, HighlightStyle, indentOnInput, indentUnit, syntaxHighlighting, syntaxTree } from "@codemirror/language";
+import { bracketMatching, codeFolding, foldGutter, foldNodeProp, foldService, HighlightStyle, indentOnInput, indentUnit, Language, languageDataProp, LanguageDescription, LanguageSupport, type LRLanguage, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range, type StateCommand } from "@codemirror/state";
 import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { IterMode, NodeProp, type SyntaxNode } from "@lezer/common";
+import { IterMode, NodeProp, type NodePropSource, type Parser, type SyntaxNode } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
-import type { BlockContext, Element, LeafBlock, LeafBlockParser, Line, MarkdownConfig } from "@lezer/markdown";
+import { type BlockContext, type Element, type LeafBlock, type LeafBlockParser, type Line, type MarkdownConfig, parseCode, parser as commonmark } from "@lezer/markdown";
 import type { App } from "./app";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
 import { setIcon } from "./icons";
@@ -410,19 +413,40 @@ const codeHighlight = HighlightStyle.define([
 	{ tag: t.invalid, class: "cm-error" },
 ]);
 
+// Blocks whose lines are text even where they hold only quote marks: a line
+// of `>` in code, or an empty code line in a quoted fence, is no empty quote
+// line.
+const textBlocks = new Set(["FencedCode", "CodeBlock", "HTMLBlock", "CommentBlock", "ProcessingInstructionBlock", "BlockMath", "hmd-frontmatter", "comment-block"]);
+
+// Whether the `>` at `pos` belongs to a quote line: the Markdown tree reaches
+// a quote from it before any such block. A fenced language's own tree (the
+// quotes in a markdown fence) does not count.
+function marksQuote(state: EditorState, pos: number) {
+	for (let node: SyntaxNode | null = syntaxTree(state).resolve(pos, 1); node; node = node.parent) {
+		if (node.name === "Blockquote") return true;
+		if (textBlocks.has(node.name)) return false;
+	}
+	return false;
+}
+
 // Enter on an empty quote line steps out one quote level, as in Typora,
-// instead of CodeMirror's default of continuing the quote.
-function exitEmptyQuote(view: EditorView) {
-	const { state } = view;
+// instead of CodeMirror's default of continuing the quote. Text typed right
+// below a line of the quote's text would continue that paragraph (a
+// CommonMark lazy continuation line) and show inside the quote again, so a
+// blank line at the outer level goes between them. Leaving the last level
+// keeps the indentation of a list item the quote is in.
+export const exitEmptyQuote: StateCommand = ({ state, dispatch }) => {
 	const sel = state.selection;
 	if (sel.ranges.length !== 1 || !sel.main.empty) return false;
 	const line = state.doc.lineAt(sel.main.head);
-	if (sel.main.head !== line.to || !/^\s*(>\s*)+$/.test(line.text)) return false;
+	if (sel.main.head !== line.to || !/^\s*(>\s*)+$/.test(line.text) || !marksQuote(state, line.from + line.text.lastIndexOf(">"))) return false;
 	const outer = line.text.replace(/>\s*$/, "").trimEnd();
-	const insert = outer ? `${outer} ` : "";
-	view.dispatch({ changes: { from: line.from, to: line.to, insert }, selection: { anchor: line.from + insert.length }, userEvent: "input" });
+	const above = line.number > 1 ? state.doc.line(line.number - 1).text : "";
+	const next = outer ? `${outer} ` : line.text.slice(0, line.text.search(/\S/));
+	const insert = /[^\s>]/.test(above) ? `${outer}\n${next}` : next;
+	dispatch(state.update({ changes: { from: line.from, to: line.to, insert }, selection: { anchor: line.from + insert.length }, userEvent: "input" }));
 	return true;
-}
+};
 
 // Tab indents list items and selections, and otherwise inserts one indent
 // unit at the cursor, as Obsidian does.
@@ -459,10 +483,117 @@ const activeLine = ViewPlugin.fromClass(
 	{ decorations: (v) => v.decorations },
 );
 
-// Headings and lists fold from a chevron in the gutter, as with Obsidian's
-// foldHeading and foldIndent options (both on by default).
-function folding(app: App): Extension[] {
-	if (!(app.vault.getConfig("foldHeading") ?? true) && !(app.vault.getConfig("foldIndent") ?? true)) return [];
+// What folds, by Obsidian's two settings (both on by default): a heading's
+// section (foldHeading) and what is nested in a list item (foldIndent).
+// Nothing else does, though lang-markdown folds every block of more than one
+// line (paragraphs, quotes, tables, math, code blocks), and the languages of
+// fenced code and of HTML (with the CSS and JavaScript in it) fold their own
+// syntax.
+export interface FoldSettings {
+	heading: boolean;
+	indent: boolean;
+}
+
+const noFold = () => null;
+
+// A list item folds the blocks nested in it (sub-lists, further paragraphs,
+// quotes, code) from the end of its first paragraph, whose own lines stay
+// like any paragraph's.
+function foldListItem(item: SyntaxNode, state: EditorState) {
+	const first = item.firstChild?.nextSibling;
+	return first?.nextSibling ? { from: state.doc.lineAt(first.to).to, to: item.to } : null;
+}
+
+// A language with its folds left out; null for a stream language, which has
+// no folds.
+const foldlessLanguages = new WeakMap<Language, Language>();
+function foldless(lang: Language): Language | null {
+	const parser = lang.parser as Parser & { configure?(config: { props: NodePropSource[] }): Parser };
+	if (!parser.configure) return null;
+	let out = foldlessLanguages.get(lang);
+	if (!out) foldlessLanguages.set(lang, (out = new Language(lang.data, parser.configure({ props: [foldNodeProp.add(() => noFold)] }), [], lang.name)));
+	return out;
+}
+
+// A fenced block's language from language-data with its folds left out, or
+// its description while it is not loaded (lang-markdown loads it and parses
+// again) and for a stream language, which has no folds. That leaves the folds
+// of the languages a fenced one nests, so HTML and Markdown fences get
+// versions nesting fold-free ones; Vue, Angular, PHP, Liquid and Jinja fences
+// still fold the HTML, CSS and JavaScript in them.
+function codeLanguage(info: string): Language | LanguageDescription | null {
+	const found = LanguageDescription.matchLanguageName(languages, info, true);
+	if (found?.name === "HTML") return htmlFence;
+	if (found?.name === "Markdown") return markdownFence;
+	const lang = found?.support?.language;
+	return (lang && foldless(lang)) ?? found;
+}
+
+// A parser lang-html nests, without its folds and starting at rule `top` when
+// given.
+const foldlessParser = (lang: LRLanguage, top?: string) => lang.parser.configure({ top, props: [foldNodeProp.add(() => noFold)] });
+
+// lang-html's rules for the code in a note's HTML, with the same parsers
+// without folds; html() tries them first. A script or a style parses by its
+// type or lang (lang-html's own rules, tried after these, test the same, so
+// one that none of them matches stays text). A style attribute's value parses
+// as CSS and the value of an event handler on lang-html's list (copied from
+// lang-html 6.4.12) as JavaScript.
+type Attrs = { [attr: string]: string };
+const javascriptCode = foldlessParser(javascriptLanguage);
+const nestedLanguages = [
+	{ tag: "script", attrs: (a: Attrs) => a.type === "text/typescript" || a.lang === "ts", parser: foldlessParser(typescriptLanguage) },
+	{ tag: "script", attrs: (a: Attrs) => a.type === "text/babel" || a.type === "text/jsx", parser: foldlessParser(jsxLanguage) },
+	{ tag: "script", attrs: (a: Attrs) => a.type === "text/typescript-jsx", parser: foldlessParser(tsxLanguage) },
+	{ tag: "script", attrs: (a: Attrs) => /^(importmap|speculationrules|application\/(.+\+)?json)$/i.test(a.type), parser: foldlessParser(javascriptLanguage, "SingleExpression") },
+	{ tag: "script", attrs: (a: Attrs) => !a.type || /^(?:text|application)\/(?:x-)?(?:java|ecma)script$|^module$|^$/i.test(a.type), parser: javascriptCode },
+	{ tag: "style", attrs: (a: Attrs) => (!a.lang || a.lang === "css") && (!a.type || /^(text\/)?(x-)?(stylesheet|css)$/i.test(a.type)), parser: foldlessParser(cssLanguage) },
+];
+const handlers = "beforeunload copy cut dragstart dragover dragleave dragenter dragend drag paste focus blur change click load mousedown mouseenter mouseleave mouseup keydown keyup resize scroll unload";
+const nestedAttributes = [{ name: "style", parser: foldlessParser(cssLanguage, "Styles") }, ...handlers.split(" ").map((name) => ({ name: `on${name}`, parser: javascriptCode }))];
+
+// HTML with no folds of its own or of the code in it.
+function foldlessHtml(matchClosingTags: boolean) {
+	const support = html({ matchClosingTags, nestedLanguages, nestedAttributes });
+	return new LanguageSupport(foldless(support.language)!, support.support);
+}
+
+// HTML in a note, as lang-markdown parses it (closing tags not matched), and
+// in an html fence, as language-data does.
+const htmlTags = foldlessHtml(false);
+const htmlFence = foldlessHtml(true).language;
+
+// A markdown fence parses as language-data's Markdown does (CommonMark, with
+// HTML, and Markdown's language data), from lezer's parser without
+// lang-markdown's folds and heading marks: its heading folds would take the
+// fence's headings for the note's.
+const markdownFence = new Language(
+	markdownLanguage.data,
+	commonmark.configure([parseCode({ htmlParser: htmlTags.language.parser }), { props: [languageDataProp.add({ Document: markdownLanguage.data })] }]),
+	[],
+	"markdown",
+);
+
+// The Markdown language with Obsidian's syntax and folds.
+export function markdownSupport(fold: FoldSettings): Extension {
+	const blockFolds: MarkdownConfig = {
+		props: [
+			foldNodeProp.add((type) => {
+				if (!type.is("Block")) return undefined;
+				return fold.indent && type.name === "ListItem" ? foldListItem : noFold;
+			}),
+		],
+	};
+	const md = markdown({ base: markdownLanguage, codeLanguages: codeLanguage, htmlTagLanguage: htmlTags, extensions: [...obsidianMarkdown, blockFolds] });
+	if (fold.heading) return md;
+	// lang-markdown folds heading sections with a fold service among its support extensions.
+	const support = Array.isArray(md.support) ? md.support : [md.support];
+	return [md.language, support.filter((ext: Extension) => !EditorState.create({ extensions: ext }).facet(foldService).length)];
+}
+
+// Folds open and close from a chevron in the gutter.
+function folding(fold: FoldSettings): Extension[] {
+	if (!fold.heading && !fold.indent) return [];
 	return [
 		codeFolding(),
 		foldGutter({
@@ -607,6 +738,7 @@ function dropDefault(view: MarkdownView, evt: DragEvent) {
 export function markdownEditorExtensions(view: MarkdownView, plugins: Compartment): Extension[] {
 	const app = view.app;
 	followVault(view);
+	const fold: FoldSettings = { heading: app.vault.getConfig("foldHeading") ?? true, indent: app.vault.getConfig("foldIndent") ?? true };
 	const host: LivePreviewHost = {
 		app,
 		sourcePath: () => view.file?.path ?? "",
@@ -632,7 +764,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		search({ top: true }),
 		autocompletion({ override: [], activateOnTyping: false }),
 		EditorView.lineWrapping,
-		markdown({ base: markdownLanguage, codeLanguages: languages, extensions: obsidianMarkdown }),
+		markdownSupport(fold),
 		livePreview(host),
 		livePreviewState,
 		activeLine,
@@ -707,7 +839,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		}),
 	];
 	if (app.vault.getConfig("showLineNumber")) ext.push(lineNumbers());
-	ext.push(folding(app));
+	ext.push(folding(fold));
 	return ext;
 }
 

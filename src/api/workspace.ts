@@ -315,11 +315,16 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 		// The type may have been registered while its placeholder was opening.
 		if (needsView()) await this.open(workspace.createView(this, viewState.type, viewState));
 		const result = { history: false };
-		await this.view.setState(viewState.state ?? {}, result);
+		try {
+			await this.view.setState(viewState.state ?? {}, result);
+		} finally {
+			// A view whose setState throws (a plugin view revived before its plugin
+			// is ready) still has its title in the tab.
+			this.updateHeader();
+		}
 		if (eState) this.view.setEphemeralState(eState);
 		const swapped = this.view !== before || fileOf(this.view) !== beforeFile;
 		if (entry && (result.history || swapped)) this.history.pushState(entry);
-		this.updateHeader();
 		workspace.onLeafViewChanged(this, swapped);
 		if (viewState.active) workspace.setActiveLeaf(this, { focus: true });
 		if (swapped) this.#syncGroup();
@@ -1451,10 +1456,14 @@ export class Workspace extends Events {
 	// Stopgap until popout windows exist: a new tab in the main window. It is
 	// shown at once, as a popout window would be (a view such as terminal's
 	// starts only once visible), and takes focus only if the caller makes it
-	// active.
+	// active. A tab that hides the active one becomes the active leaf, without
+	// the keyboard, so commands act on the tab in view.
 	openPopoutLeaf(_data?: unknown) {
 		const leaf = this.getLeaf("tab");
-		leaf.parent?.selectTab(leaf);
+		const tabs = leaf.parent;
+		const hidden = tabs?.children[tabs.currentTab];
+		if (hidden && hidden !== leaf && hidden === this.activeLeaf) this.setActiveLeaf(leaf);
+		else tabs?.selectTab(leaf);
 		return leaf;
 	}
 

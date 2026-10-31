@@ -1,8 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { ensureSyntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, LanguageDescription } from "@codemirror/language";
+import { languages } from "@codemirror/language-data";
 import { EditorState } from "@codemirror/state";
-import { obsidianMarkdown } from "../src/api/editor-extensions";
+import type { SyntaxNode } from "@lezer/common";
+import { markdownSupport, obsidianMarkdown } from "../src/api/editor-extensions";
 import { clickableTokenAt } from "../src/api/live-preview";
 
 function stateOf(doc: string) {
@@ -89,6 +91,31 @@ describe("Obsidian syntax", () => {
 		]);
 		expect(texts("[[Note#Head|shown]]", "hmd-internal-link")).toEqual(["Note#Head"]);
 		expect(texts("[[Note#Head|shown]]", "hmd-internal-link_link-alias")).toEqual(["shown"]);
+	});
+});
+
+// A script or style in a note's HTML parses as its type or lang says, as in
+// lang-html: one of another language (MathJax's math/tex, a template, SCSS)
+// stays text instead of being highlighted and edited as JavaScript or CSS.
+describe("code in a note's HTML", () => {
+	// Loaded, as in an editor that has shown fenced code of these languages.
+	beforeAll(async () => {
+		for (const name of ["javascript", "typescript", "css"]) await LanguageDescription.matchLanguageName(languages, name, true)?.load();
+	});
+
+	test("scripts and styles parse by their type or lang", () => {
+		const doc = ['<script type="math/tex">', "x^2", "</script>", "", '<script lang="ts">', "interface I {}", "</script>", "", '<script type="application/json">', '{"a": 1}', "</script>", "", '<style lang="scss">', "$c: red;", "</style>", "", "<script>", "let b = 1;", "</script>"].join("\n");
+		const tree = ensureSyntaxTree(EditorState.create({ doc, extensions: markdownSupport({ heading: true, indent: true }) }), doc.length, 5000)!;
+		const at = (text: string) => tree.resolveInner(doc.indexOf(text) + 1, 1);
+		const top = (node: SyntaxNode | null) => {
+			while (node && !node.type.isTop) node = node.parent;
+			return node?.name;
+		};
+		expect(at("x^2").name).toBe("ScriptText");
+		expect(at("I {}").name).toBe("InterfaceDeclaration");
+		expect(top(at('"a"'))).toBe("SingleExpression");
+		expect(at("$c").name).toBe("StyleText");
+		expect(top(at("let b"))).toBe("Script");
 	});
 });
 

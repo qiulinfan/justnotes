@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import type { App } from "./app";
 import { Component, Events } from "./events";
@@ -357,8 +358,28 @@ interface TextDoc {
 	// The file's text as the document last took it in (loaded, written or
 	// merged): the base when changes made elsewhere meet unsaved edits.
 	base: string;
+	// Digests of every base the document has had: the versions of the file it
+	// has seen.
+	seen: Set<string>;
+	// The text on disk the document's last write replaced, and when that write
+	// was, until the document takes in a change.
+	prior?: { text: string; at: number };
+	// Set while the document holds lines that a change it took for a capture
+	// lacks, until a write saves them.
+	keptCapture?: boolean;
 	// The views showing it, once they have loaded.
 	views: Set<TextFileView>;
+}
+
+const digest = (text: string) => createHash("sha1").update(text).digest("base64");
+
+function textDoc(file: TFile, base: string): TextDoc {
+	return { file, base, seen: new Set([digest(base)]), views: new Set() };
+}
+
+function setBase(doc: TextDoc, text: string) {
+	doc.base = text;
+	doc.seen.add(digest(text));
 }
 
 const docOf = new WeakMap<TextFileView, TextDoc>();
@@ -390,6 +411,59 @@ function fileJob<T>(file: TFile, job: () => Promise<T>): Promise<T> {
 }
 
 const isMissing = (err: unknown) => (err as { code?: unknown } | null)?.code === "ENOENT";
+
+// Whether `text` is `from` with lines added, the shape of a capture: every
+// line of `from` is still there, in order, except that an added line may
+// take the place of a blank one (QuickAdd writes a capture into the blank
+// line below its target, or onto the empty last line of a note that ends
+// with a newline).
+function addsLines(from: string, text: string) {
+	const lines = text.split("\n");
+	let k = 0;
+	for (const line of from.split("\n")) {
+		if (line.trim()) while (k < lines.length && lines[k] !== line) k++;
+		if (k++ >= lines.length) return false;
+	}
+	return true;
+}
+
+// The lines of `text` that hold text, in order.
+const textLines = (text: string) => text.split("\n").filter((line) => line.trim()).join("\n");
+
+// The base a change on disk is merged against: the text the document last
+// took in, unless the change was made from the text its last write replaced
+// (a capture that read the note just before a save and wrote it right after).
+// Merged against the write, such a change would undo it. Within a second of
+// the write, a change is taken for one when it only adds lines to the
+// replaced text, keeps the write's edits without a conflict when merged with
+// them, and is no version of the file the document has had. A rewrite
+// removes or changes lines of the replaced text, a change made from the write
+// holds every line of it, and a revert (git discarding changes, a plugin
+// restoring a version) brings back a version the document has had. Two kinds
+// of change pass for a capture all the same. A rewrite of only lines the
+// write inserted (a formatter tidying the line just typed) is byte for byte a
+// capture of the replaced text inserting the rewritten lines, so those lines
+// are kept as written beside their rewrite; the write that saves them leaves
+// no prior, so a writer rewriting them again (a formatter run on every write)
+// is taken as written. A revert to a version from before the document was
+// opened (an earlier session, or the note closed in every pane and opened
+// again) passes when the text the write replaced is that version with lines
+// removed or emptied; the write's own edits, changed and added lines
+// included, then survive it.
+function mergeBase(doc: TextDoc, text: string) {
+	const prior = doc.prior;
+	if (!prior || Date.now() - prior.at > 1000 || !addsLines(prior.text, text) || doc.seen.has(digest(text))) return doc.base;
+	// Made from the written text: it holds every line of it. But a change that
+	// holds every line of the replaced text (as this one does) still has any
+	// line with text the write dropped, so it was not made from such a write;
+	// and a capture of the replaced text also holds every line of a write that
+	// only removed blank lines. For those the merge below decides: a line
+	// appended right after a write that removed the final newline comes out
+	// without its own.
+	if (addsLines(doc.base, text) && addsLines(textLines(prior.text), doc.base) && !addsLines(doc.base, prior.text)) return doc.base;
+	const kept = mergeText(prior.text, doc.base, text);
+	return !kept.conflicts && kept.text !== text ? prior.text : doc.base;
+}
 
 // A text file view keeps its own text (getViewData), `data` (Obsidian's
 // in-memory copy: the text last loaded, saved or reloaded) and its document's
@@ -472,7 +546,7 @@ export abstract class TextFileView extends EditableFileView {
 			} else {
 				text = await this.app.vault.read(file);
 				if (this.file !== file) return;
-				doc = { file, base: text, views: new Set() };
+				doc = textDoc(file, text);
 				if (mirroring.has(this)) mirrorDocs.set(file, doc);
 				this.data = text;
 			}
@@ -522,6 +596,7 @@ export abstract class TextFileView extends EditableFileView {
 		if (!this.dirty && this.getViewData() === this.data) return;
 		const doc = this.#docFor(file);
 		let data = null as string | null;
+		let prior = null as string | null;
 		const take = () => {
 			data = this.getViewData();
 			this.requestSave.cancel();
@@ -543,6 +618,7 @@ export abstract class TextFileView extends EditableFileView {
 				await this.app.vault.process(file, (disk) => {
 					if (!this.#shows(file) || this.#docFor(file) !== doc) return disk;
 					if (disk !== doc.base && !this.#takeIn(doc, disk)) return disk;
+					prior = disk;
 					return take();
 				});
 			}
@@ -554,8 +630,15 @@ export abstract class TextFileView extends EditableFileView {
 			throw err;
 		}
 		if (data === null) return;
-		if (doc) doc.base = data;
-		else this.#adopt(file, data);
+		if (doc) {
+			setBase(doc, data);
+			// A write that saves lines kept from a capture leaves no prior: a
+			// change right after it that passes for a capture is most likely a
+			// writer redoing its rewrite of those lines, and taking it for one
+			// would keep them once more with every save.
+			doc.prior = prior === null || doc.keptCapture ? undefined : { text: prior, at: Date.now() };
+			doc.keptCapture = false;
+		} else this.#adopt(file, data);
 	}
 
 	// The file changed: from another view, a plugin, git or the disk.
@@ -574,8 +657,11 @@ export abstract class TextFileView extends EditableFileView {
 	// result has edits the file lacks, which the caller saves.
 	#takeIn(doc: TextDoc, text: string) {
 		const ours = this.getViewData();
-		const merge = mergeText(doc.base, ours, text);
-		doc.base = text;
+		const base = mergeBase(doc, text);
+		const merge = mergeText(base, ours, text);
+		doc.keptCapture = merge.text !== text && (doc.keptCapture || base !== doc.base);
+		setBase(doc, text);
+		doc.prior = undefined;
 		for (const view of doc.views) view.data = merge.text;
 		this.data = merge.text;
 		// Mirrors follow this view's change as they follow typing.
@@ -609,14 +695,14 @@ export abstract class TextFileView extends EditableFileView {
 				if (isMissing(err)) return;
 				throw err;
 			}
-			if (disk !== doc.base) data = mergeText(doc.base, data, disk).text;
+			if (disk !== doc.base) data = mergeText(mergeBase(doc, disk), data, disk).text;
 		}
 		this.requestSave.cancel();
 		this.dirty = false;
 		this.data = data;
 		fs.writeFileSync(path, data, "utf8");
 		if (doc) {
-			doc.base = data;
+			setBase(doc, data);
 			written.add(doc);
 		}
 	}
@@ -632,7 +718,8 @@ export abstract class TextFileView extends EditableFileView {
 
 	#adopt(file: TFile, base: string) {
 		this.#leave();
-		const doc: TextDoc = { file, base, views: new Set([this]) };
+		const doc = textDoc(file, base);
+		doc.views.add(this);
 		docOf.set(this, doc);
 		return doc;
 	}

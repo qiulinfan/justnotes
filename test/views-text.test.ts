@@ -179,6 +179,147 @@ describe("TextFileView saves", () => {
 		expect(view.dirty).toBe(false);
 	});
 
+	// QuickAdd's capture reads the note, the view saves its edit, and the
+	// capture then writes text built on what it read: the edit stays. A
+	// capture adds lines, and may write into a blank line below its target.
+	const captures: [string, string, string, string][] = [
+		["appended", "line1\nline2\nline3\n", "line1\nline2\nline3\n- captured\n", "line1 edit\nline2\nline3\n- captured\n"],
+		["written into a blank line", "line1\n\nline3\n", "line1\n- captured\nline3\n", "line1 edit\n- captured\nline3\n"],
+	];
+	for (const [name, note, captured, merged] of captures) {
+		test(`a plugin's write built on the text from before the view's save (a capture ${name}) keeps the saved edit`, async () => {
+			const { vault, view, file, full } = await editedNote(note);
+			await view.save();
+			await vault.modify(file, captured);
+			// Saving again waits for the view to take the change in.
+			await view.save();
+			expect(fs.readFileSync(full, "utf8")).toBe(merged);
+			expect(view.text).toBe(merged);
+		});
+	}
+
+	// After a save that only removed lines, a capture holds every line of the
+	// saved text, as a write built on it does: the removal stays.
+	const removals: [string, string, string, string, string][] = [
+		["a line", "line1\nline2\nline3\n", "line1\nline3\n", "line1\nline2\nline3\n- captured\n", "line1\nline3\n- captured\n"],
+		["a blank line", "line1\n\nline3\n", "line1\nline3\n", "line1\n\nline3\n- captured\n", "line1\nline3\n- captured\n"],
+	];
+	for (const [name, note, saved, captured, merged] of removals) {
+		test(`a capture built on the text from before a save that removed ${name} keeps it removed`, async () => {
+			const { vault, view, file, full } = await editedNote(note);
+			view.text = saved;
+			view.requestSave();
+			await view.save();
+			await vault.modify(file, captured);
+			await view.save();
+			expect(fs.readFileSync(full, "utf8")).toBe(merged);
+			expect(view.text).toBe(merged);
+		});
+	}
+
+	// The save deleted a line's text and added a blank line, which the capture's
+	// line can stand in for: the capture holds every line of the saved text,
+	// but also the deleted text, so it was not made from the saved text.
+	test("a capture built on the text from before a save that emptied a line and added a blank one keeps the line empty", async () => {
+		const { vault, view, file, full } = await editedNote("# Todo\n- milk\n- bob\n");
+		view.text = "# Todo\n- milk\n\n\n";
+		view.requestSave();
+		await view.save();
+		await vault.modify(file, "# Todo\n- milk\n- bob\n- cap\n");
+		await view.save();
+		expect(fs.readFileSync(full, "utf8")).toBe("# Todo\n- milk\n\n\n- cap\n");
+		expect(view.text).toBe("# Todo\n- milk\n\n\n- cap\n");
+	});
+
+	const afterSave: [string, string][] = [
+		["a write built on the saved text", "line1 edit\nline2\nline3\n- captured\n"],
+		["a plugin rewriting the saved line", "line1 rewritten\nline2\nline3\n"],
+		["an outside revert to the text before the save", "line1\nline2\nline3\n"],
+		["an outside revert to the text before the save, with a line removed", "line1\nline2\n"],
+	];
+	for (const [name, text] of afterSave) {
+		test(`${name} right after the view's save is taken as written`, async () => {
+			const { vault, view, file, full } = await editedNote("line1\nline2\nline3\n");
+			await view.save();
+			await vault.modify(file, text);
+			await view.save();
+			expect(fs.readFileSync(full, "utf8")).toBe(text);
+			expect(view.text).toBe(text);
+		});
+	}
+
+	// A write made from the saved text has the save's edits already, also when
+	// it fills a blank line next to the lines the save added (QuickAdd writes
+	// into the blank line below its target, or onto the empty last line).
+	const builtOnSave: [string, string, string, string][] = [
+		["onto the empty last line below the saved line", "# Log\n- first\n", "# Log\n- first\n- typed\n", "# Log\n- first\n- typed\n- cap"],
+		["into the blank line above the saved line", "## Inbox\n\n- old\n", "## Inbox\n\n- new\n- old\n", "## Inbox\n- cap\n- new\n- old\n"],
+		["below a line typed onto the empty last line", "## B\n", "## B\n- t1", "## B\n- t1\n- cap\n"],
+	];
+	for (const [name, note, saved, written] of builtOnSave) {
+		test(`a write built on the saved text that adds a line ${name} is taken as written`, async () => {
+			const { vault, view, file, full } = await editedNote(note);
+			view.text = saved;
+			view.requestSave();
+			await view.save();
+			await vault.modify(file, written);
+			await view.save();
+			expect(fs.readFileSync(full, "utf8")).toBe(written);
+			expect(view.text).toBe(written);
+		});
+	}
+
+	// A formatter that tidies the note on every write of it (a plugin on the
+	// vault's modify event) rewrites the line the save added, which passes for
+	// a capture inserting the tidied line: the view keeps both and saves them.
+	// The formatter's rewrite of that write must be taken as written, or the
+	// note gains a line with every save.
+	test("a formatter run on every write does not make the note grow with each save", async () => {
+		const { vault, view, file, full } = await editedNote("# Tasks\n- [ ] one\n");
+		const runs: Promise<unknown>[] = [];
+		const formatter = vault.on("modify", (modified: unknown) => {
+			if (modified === file) runs.push(vault.process(file, (text) => text.replace(/ {2,}/g, " ")));
+		});
+		view.text = "# Tasks\n- [ ] one\n- [ ]  two\n";
+		view.requestSave();
+		const after: string[] = [];
+		for (let round = 0; round < 4; round++) {
+			// The view takes in the formatter's last write and saves what it then
+			// has; the formatter tidies that write.
+			await view.save();
+			await Promise.all(runs.splice(0));
+			after.push(fs.readFileSync(full, "utf8"));
+		}
+		vault.offref(formatter);
+		await Promise.all(runs);
+		expect(after[3]).toBe(after[2]);
+		expect(view.text).toBe(after[3]);
+	});
+
+	// git discarding the note's changes, or a plugin restoring a version, right
+	// after the last of several saves. When the saves before the last one only
+	// removed lines, that version is the text the last save replaced with lines
+	// added, as a capture is.
+	const reverts: [string, string[], string][] = [
+		["the opened text, after two saves", ["line1 edit\nline2\nline3\n", "line1 edit\nline2\nline3 edit\n"], "line1\nline2\nline3\n"],
+		["the opened text, after a save that removed a line", ["line1\nline3\n", "line1\nline3 edit\n"], "line1\nline2\nline3\n"],
+		["a saved version, after a save that removed a line", ["line1\nline2\nline3\nline4\n", "line1\nline3\nline4\n", "line1\nline3\nline4 edit\n"], "line1\nline2\nline3\nline4\n"],
+	];
+	for (const [name, saves, restored] of reverts) {
+		test(`an outside revert to ${name} is taken as written`, async () => {
+			const { vault, view, file, full } = await editedNote("line1\nline2\nline3\n");
+			for (const text of saves) {
+				view.text = text;
+				view.requestSave();
+				await view.save();
+			}
+			await vault.modify(file, restored);
+			await view.save();
+			expect(fs.readFileSync(full, "utf8")).toBe(restored);
+			expect(view.text).toBe(restored);
+		});
+	}
+
 	test("a save racing an outside delete keeps the edits unsaved and does not re-create the file", async () => {
 		const { view, full } = await editedNote("line1\nline2\n");
 		fs.rmSync(full);
