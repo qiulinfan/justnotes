@@ -476,48 +476,6 @@ export function toggledTask(line: string): { ch: number; status: string } | null
 	return m ? { ch: m[1].length, status: m[2] === " " ? "x" : " " } : null;
 }
 
-// 0-based lines of the headings in Markdown source, outside frontmatter,
-// code and math blocks; headings in quotes and callouts count, as they render.
-export function headingLines(text: string): number[] {
-	const lines = text.split("\n");
-	const out: number[] = [];
-	let i = 0;
-	if (/^---\s*$/.test(lines[0] ?? "")) {
-		const end = lines.findIndex((l, n) => n > 0 && /^(---|\.\.\.)\s*$/.test(l));
-		if (end > 0) i = end + 1;
-	}
-	let fence: string | null = null;
-	let math = false;
-	let paragraph = false;
-	for (; i < lines.length; i++) {
-		const line = lines[i].replace(/^(\s{0,3}>)+\s?/, "");
-		const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-		if (fence) {
-			if (marker && marker[0] === fence[0] && marker.length >= fence.length) fence = null;
-			continue;
-		}
-		if (marker) {
-			fence = marker;
-			paragraph = false;
-			continue;
-		}
-		if (/^\s*\$\$/.test(line)) {
-			if (!/^\s*\$\$.*\$\$\s*$/.test(line) || line.trim().length <= 4) math = !math;
-			paragraph = false;
-			continue;
-		}
-		if (math) continue;
-		if (/^ {0,3}#{1,6}(\s|$)/.test(line)) {
-			out.push(i);
-			paragraph = false;
-		} else if (paragraph && /^ {0,3}(=+|-+)\s*$/.test(line)) {
-			out.push(i - 1);
-			paragraph = false;
-		} else paragraph = line.trim() !== "" && !/^\s{0,3}([-*+]\s|\d+[.)]\s|\||<)/.test(line);
-	}
-	return out;
-}
-
 // Maps between source lines and pixel offsets of rendered content, linearly
 // between anchors ([line, offset] pairs in order), with line 0 at the top and
 // the last line at the bottom.

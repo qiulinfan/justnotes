@@ -1,30 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { headingLines, lineAtOffset, offsetOfLine, subpathLine } from "../src/api/markdown-preview";
+import { lineAtOffset, offsetOfLine, subpathLine } from "../src/api/markdown-preview";
 import { parseMetadata } from "../src/api/metadata";
-
-// The reading view keeps the reading position when switching modes by
-// matching rendered headings to these source lines; a wrong line count makes
-// the position jump.
-describe("headingLines", () => {
-	test("skips frontmatter and code, counts setext and quoted headings", () => {
-		const text = [
-			"---",
-			"# not a heading: frontmatter",
-			"---",
-			"# Title",
-			"```bash",
-			"# a shell comment",
-			"```",
-			"Setext title",
-			"===",
-			"> ## In a quote",
-			"- a list item",
-			"---",
-			"#hashtag is not a heading",
-		].join("\n");
-		expect(headingLines(text)).toEqual([3, 7, 9]);
-	});
-});
 
 describe("lineAtOffset / offsetOfLine", () => {
 	const anchors: [number, number][] = [
