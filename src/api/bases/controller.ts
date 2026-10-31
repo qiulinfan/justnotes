@@ -7,7 +7,6 @@ import { type TAbstractFile, TFile } from "../vault";
 import { BaseDocument, type BasesConfigFileView, BasesViewConfig, type ViewConfigHooks, viewData } from "./config";
 import { type BasesEntry, QueryRun } from "./entry";
 import { invalidateLinkIndex } from "./file-fields";
-import { loadPropertyTypes } from "./frontmatter";
 import { impliedByFilters, type NewNote } from "./new-note";
 import type { BasesPropertyId } from "./property";
 import { BasesQueryResult, executeQuery } from "./query";
@@ -87,7 +86,7 @@ export class QueryController extends Component {
 				if (viewData(this.configs[this.viewIndex]).type === id) this.#mount();
 			}),
 		);
-		loadPropertyTypes(this.app).then(rerun);
+		this.registerEvent(this.app.metadataTypeManager.on("changed", rerun));
 		this.#mount();
 	}
 

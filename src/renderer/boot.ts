@@ -129,6 +129,7 @@ async function boot() {
 	registerWorkspaceCommands(app);
 
 	await indexed;
+	await app.metadataTypeManager.load();
 	// Core plugins come before community plugins, which may read their options
 	// while loading; both load before the layout, so it can restore their views.
 	await app.internalPlugins.initialize();
