@@ -234,7 +234,10 @@ plain style. Development notes belong in this file.
   Nodes come from `resolvedLinks`/`unresolvedLinks` (unresolved nodes are
   keyed by link text, tags by `#tag`); the search filter and colour groups
   use one subset of Obsidian's search syntax (`compileQuery`), reading note
-  texts only for content terms. The global graph's options start from
+  texts only for content terms; a group also colours a tag node (a subject
+  carrying that tag) or an unresolved node (one at the link text) its query
+  matches (`nodeSubject`). Mod-hover on a note or image node shows page
+  preview at the pointer (hover-link source `graph`, `targetEl: null`). The global graph's options start from
   `graph.json` (read only) and changes live in the view state (`options`),
   as the local graph's do; `scale` is the zoom. Colours come from the
   `.graph-view.color-*` probe classes and `--graph-*` variables, re-read on

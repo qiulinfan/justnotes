@@ -306,6 +306,14 @@ function propMatches(frontmatter: Record<string, unknown> | null, name: string, 
 
 export type NodeType = "file" | "attachment" | "tag" | "unresolved";
 
+// What a colour group's query tests a tag or unresolved node by, as Obsidian
+// colours them: a tag node is a subject carrying that tag (and named by it),
+// an unresolved node one at the link's text. Neither has contents or
+// properties, so content and property terms never match them.
+export function nodeSubject(id: string, type: "tag" | "unresolved"): QuerySubject {
+	return { path: id, tags: type === "tag" ? [id.replace(/^#/, "").toLowerCase()] : [], frontmatter: null, text: null };
+}
+
 export interface GraphNode {
 	id: string;
 	type: NodeType;

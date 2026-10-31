@@ -2095,7 +2095,8 @@ export class Workspace extends Events {
 		const sourcePath = info.sourcePath ?? "";
 		const file = this.app.metadataCache.getFirstLinkpathDest(parseLinktext(linktext).path, sourcePath);
 		if (!file || (file.extension !== "md" && !/^(png|jpe?g|gif|svg|webp|bmp|avif)$/i.test(file.extension))) return;
-		const popover = new HoverPopover(hoverParent, targetEl);
+		// Without an element (a graph node) the popover shows at the pointer.
+		const popover = new HoverPopover(hoverParent, targetEl, 300, targetEl ? null : { x: event.clientX + 12, y: event.clientY + 12 });
 		MarkdownRenderer.render(this.app, `![[${linktext}]]`, popover.hoverEl, sourcePath, popover).catch((err) => console.error(err));
 	}
 

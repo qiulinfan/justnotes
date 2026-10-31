@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildGraph, compileQuery, DEFAULT_OPTIONS, type GraphSource, localGraph, type QuerySubject, readOptions } from "../src/renderer/graph-data";
+import { buildGraph, compileQuery, DEFAULT_OPTIONS, type GraphSource, localGraph, nodeSubject, type QuerySubject, readOptions } from "../src/renderer/graph-data";
 
 // graph.json as Obsidian writes it, read into the view's options.
 describe("graph options", () => {
@@ -75,6 +75,26 @@ const source: GraphSource = {
 const options = { showTags: false, showAttachments: false, hideUnresolved: false, showOrphans: true };
 const ids = (data: { nodes: { id: string }[] }) => data.nodes.map((n) => n.id).sort();
 const edges = (data: { links: { source: string; target: string }[] }) => data.links.map((l) => `${l.source}>${l.target}`).sort();
+
+// Colour groups recolour tag and unresolved nodes whose query matches them,
+// as in Obsidian; a group for #math left its tag node grey.
+describe("colour groups on tag and unresolved nodes", () => {
+	const matches = (query: string, id: string, type: "tag" | "unresolved") => compileQuery(query)!.test(nodeSubject(id, type));
+
+	test("a tag query colours its tag node and the tags nested under it, not others", () => {
+		expect(matches("tag:#math", "#math", "tag")).toBe(true);
+		expect(matches("tag:#Math", "#math/algebra", "tag")).toBe(true);
+		expect(matches("tag:#math", "#mathematics", "tag")).toBe(false);
+		expect(matches("tag:#math", "math", "unresolved")).toBe(false);
+	});
+
+	test("name and path terms match an unresolved node's link text; content and property terms match nothing", () => {
+		expect(matches("path:Missing", "Missing note", "unresolved")).toBe(true);
+		expect(matches("file:note", "Missing note", "unresolved")).toBe(true);
+		expect(matches("content:Missing", "Missing note", "unresolved")).toBe(false);
+		expect(matches("[status]", "#math", "tag")).toBe(false);
+	});
+});
 
 describe("global graph", () => {
 	test("notes and unresolved links are nodes; self-links and links to hidden attachments are not", () => {
