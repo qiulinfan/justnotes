@@ -78,6 +78,16 @@ describe("line classes", () => {
 		expect(decos.find((d) => d.line?.includes("HyperMD-task-line"))?.attrs).toEqual({ "data-task": "/" });
 	});
 
+	// Obsidian shows an ordered task's number before its box; the box once
+	// replaced the number, as it replaces a bullet. A done one is struck
+	// through by its line's data-task.
+	test("an ordered task keeps its number beside the box, a bullet task does not", () => {
+		const doc = "1. [ ] todo\n2. [x] done\n\n- [ ] bullet\n\nend";
+		const boxes = decorate(doc, doc.length).filter((d) => d.widget === "CheckboxWidget").sort((a, b) => a.from - b.from);
+		expect(boxes.map((d) => doc.slice(d.from, d.to))).toEqual(["[ ]", "[x]", "- [ ]"]);
+		expect(decorate(doc, doc.length).find((d) => d.from === doc.indexOf("2.") && d.line)?.attrs).toEqual({ "data-task": "x" });
+	});
+
 	test("quote lines carry their own depth only", () => {
 		const doc = "> outer\n> > inner\n\nend";
 		const decos = decorate(doc, doc.length);
@@ -90,6 +100,29 @@ describe("line classes", () => {
 		const decos = decorate(doc, doc.length);
 		expect(lineClass(decos, doc, 0)).toBe("");
 		expect(lineClass(decos, doc, 2)).toBe("HyperMD-footnote");
+	});
+
+	// Obsidian shows a footnote reference as a faint superscript of its source
+	// and a definition as a superscript number (the reading view's, counting
+	// inline notes) and its text.
+	test("footnote references are superscript source, definitions their number", () => {
+		const doc = "a[^x] b^[inline] c[^y] d[^x]\n\n[^y]: second\n[^x]: first\n[^z]: unused\nend";
+		const state = stateOf(doc, doc.length);
+		const shown: [string, string][] = [];
+		for (const set of state.facet(EditorView.decorations) as DecorationSet[]) {
+			set.between(0, doc.length, (from, to, value: Decoration) => {
+				if (value.spec.class === "cm-footref-rendered") shown.push([doc.slice(from, to), value.spec.tagName]);
+				if (value.spec.widget?.constructor.name === "FootnoteNumberWidget") shown.push([doc.slice(from, to), value.spec.widget.text]);
+			});
+		}
+		expect(shown.sort((a, b) => doc.indexOf(a[0]) - doc.indexOf(b[0]) || a[0].localeCompare(b[0]))).toEqual([
+			["[^x]", "sup"],
+			["[^x]", "sup"],
+			["[^y]", "sup"],
+			["[^y]: ", "3"],
+			["[^x]: ", "1"],
+			["[^z]: ", "z"],
+		]);
 	});
 
 	test("fenced code marks its first and last lines", () => {
@@ -191,6 +224,51 @@ describe("links", () => {
 		expect(decos.find((d) => d.mark?.includes("cm-underline"))).toMatchObject({ mark: "cm-underline", attrs: { "data-href": "Known" } });
 		expect(decos.filter((d) => d.widget === "ImageWidget").map((d) => doc.slice(d.from, d.to))).toEqual(["![x](<my pic.png>)"]);
 		expect(clickableTokenAt(stateOf(doc, 0), 1)).toEqual({ type: "internal-link", text: "Known", from: 0, to: 12 });
+	});
+
+	// CommonMark unescapes a destination's backslash escapes, as the reading
+	// view and Obsidian do; the backslash stayed in the target, which then
+	// named no note.
+	test("backslash escapes in a destination are unescaped for the link, its click and an image", () => {
+		const doc = "[x](a\\_b.md) ![i](p\\_q.png)\nend";
+		const decos = decorate(doc, doc.length);
+		expect(decos.find((d) => d.mark?.includes("cm-underline"))?.attrs).toEqual({ class: "internal-link", "data-href": "a_b.md" });
+		expect(clickableTokenAt(stateOf(doc, 0), 1)).toMatchObject({ type: "internal-link", text: "a_b.md" });
+		const images: string[] = [];
+		for (const set of stateOf(doc, doc.length).facet(EditorView.decorations) as DecorationSet[]) {
+			set.between(0, doc.length, (_from, _to, value: Decoration) => {
+				if (value.spec.widget?.constructor.name === "ImageWidget") images.push(value.spec.widget.src);
+			});
+		}
+		expect(images).toEqual(["app://vault/p_q.png"]);
+	});
+
+	// Obsidian renders reference links from the note's definitions, which may
+	// come after them; they showed as bracketed text. Definitions show their
+	// label small and their destination as a link.
+	test("reference links render with their definition's destination, and definitions as a label and a link", () => {
+		const doc = "[Text][Ref] [ref] [Other][] [none][missing] x^[ref]\n\n[ref]: https://example.com \"T\"\n[other]: <Known>\nend";
+		const decos = decorate(doc, doc.length);
+		const links = decos.filter((d) => d.mark?.includes("cm-underline")).sort((a, b) => a.from - b.from);
+		expect(links.map((d) => [doc.slice(d.from, d.to), d.attrs?.["data-href"]])).toEqual([
+			["Text", "https://example.com"],
+			["ref", "https://example.com"],
+			["Other", "Known"],
+			["https://example.com", "https://example.com"],
+			["<Known>", "Known"],
+		]);
+		expect(decos.find((d) => d.mark === "cm-link-ref-label")).toMatchObject({ from: doc.indexOf("[ref]:"), to: doc.indexOf("[ref]:") + 5 });
+		expect(clickableTokenAt(stateOf(doc, 0), 2)).toMatchObject({ type: "external-link", text: "https://example.com" });
+		expect(clickableTokenAt(stateOf(doc, 0), doc.indexOf("Other"))).toMatchObject({ type: "internal-link", text: "Known" });
+	});
+
+	// ![alt][ref] stayed source in Live Preview while the reading view showed
+	// the image its definition names.
+	test("reference images render from their definition's destination", () => {
+		const doc = "![Chart][fig] and ![none][missing]\n\n[fig]: <my\\_chart.png>\nend";
+		const images = decorate(doc, doc.length).filter((d) => d.widget === "ImageWidget");
+		expect(images.map((d) => doc.slice(d.from, d.to))).toEqual(["![Chart][fig]"]);
+		expect(clickableTokenAt(stateOf(doc, doc.length), 2)).toMatchObject({ type: "internal-link", text: "my_chart.png" });
 	});
 
 	// Page preview and the click handler read data-href as link text, as the

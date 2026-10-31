@@ -293,12 +293,12 @@ describe("audio recorder", () => {
 		expect(recordingName(webm.extension, new Date(2026, 9, 31, 14, 3, 5))).toBe("Recording 20261031140305.webm");
 	});
 
-	test("the embed goes on a line of its own, splitting the line only where the cursor has text beside it", () => {
+	// Obsidian embeds a recording at the end of the note, on a line of its own.
+	test("the embed goes after the note's last line, on a new line unless that line is empty", () => {
 		const link = "![[Recording 1.webm]]";
-		expect(embedText(link, "", "")).toBe(link);
-		expect(embedText(link, "First line.", "")).toBe(`\n${link}`);
-		expect(embedText(link, "First", " line.")).toBe(`\n${link}\n`);
-		expect(embedText(link, "  ", "Second")).toBe(`${link}\n`);
+		expect(embedText(link, "")).toBe(link);
+		expect(embedText(link, "Last line.")).toBe(`\n${link}`);
+		expect(embedText(link, "    ")).toBe(`\n${link}`);
 	});
 });
 

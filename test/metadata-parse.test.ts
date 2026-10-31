@@ -30,6 +30,15 @@ describe("parseMetadata sections", () => {
 		expect(c.sections!.map((s) => s.type)).toEqual(["yaml", "paragraph", "thematicBreak", "paragraph"]);
 		expect(getFrontMatterInfo("---\n---\nbody")).toEqual({ exists: true, frontmatter: "", from: 4, to: 4, contentStart: 7 });
 	});
+
+	// Obsidian, its editor and its reading view take only a line of exactly
+	// '---' as the frontmatter's fences; '--- ' is a rule and text.
+	test("a fence line with trailing spaces opens or closes no frontmatter", () => {
+		expect(getFrontMatterInfo("--- \na: 1\n---\nbody").exists).toBe(false);
+		expect(getFrontMatterInfo("---\na: 1\n--- \nbody").exists).toBe(false);
+		expect(parseMetadata("--- \na: 1\n---\nbody").frontmatter).toBeUndefined();
+		expect(getFrontMatterInfo("---\r\na: 1\r\n---\r\nbody")).toMatchObject({ exists: true, frontmatter: "a: 1" });
+	});
 });
 
 describe("parseMetadata list items", () => {
@@ -223,5 +232,16 @@ describe("metadata helpers", () => {
 		expect(parseFrontMatterStringArray({}, "foo")).toBeNull();
 		expect(getAllTags(parseMetadata("no tags"))).toBeNull();
 		expect(getAllTags(parseMetadata("---\ntags: a\n---\n#b"))).toEqual(["#a", "#b"]);
+	});
+});
+
+// [x](a\_b.md) opens a_b.md (the reading view and Live Preview unescape the
+// target); the cache kept the backslash, so backlinks and the graph called
+// the link unresolved.
+describe("parseMetadata Markdown link targets", () => {
+	test("backslash escapes in a destination are unescaped, as CommonMark reads them", () => {
+		const links = parseMetadata("[x](a\\_b.md) and ![y](<my\\_pic.png>)");
+		expect(links.links?.map((l) => l.link)).toEqual(["a_b.md"]);
+		expect(links.embeds?.map((l) => l.link)).toEqual(["my_pic.png"]);
 	});
 });

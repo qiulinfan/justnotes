@@ -9,19 +9,22 @@ import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range, type StateCommand } from "@codemirror/state";
 import { type Command, Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { IterMode, NodeProp, type NodePropSource, type Parser, type SyntaxNode } from "@lezer/common";
+import { IterMode, MountedTree, NodeProp, type NodePropSource, type NodeSet, type Parser, type PartialParse, type SyntaxNode, Tree, TreeBuffer } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import { type BlockContext, type Element, type LeafBlock, type LeafBlockParser, type Line, type MarkdownConfig, parseCode, parser as commonmark } from "@lezer/markdown";
 import type { App } from "./app";
-import { importFile } from "./attachments";
+import { imageLink, importFile, isImageFile } from "./attachments";
 import { DragManager } from "./drag-manager";
 import { editorOptionExtensions, editorOptions } from "./editor-options";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
+import { editorSettings } from "./editor-settings";
 import { setIcon } from "./icons";
+import { imageMenu } from "./image-menu";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
 import { inlineMathEnd, mathBlockClose } from "./markdown";
 import { parseLinktext } from "./metadata-utils";
 import type { MarkdownView } from "./markdown-view";
+import { editorSelectionScroll } from "./selection-scroll";
 import { debounce, htmlToMarkdown } from "./util";
 import { TFile } from "./vault";
 
@@ -452,6 +455,32 @@ export const exitEmptyQuote: StateCommand = ({ state, dispatch }) => {
 	return true;
 };
 
+// Enter in a fenced code block inside a quote keeps the new line in the
+// quote, as Obsidian does: it starts with the line's quote marks and the
+// whitespace after them (a list item's indentation, the code's own).
+// lang-markdown's Enter continues no markup inside a fence, so the new line
+// would end the quote and the fence with it.
+export const continueQuotedCode: StateCommand = ({ state, dispatch }) => {
+	const sel = state.selection;
+	if (sel.ranges.length !== 1) return false;
+	const { from, to } = sel.main;
+	const line = state.doc.lineAt(from);
+	if (state.doc.lineAt(to).number !== line.number) return false;
+	const prefix = /^(?:[ \t]*>)+[ \t]*/.exec(line.text)?.[0];
+	if (!prefix || from - line.from < prefix.length) return false;
+	let inFence = false;
+	for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(from, -1); node; node = node.parent) {
+		if (node.name === "FencedCode") inFence = true;
+		else if (node.name === "Blockquote") {
+			if (!inFence) return false;
+			const insert = `\n${prefix}`;
+			dispatch(state.update({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, scrollIntoView: true, userEvent: "input" }));
+			return true;
+		}
+	}
+	return false;
+};
+
 // Tab indents list items and selections, and otherwise inserts one indent
 // unit at the cursor, as Obsidian does.
 function indentOrInsertTab(view: EditorView) {
@@ -519,17 +548,71 @@ function foldless(lang: Language): Language | null {
 	return out;
 }
 
+// A tree with the folds of every language mounted in it left out: the trees
+// mounted in it are copied with their node types taken from their parser's
+// node set without folds (and so on into the trees mounted in those). Its own
+// node types are kept, so the parser still reuses it when the text changes;
+// the copied trees are parsed again. Template languages (Vue, Angular, PHP,
+// Liquid, Jinja) nest HTML, CSS and JavaScript with private parsers that
+// share their node types with the exported languages, so their folds can
+// only go this way.
+const foldlessSets = new WeakMap<NodeSet, NodeSet>();
+function foldlessSet(set: NodeSet) {
+	let out = foldlessSets.get(set);
+	if (!out) foldlessSets.set(set, (out = set.extend(foldNodeProp.add(() => noFold))));
+	return out;
+}
+
+function foldlessMounts(tree: Tree, set: NodeSet | null): Tree {
+	const mapped = set?.types[tree.type.id];
+	const type = mapped && mapped.name === tree.type.name ? mapped : tree.type;
+	const children = tree.children.map((child) => (child instanceof TreeBuffer ? (set ? new TreeBuffer(child.buffer, child.length, set) : child) : foldlessMounts(child, set)));
+	const props = tree.propValues.map(([prop, mount]): [NodeProp<any> | number, any] => {
+		if (!(mount instanceof MountedTree)) return [prop, mount];
+		const inner = (mount.parser as { nodeSet?: NodeSet }).nodeSet;
+		return [prop, new MountedTree(foldlessMounts(mount.tree, inner ? foldlessSet(inner) : null), mount.overlay, mount.parser, mount.bracketed)];
+	});
+	return new Tree(type, children, tree.positions, tree.length, props);
+}
+
+// A language whose trees have no folds, also in the trees mounted in them.
+function deeplyFoldless(lang: Language): Language | null {
+	const parser = lang.parser as Parser & { configure?(config: { props?: NodePropSource[]; wrap?: (inner: PartialParse) => PartialParse }): Parser };
+	if (!parser.configure) return null;
+	const wrap = (inner: PartialParse): PartialParse => ({
+		advance: () => {
+			const tree = inner.advance();
+			return tree && foldlessMounts(tree, null);
+		},
+		get parsedPos() {
+			return inner.parsedPos;
+		},
+		stopAt: (pos) => inner.stopAt(pos),
+		get stoppedAt() {
+			return inner.stoppedAt;
+		},
+	});
+	return new Language(lang.data, parser.configure({ props: [foldNodeProp.add(() => noFold)], wrap }), [], lang.name);
+}
+
+const deeplyFoldlessLanguages = new WeakMap<Language, Language | null>();
+const templateLanguages = new Set(["Vue", "Angular Template", "PHP", "Liquid", "Jinja"]);
+
 // A fenced block's language from language-data with its folds left out, or
 // its description while it is not loaded (lang-markdown loads it and parses
 // again) and for a stream language, which has no folds. That leaves the folds
 // of the languages a fenced one nests, so HTML and Markdown fences get
-// versions nesting fold-free ones; Vue, Angular, PHP, Liquid and Jinja fences
-// still fold the HTML, CSS and JavaScript in them.
+// versions nesting fold-free ones, and template languages drop the folds of
+// the trees mounted in theirs.
 function codeLanguage(info: string): Language | LanguageDescription | null {
 	const found = LanguageDescription.matchLanguageName(languages, info, true);
 	if (found?.name === "HTML") return htmlFence;
 	if (found?.name === "Markdown") return markdownFence;
 	const lang = found?.support?.language;
+	if (lang && templateLanguages.has(found!.name)) {
+		if (!deeplyFoldlessLanguages.has(lang)) deeplyFoldlessLanguages.set(lang, deeplyFoldless(lang));
+		return deeplyFoldlessLanguages.get(lang) ?? found;
+	}
 	return (lang && foldless(lang)) ?? found;
 }
 
@@ -706,15 +789,21 @@ function followVault(view: MarkdownView) {
 // selected text links that text.
 const URL_ONLY = /^[a-z][\w+.-]*:\/\/\S+$/i;
 
+// An image as the "Pasted and dropped images as" setting writes it; any
+// other file as generateMarkdownLink links it (an embed unless it is a note,
+// as in Obsidian).
+function fileLink(app: App, file: TFile, sourcePath: string) {
+	return isImageFile(file) ? imageLink(app, file, sourcePath, editorSettings(app).pastedImageFormat) : app.fileManager.generateMarkdownLink(file, sourcePath);
+}
+
 async function attach(view: MarkdownView, files: File[], pasted: boolean) {
 	const { app } = view;
 	const sourcePath = view.file?.path ?? "";
 	const links: string[] = [];
 	for (const file of files) {
 		// A file dragged from inside the vault is linked, not copied.
-		// generateMarkdownLink embeds files that are no notes, as Obsidian's does.
 		const target = await importFile(app, file, sourcePath, pasted);
-		links.push(app.fileManager.generateMarkdownLink(target, sourcePath));
+		links.push(fileLink(app, target, sourcePath));
 	}
 	view.editor.replaceSelection(links.join("\n"), "input.paste");
 }
@@ -763,7 +852,7 @@ function linkDraggedFiles(view: MarkdownView) {
 		}
 		return DragManager.files(drag)
 			.filter((f): f is TFile => f instanceof TFile)
-			.map((f) => app.fileManager.generateMarkdownLink(f, sourcePath));
+			.map((f) => fileLink(app, f, sourcePath));
 	};
 	return ViewPlugin.define((cm) => {
 		const onDragOver = (evt: DragEvent) => {
@@ -830,7 +919,7 @@ const pastePlainText: Command = (cm) => {
 export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
 	return [
 		editorLivePreviewField,
-		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }])),
+		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }, { key: "Enter", run: continueQuotedCode }])),
 		indentation.of(indentConfig(host.app)),
 		history(),
 		drawSelection(),
@@ -842,6 +931,8 @@ export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
 		markdownSupport({ heading: false, indent: false }),
 		livePreview(host),
 		livePreviewState,
+		editorSelectionScroll(() => editorSettings(host.app).selectionScrollSpeed),
+		imageMenu(host),
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),
 		highlightedCode,
@@ -865,7 +956,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		editorEditorField.init(() => view.editor?.cm ?? null),
 		editorLivePreviewField,
 		plugins.of(app.workspace.editorExtensions),
-		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }])),
+		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }, { key: "Enter", run: continueQuotedCode }])),
 		EditorState.allowMultipleSelections.of(true),
 		// Alt-click adds a cursor, as in Obsidian; Mod-click opens links.
 		EditorView.clickAddsSelectionRange.of((evt) => evt.altKey),
@@ -883,6 +974,8 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		optionsConf.of(editorOptionExtensions(editorOptions(app))),
 		livePreview(host),
 		livePreviewState,
+		editorSelectionScroll(() => editorSettings(app).selectionScrollSpeed),
+		imageMenu({ app, sourcePath: () => view.file?.path ?? "", save: () => view.save() }),
 		activeLine,
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),

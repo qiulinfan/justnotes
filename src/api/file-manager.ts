@@ -2,19 +2,13 @@ import * as nodePath from "node:path";
 import * as YAML from "yaml";
 import type { App } from "./app";
 import { insertProperty, locateFrontmatter, readProperties, removeProperty, replaceFrontmatter, setProperty } from "./frontmatter-edit";
+import { htmlMediaSrcs, rewrittenSrc, srcVaultPath } from "./html-links";
+import { encodePath, encodeSubpath } from "./link-encoding";
 import { parseMetadata, type Reference, type ReferenceCache } from "./metadata";
 import { getLinkpath, locateFrontMatter, parseLinktext } from "./metadata-utils";
 import { Modal } from "./ui/modal";
 import { normalizePath } from "./util";
 import { type DataWriteOptions, type TAbstractFile, TFile, TFolder, Vault } from "./vault";
-
-// Markdown link destinations: spaces and '#' in a path must be encoded; a
-// block subpath keeps its '^' readable. Letters beyond ASCII stay as written
-// (附件/图 1.png gives 附件/图%201.png), as in Obsidian's links and the
-// owner's notes.
-const encodeAscii = (text: string) => text.replace(/[\0-\x7f]+/g, (run) => encodeURI(run));
-const encodePath = (path: string) => encodeAscii(path).replace(/#/g, "%23");
-const encodeSubpath = (subpath: string) => encodeAscii(subpath).replace(/%5E/g, "^");
 
 // Takes the ref written as `original` nearest to `offset` out of `refs`.
 function claim(refs: ReferenceCache[], original: string, offset: number) {
@@ -111,7 +105,10 @@ export class FileManager {
 	// Moves the file or folder, then rewrites every link that no longer
 	// reaches its target: links to the moved files, and the moved notes' own
 	// links that depended on their old folder. Each link keeps its style,
-	// subpath and alias. With alwaysUpdateLinks off the user is asked first.
+	// subpath and alias. Relative srcs of raw HTML media (`<img src>`, see
+	// html-links.ts) that named a moved file, or that a moved note holds, are
+	// rewritten relative to the note the same way. With alwaysUpdateLinks
+	// off the user is asked first.
 	// The links come from the metadata cache, so it must have read every
 	// earlier write first, such as the notes a previous rename rewrote.
 	async renameFile(file: TAbstractFile, newPath: string) {
@@ -140,6 +137,8 @@ export class FileManager {
 		}
 		const held = await this.#heldLinks(moved);
 
+		const htmlCandidates = await this.#htmlSrcCandidates(moved);
+
 		await vault.rename(file, newPath);
 
 		const edits = new Map<TFile, Map<Reference, TFile>>();
@@ -165,7 +164,15 @@ export class FileManager {
 			heldFiles.add(source);
 			count++;
 		}
-		const files = new Set([...edits.keys(), ...heldFiles]).size;
+		const htmlEdits = new Map<TFile, Map<string, TFile>>();
+		for (const { source, value, target } of htmlCandidates) {
+			if (this.#srcFile(value, source.path) === target) continue;
+			let srcs = htmlEdits.get(source);
+			if (!srcs) htmlEdits.set(source, (srcs = new Map()));
+			if (!srcs.has(value)) count++;
+			srcs.set(value, target);
+		}
+		const files = new Set([...edits.keys(), ...heldFiles, ...htmlEdits.keys()]).size;
 		if (files && (vault.getConfig("alwaysUpdateLinks") || (await this.#confirmUpdate(files, count)))) {
 			for (const [source, refs] of edits) await this.#rewrite(source, refs);
 			for (const [holder, byFile] of heldEdits) {
@@ -176,6 +183,7 @@ export class FileManager {
 					});
 				}
 			}
+			for (const [source, srcs] of htmlEdits) await this.#rewriteHtmlSrcs(source, srcs);
 		}
 		await this.#cacheClean();
 	}
@@ -196,6 +204,44 @@ export class FileManager {
 			}
 		}
 		return out;
+	}
+
+	// The vault file a raw HTML src names exactly, relative to its note (not
+	// by name alone, as the views also find one).
+	#srcFile(src: string, sourcePath: string) {
+		const path = srcVaultPath(src, sourcePath);
+		const found = path ? this.#find(path) : null;
+		return found instanceof TFile ? found : null;
+	}
+
+	// Before a move: the HTML srcs that name a moved file, and those in moved
+	// notes. Only notes that hold a moved file's name are read.
+	async #htmlSrcCandidates(moved: TFile[]) {
+		const out: { source: TFile; value: string; target: TFile }[] = [];
+		const movedSet = new Set(moved);
+		const names = moved.filter((f) => f.extension !== "md").flatMap((f) => [f.name, encodeURI(f.name)]);
+		for (const note of this.app.vault.getMarkdownFiles()) {
+			const own = movedSet.has(note);
+			if (!own && !names.length) continue;
+			const text = await this.app.vault.cachedRead(note);
+			if (!own && !names.some((name) => text.includes(name))) continue;
+			for (const { value } of htmlMediaSrcs(text)) {
+				const target = this.#srcFile(value, note.path);
+				if (target && (own || movedSet.has(target))) out.push({ source: note, value, target });
+			}
+		}
+		return out;
+	}
+
+	async #rewriteHtmlSrcs(source: TFile, srcs: Map<string, TFile>) {
+		await this.app.vault.process(source, (text) => {
+			let out = text;
+			for (const { from, to, value } of htmlMediaSrcs(text).reverse()) {
+				const target = srcs.get(value);
+				if (target) out = out.slice(0, from) + rewrittenSrc(value, source.path, target.path) + out.slice(to);
+			}
+			return out;
+		});
 	}
 
 	// Points every link to `file` at `target` instead, each keeping its style,

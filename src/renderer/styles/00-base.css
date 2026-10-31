@@ -242,7 +242,10 @@ body {
 	--graph-node-attachment: var(--color-yellow);
 }
 
+/* Native controls (date pickers and their calendar icon, checkboxes,
+   scrollbars), in properties and in plugin views alike, follow the theme. */
 body.theme-light {
+	color-scheme: light;
 	--mono-0: white;
 	--mono-100: black;
 	--background-primary: #ffffff;
@@ -277,6 +280,7 @@ body.theme-light {
 }
 
 body.theme-dark {
+	color-scheme: dark;
 	--mono-0: black;
 	--mono-100: white;
 	--background-primary: #1e1e1e;

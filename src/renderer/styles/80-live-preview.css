@@ -161,6 +161,14 @@
 	vertical-align: bottom;
 }
 
+/* An aligned <img> (a block, see image-menu.ts) shows as in the reading
+   view: CodeMirror's widget buffers beside it would each add an empty line.
+   The source shows whenever the cursor is on its line, so no caret needs
+   them. */
+.markdown-source-view.mod-cm6 .cm-line:has(> .cm-html-embed > img:is([style*="display:block"], [style*="display: block"])) > .cm-widgetBuffer {
+	display: none;
+}
+
 .markdown-source-view.mod-cm6 .cm-underline[data-href] {
 	cursor: pointer;
 }
@@ -357,4 +365,34 @@
 	bottom: -0.3em;
 	inset-inline-start: 0.3em;
 	border-inline-start: var(--indentation-guide-width) solid var(--indentation-guide-color);
+}
+
+/* A link reference definition: its label small and faint before the link. */
+.markdown-source-view.mod-cm6 .cm-link-ref-label {
+	font-size: var(--font-smaller, 0.875em);
+	color: var(--text-faint);
+}
+
+.markdown-source-view.mod-cm6 .cm-link-ref-title,
+.markdown-source-view.mod-cm6 .cm-link-ref-title * {
+	color: var(--text-faint);
+}
+
+/* Footnotes: a reference's source as a faint superscript, a definition's
+   label as the footnote's number. */
+.markdown-source-view.mod-cm6 sup.cm-footref-rendered,
+.markdown-source-view.mod-cm6 sup.cm-footref-rendered .cm-footref,
+.markdown-source-view.mod-cm6 .cm-footref sup.cm-footref-rendered {
+	color: var(--text-faint);
+	font-size: var(--font-smaller, 0.875em);
+}
+
+.markdown-source-view.mod-cm6 sup.cm-footref-rendered {
+	line-height: 0;
+}
+
+.markdown-source-view.mod-cm6 .footnote-def-number {
+	margin-inline-end: 0.4em;
+	color: var(--text-muted);
+	line-height: 0;
 }

@@ -245,6 +245,7 @@ body.is-grabbing :is(webview, iframe) {
 
 .workspace-tab-header-container-inner {
 	display: flex;
+	flex: 0 1 auto;
 	gap: 2px;
 	overflow-x: auto;
 	min-width: 0;
@@ -284,9 +285,14 @@ body.is-grabbing :is(webview, iframe) {
 	align-items: center;
 }
 
+/* Main-area tabs are --tab-width wide, as in Obsidian, and shrink alike when
+   they no longer fit, down to their icon; past that the bar scrolls. */
 .workspace-tab-header {
+	flex: 0 1 auto;
+	width: var(--tab-width);
 	max-width: var(--tab-max-width);
-	min-width: 60px;
+	min-width: calc(var(--icon-s) + 2 * var(--size-4-2));
+	overflow: hidden;
 	height: 32px;
 	padding: 0 var(--size-4-2);
 	border-radius: var(--tab-radius-active);
@@ -304,6 +310,8 @@ body.is-grabbing :is(webview, iframe) {
 /* A sidebar's tabs are icon buttons, the size of the other clickable icons;
    --sidebar-tab-text-display shows their titles. */
 .mod-sidedock .workspace-tab-header {
+	flex: 0 0 auto;
+	width: auto;
 	min-width: 0;
 	height: auto;
 	padding: var(--size-2-2) var(--size-2-3);

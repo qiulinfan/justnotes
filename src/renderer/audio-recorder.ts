@@ -43,14 +43,15 @@ function startError(err: unknown) {
 	return `Could not start recording: ${err instanceof Error ? err.message : err}`;
 }
 
-// The embed inserted at the cursor, on a line of its own: a player in the
-// middle of a line of text would sit beside it.
-export function embedText(link: string, before: string, after: string) {
-	return `${before.trim() ? "\n" : ""}${link}${after.trim() ? "\n" : ""}`;
+// The text that embeds a recording at the end of a note whose last line is
+// `lastLine`: on a line of its own (after spaces it could be indented code).
+export function embedText(link: string, lastLine: string) {
+	return `${lastLine ? "\n" : ""}${link}`;
 }
 
 // The recording goes into the attachment folder for the active note and is
-// embedded at its cursor; with no note open it opens in a tab of its own.
+// embedded at the end of the note, as in Obsidian (its docs say so; the
+// cursor stays where it is); with no note open it opens in a tab of its own.
 async function saveRecording(app: App, blob: Blob, format: RecordingFormat) {
 	const view = app.workspace.getActiveViewOfType(MarkdownView);
 	const note = view?.file ?? null;
@@ -58,11 +59,9 @@ async function saveRecording(app: App, blob: Blob, format: RecordingFormat) {
 	const file = await importFile(app, new File([blob], recordingName(format.extension, new Date()), { type: blob.type }), sourcePath);
 	if (view && note && view.file === note) {
 		const editor = view.editor;
-		const at = editor.getCursor();
-		const line = editor.getLine(at.line);
-		const link = embedText(app.fileManager.generateMarkdownLink(file, sourcePath), line.slice(0, at.ch), line.slice(at.ch));
-		editor.replaceRange(link, at);
-		editor.setCursor(editor.offsetToPos(editor.posToOffset(at) + link.length));
+		const last = editor.lastLine();
+		const end = { line: last, ch: editor.getLine(last).length };
+		editor.replaceRange(embedText(app.fileManager.generateMarkdownLink(file, sourcePath), editor.getLine(last)), end);
 	} else {
 		await app.workspace.getLeaf(false).openFile(file);
 	}

@@ -1,6 +1,6 @@
 import * as nodePath from "node:path";
 import { Events } from "./events";
-import { getAllTags, getLinkpath, locateFrontMatter, parseFrontMatterAliases } from "./metadata-utils";
+import { destinationText, getAllTags, getLinkpath, locateFrontMatter, parseFrontMatterAliases } from "./metadata-utils";
 import { parseYaml } from "./util";
 import { type TAbstractFile, TFile, type Vault } from "./vault";
 
@@ -364,7 +364,7 @@ export function parseMetadata(text: string): CachedMetadata {
 			// The groups come from the unmasked text, so '$' or '`' in a path survive.
 			const unmasked = MDLINK_ONE.exec(original);
 			const m = unmasked && unmasked.index === 0 && unmasked[0].length === original.length ? unmasked : hit;
-			const dest = m[3].startsWith("<") ? m[3].slice(1, -1) : m[3];
+			const dest = destinationText(m[3]);
 			if (!dest || SCHEME.test(dest)) continue;
 			(m[1] ? embeds : links).push({ link: safeDecode(dest), original, displayText: m[2], position: pos(s, s + m[0].length) });
 			const destAt = hit.index! + hit[0].indexOf("](") + 1;

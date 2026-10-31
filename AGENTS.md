@@ -60,6 +60,9 @@ plain style. Development notes belong in this file.
     `markdown-preview.ts` (reading view), `markdown.ts` (MarkdownRenderer, post
     processors, code-block registry, the math grammar, MathJax/pdf.js/Prism/
     Mermaid loaders), `live-preview.ts` and `editor-*.ts` (CodeMirror 6),
+    `selection-scroll.ts` (drag-select scrolling), `image-menu.ts` (the
+    image double-click menu), `editor-settings.ts`
+    (justnotes' own Editor tab), `attachments.ts` (pasted and dropped files),
     `vault.ts`, `metadata*.ts` (the cache; `metadata-types.ts`, the
     `metadataTypeManager`; `metadata-editor.ts` and `metadata-widgets.ts`,
     the Properties block), `frontmatter-edit.ts`, `file-manager.ts`, `keymap.ts`,
@@ -198,8 +201,8 @@ plain style. Development notes belong in this file.
   WebM/Opus as Obsidian's desktop recordings (MP4, then Ogg, only where WebM
   is not recorded), named `Recording YYYYMMDDHHmmss.webm`, saved through
   `importFile` into the attachment folder for the active note and embedded
-  at its cursor on a line of its own (Obsidian's docs say at the end of the
-  note); with no note open it opens in a tab. Media players
+  at the end of the note on a line of its own, as Obsidian's docs say (the
+  cursor stays); with no note open it opens in a tab. Media players
   (`createMediaPlayer` in `markdown.ts`, used by embeds in both views and by
   the `audio`/`video` views of `media-view.ts`, registered at boot for
   Obsidian's extensions) turn a video file without a picture into an audio
@@ -343,6 +346,12 @@ plain style. Development notes belong in this file.
   its own keys run; popover suggests and views fall through to the app scope.
   Editor commands never run in reading view or for a key typed in another text
   field (reading `window.event` when a plugin such as Completr passes none).
+- The editor's context menu has Obsidian's Format, Paragraph and Insert
+  submenus (`MarkdownView.showContextMenu`, editing view only); each item runs
+  the `editor:` command of the same action, so hotkeys and plugins see one
+  path. Insert footnote numbers after the note's highest `[^n]` and puts the
+  definition at the end; Insert horizontal rule leaves a blank line after a
+  paragraph, which `---` right under it would turn into a heading.
 - The vault's `.obsidian/hotkeys.json` overrides plugin defaults. Check it
   before deciding a key "does not work": the owner binds Completr's insert to
   Tab, so Enter correctly inserts a newline there.
@@ -470,7 +479,8 @@ plain style. Development notes belong in this file.
   `enabled-core-plugins` (the Core plugins toggles, over `core-plugins.json`),
   `justnotes-expanded` (explorer folders),
   `property-types` (property type changes made in justnotes, layered over
-  `types.json`; an empty type unassigns one). The language
+  `types.json`; an empty type unassigns one), `justnotes-editor` (the
+  Editor settings tab, `editor-settings.ts`). The language
   is localStorage `language`, else `en`; never the OS locale.
 - Vault settings (`vault-config.ts`, tested; `Vault.getConfig`/`setConfig`):
   `app.json` under `appearance.json` is what `getConfig` reads, Obsidian's
@@ -708,7 +718,10 @@ plain style. Development notes belong in this file.
   are one step and a plugin's concurrent write is merged, not lost. An outside
   change to an open file merges line by line with unsaved edits (`mergeText`,
   a line diff3), including lines one side added next to a line the other side
-  changed; a real conflict keeps both versions and shows a notice. The take-in
+  changed; a real conflict keeps both versions and shows a notice. Line breaks
+  compare as LF and the result takes the file's (a CRLF note converted to LF
+  while open merges cleanly and saves as LF; MarkdownView re-detects CRLF from
+  the text a reload or merge sets, `crlfOf`). The take-in
   during a save, the reload on vault `modify` and the quit flush all merge
   this way. A view whose text is structured data registers its own merge with
   `mergeWith` (the canvas merges by node and edge id, field by field, so a
@@ -718,7 +731,8 @@ plain style. Development notes belong in this file.
   (`prior`), for QuickAdd's capture, which reads, computes and then writes:
   merged against the save, it would undo it. `mergeBase` merges a change
   against the replaced text only when the change is that text with lines
-  inserted (an inserted line may fill a blank one), merges with the save's
+  inserted (an inserted line may fill a blank one) or with text inserted
+  inside lines (QuickAdd's inline insert; `insertsText`), merges with the save's
   edits without a conflict, is no version the document has had (`seen`: every
   text it loaded, saved or took in) and was not made from the saved text
   (holding all its lines: QuickAdd reading after the autosave, a line appended
@@ -727,19 +741,30 @@ plain style. Development notes belong in this file.
   comment on `mergeBase` has the exact rules.
 - Limits of judging by content: a revert to a version from before the note was
   opened, landing within the second, passes for a capture when the replaced
-  text is that version with lines removed or emptied, and the save's edits
-  survive it. A rewrite of only lines the save inserted (a formatter tidying
+  text is that version with lines removed or emptied (or text removed inside
+  lines), and the save's edits survive it. A rewrite of only lines the save inserted (a formatter tidying
   the line just typed) is byte for byte a capture, so the typed line is kept
   beside its rewrite once; the write that saves it records no `prior`
   (`keptCapture`), so a writer that rewrites on every save does not grow the
   note. After a save that only removed the final newline, a line appended
-  within the second loses its own. QuickAdd's inline insert, which writes
-  inside a line, still loses a racing save.
+  within the second loses its own. QuickAdd's inline insert into the very
+  line the racing save changed conflicts with it line by line, so the insert's
+  version of that line wins and the save's change to it is lost (its other
+  edits stay).
 - Vault writes go in place, never to a temp file renamed over the note: a
   rename resets the birth time (Bases `file.ctime`), the inode, the mode and
   xattrs such as Finder tags. A read of a path waits for a write putting that
   file's bytes on disk; reads never wait for queued writes, because code inside
   the write queue (kgdistiller's reconcile hooks) may read.
+- `fileManager.renameFile` also follows raw HTML media srcs (`<img>`,
+  `<video>`, `<audio>`, `<source>`; `html-links.ts`), which the metadata
+  cache does not index (Obsidian leaves them broken): a relative src that
+  named a moved file exactly (relative to its note, backslashes, `./` and
+  %-escapes read as Typora writes them), and every relative src in a moved
+  note, is rewritten relative to the note, keeping `./`, %-escapes and
+  backslash style. Absolute paths, URLs, srcs that only found their file by
+  name and anything in code or comments are left alone. Only notes holding
+  a moved file's name are read.
 - The adapter keeps a folder-to-children index that only its add and drop
   paths update. Changes under `.obsidian` emit only vault `raw` events, as in
   Obsidian.
@@ -821,6 +846,15 @@ plain style. Development notes belong in this file.
   callback changed the same way, property by property, and throws on YAML
   that is not a map rather than replacing it. A Bases cell edit it refuses
   (`writeCell`) shows the reason in a Notice and puts the cell back.
+- While Daily notes is on, a date or date & time property links to its day's
+  daily note, as Obsidian's date widget does: the date shows in the link
+  colour, a click on its text opens the note (made from the daily note
+  template when missing; Mod-click in a new tab) through the plugin
+  instance's `openDailyNoteOf`, which the installer sets and removes; the
+  calendar icon, a click beside the text and the keyboard edit the value.
+  `color-scheme` follows the theme on `body`, so native date pickers (their
+  calendar icon), checkboxes and scrollbars are dark on the dark theme in
+  properties and plugin views alike.
 
 ## Live Preview and math
 
@@ -831,11 +865,58 @@ plain style. Development notes belong in this file.
   line syntax (heading marks, quote marks, list bullets, tasks, rules, block
   math) shows while the selection is on those lines.
 - `editorLivePreviewField` false means Source mode: no decorations at all.
+- Links as Obsidian renders them: a destination is read as CommonMark reads
+  it (`destinationText`: no angle brackets, backslash escapes unescaped, so
+  `[x](a\_b.md)` opens `a_b.md`); reference links (`[text][ref]`,
+  `[text][]`, `[text]`) render with the destination of the note's definition,
+  found in the same tree pass and applied after it; reference images
+  (`![alt][ref]`) take theirs from `referenceDefinitions`, computed once per
+  state; a definition line shows its label small (`cm-link-ref-label`) and its
+  destination as a link.
+  Ordered tasks keep their number before the box (a bullet gives way to it),
+  in both views. Footnote references (`[^1]`) show their source as a faint
+  superscript (`sup.cm-footref-rendered`); a definition's `[^id]: ` becomes
+  the footnote's number as the reading view counts it (references by first
+  use, inline `^[notes]` included; the label when nothing refers to it).
 - Raw HTML: an `<img>` alone or inline becomes an `HtmlImageWidget` (its src
   found as the reading view finds it); any other HTML block (`<p
   align="center">`, `<div>`, `<details>`, ...) renders through
   `MarkdownRenderer`, sanitized like the reading view, as a block widget
   (`.cm-html-embed`) until the selection enters its lines.
+- Double-clicking an image opens the image menu (`image-menu.ts`). Size:
+  presets (100, 75, 67, 50, 33, 25%) and Reset size rewrite an `<img>`'s
+  `zoom` style (only its value, keeping its spacing, the other declarations
+  and attributes; a missing style is added before the tag's end; reset
+  removes the zoom and an emptied style attribute), a wikilink's `|W` or a
+  Markdown image's `alt|W` (W from the image's `naturalWidth`, replacing a
+  `WxH`; reset removes it). Alignment (left, center, right, Reset
+  alignment) is an `<img>` style, `display:block; margin:0 auto` (center),
+  `margin:0 auto 0 0` (left), `margin:0 0 0 auto` (right), replacing any
+  display and margin declarations: the reading view, Live Preview and
+  Obsidian (which keeps inline styles) render it alike, while `<p
+  align="center">` would make Live Preview render an HTML block with no
+  image widget. Embeds have no alignment syntax in Obsidian, so aligning one
+  first turns it into an `<img>` (`embedAsHtml`: src relative to the note,
+  its size as width/height attributes, its alt text or else the file's
+  name as alt). Live Preview hides CodeMirror's widget buffers beside such
+  a block image (`80-live-preview.css`), which would add an empty line
+  above and below it. Size and alignment are one undoable change each on
+  the editor's document. Rename image... (the explorer's `PromptModal`, the
+  extension kept) and Move image to... (its `MoveModal`; both in
+  `ui/file-modals.ts`) save the note, then go through
+  `fileManager.renameFile`, so wikilinks, Markdown links and `<img>` srcs
+  follow (see Views, files and saving); they are disabled for an image that
+  is no vault file. Live Preview handles its own image widgets
+  (`.image-embed` and `.cm-html-embed` images outside rendered blocks; the
+  widget's `posAtDOM` finds the source): a press on one is taken from
+  CodeMirror, and a single click reveals the source only after 300 ms, or
+  the second click of a double click would land on revealed text. The
+  reading view finds the source of a double-clicked image in its section's
+  text by the URL each image loads and their order (`refForRenderedImage`),
+  skips images of embedded notes and anything whose source changed since
+  the render, edits like a task tick, re-renders and saves. Images inside
+  Live Preview's rendered blocks (callouts, tables, HTML blocks) get no
+  menu.
 - The frontmatter is a block widget holding a `MetadataEditor` (also in the
   reading view's `mod-header`), unless "Properties in document"
   (`propertiesInDocument`) is `source` (YAML) or `hidden`; Live Preview
@@ -878,21 +959,67 @@ plain style. Development notes belong in this file.
   is in. Only a line inside a real quote counts (the syntax tree reaches a
   `Blockquote` before any text block): a `>` line in code, HTML, math or
   frontmatter gets a plain newline. Inside a fence lang-markdown's Enter never
-  continues quote or list markup, so a new line in a quoted fence gets no `> `.
+  continues quote or list markup, so `continueQuotedCode` (bound after
+  `exitEmptyQuote`) starts a new line in a fenced block inside a quote with the
+  line's quote marks and the whitespace after them, as Obsidian does, also on
+  an empty code line.
 - Only heading sections (`foldHeading`) and what is nested in list items
   (`foldIndent`) fold, as in Obsidian: `markdownSupport` strips lang-markdown's
   block folds and the folds of every language it mounts: fenced code
   (`foldless`), HTML in notes and in `html`/`xhtml` fences (elements, script
   and style contents, `style` and event-handler attribute values), and
   `markdown` fences (CommonMark without lang-markdown's folds, so their
-  headings are no sections). Vue, Angular, PHP, Liquid and Jinja fences still
-  fold the code nested in them.
+  headings are no sections). Vue, Angular, PHP, Liquid and Jinja fences nest
+  HTML, CSS and JavaScript through private parsers that share the exported
+  languages' node types, so `deeplyFoldless` wraps their parser: each parsed
+  tree's mounted trees are copied with fold-free node types
+  (`foldlessMounts`); those inner trees are parsed again on each change.
 - Scripts and styles in a note's HTML parse by their type or lang exactly as
   lang-html decides, at once: `editor-extensions.ts` copies lang-html's
   nesting rules with fold-free parsers, including its private list of event
   handlers (from 6.4.12; recheck it when upgrading lang-html). Other types,
   such as `math/tex`, stay text. Fences match language-data by name or alias,
   not extension: `md` and `htm` fences stay plain.
+
+## Editor settings
+
+- The settings window's first tab, Editor, holds justnotes' own options
+  (`editorSettings(app)` reads them live, so a change applies at once);
+  Obsidian's editor options stay in app.json and are set in Obsidian.
+- Selection scroll speed (1 to 10, default 5; `selection-scroll.ts`): while
+  a drag-select is at or past the top or bottom edge of what scrolls
+  (counting from 10 px inside it, so a note reaching the bottom of the screen
+  still scrolls), a frame loop scrolls at `selectionScrollSpeed`: at 5 about
+  1100 px/s at the edge, 3100 at 30 px past, 12000 at 120 px past, linear in
+  the setting. CodeMirror's own is 160, 570 and 1800 (a 50 ms interval of
+  0.7 px per px past + 8), Chromium's in the reading view 1300, 4900 and
+  11800. In editors `editorSelectionScroll` takes over CodeMirror's vertical
+  scrolling: it reaches into the internal mouse selection
+  (`view.inputState.mouseSelection`, @codemirror/view 6: `setScrollSpeed`,
+  `select`, `lastEvent`, `dragging`, `scrollParents`), turns off its vertical
+  speed and extends the selection through its `select(lastEvent)` after each
+  step, as CodeMirror's own scroll does; recheck these names when upgrading
+  @codemirror/view (without them CodeMirror's scrolling is left alone). In
+  rendered Markdown outside editors (reading view, hover previews)
+  `installNativeSelectionScroll` (every window) does the same for the native
+  selection: once a press has dragged a selection, the scroller gets
+  `.is-selection-scrolling` (overflow-y hidden) until release, which is the
+  only way found to keep Chromium's autoscroll off it (cancelling mousemove
+  does not), and the selection's focus moves to the text at the edge
+  (`caretPositionFromPoint`) after each step. Measure with real CDP mouse
+  events (press, moves past the scroller's edge, scrollTop over a held
+  second); the frame loop needs the test window shown.
+- Pasted and dropped images as (`html` default, `wikilink`, `markdown`;
+  `imageLink` in `attachments.ts`): an image file pasted, dropped from
+  outside or dragged from the explorer into a note is written as Typora
+  writes it and as the owner's notes hold it, `<img src="<path>"
+  alt="<name>" style="zoom:100%;" />` with the src relative to the note,
+  forward slashes, spaces kept (only a `"` is %-escaped) and the file's
+  basename as alt; or `![[linktext]]`, or `![](linktext)` with the
+  destination encoded as `generateMarkdownLink` encodes it, both following
+  `newLinkFormat` whatever `useMarkdownLinks` says. Other files keep
+  `generateMarkdownLink`. Pasted files are still saved by `importFile` into
+  the attachment folder.
 
 ## CSS
 
@@ -920,6 +1047,11 @@ plain style. Development notes belong in this file.
   collapsed. Search results are tree rows: `.tree-item.search-result` with a
   title row (basename, chevron folding the matches, match count as flair;
   the path is its tooltip) and `.search-result-file-matches` below.
+- Main-area tabs are `--tab-width` (200px) wide, as Obsidian's, and shrink
+  evenly when they no longer fit, down to their icon; past that the tab bar
+  scrolls. The width is a `width`, not only a flex basis: a flex container's
+  intrinsic size counts its items' content, so a basis alone squeezed the tabs
+  to their titles beside free space.
 - Links take their colours from the `--link-*` variables, and a base `a` rule
   gives plain anchors in plugin views the link colour. Live Preview's link
   marks carry `.internal-link` and `.external-link`, so the reading view's link

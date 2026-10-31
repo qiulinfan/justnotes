@@ -12,7 +12,7 @@ import { debounce } from "../api/util";
 import type { TFile } from "../api/vault";
 import { ItemView } from "../api/view";
 import type { WorkspaceLeaf } from "../api/workspace";
-import { PromptModal } from "./views";
+import { PromptModal } from "../api/ui/file-modals";
 
 export const ALL_PROPERTIES_VIEW = "all-properties";
 

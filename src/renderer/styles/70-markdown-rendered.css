@@ -147,12 +147,19 @@ a.tag {
 	background-color: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.1);
 }
 
-.markdown-rendered li.task-list-item {
+/* A bullet task's box takes the bullet's place; an ordered task keeps its
+   number, with the box after it, as in Obsidian. */
+.markdown-rendered ul > li.task-list-item {
 	list-style: none;
 }
 
 .markdown-rendered .task-list-item-checkbox {
 	margin-inline: -1.4em 0.4em;
+}
+
+.markdown-rendered ol > li.task-list-item > .task-list-item-checkbox,
+.markdown-rendered ol > li.task-list-item > p:first-child > .task-list-item-checkbox {
+	margin-inline: 0 0.4em;
 }
 
 .markdown-rendered li.task-list-item.is-checked {
@@ -366,4 +373,10 @@ section.footnotes {
 	bottom: 0;
 	inset-inline-start: -0.85em;
 	border-inline-start: var(--indentation-guide-width) solid var(--indentation-guide-color);
+}
+
+/* While a selection is dragged past its edge, selection-scroll.ts scrolls
+   it; hidden overflow keeps Chromium's own autoscroll off it. */
+.is-selection-scrolling {
+	overflow-y: hidden !important;
 }

@@ -1,9 +1,8 @@
 import type { App } from "../api/app";
 import { setIcon } from "../api/icons";
 import { Keymap } from "../api/keymap";
+import { attempt, MoveModal, PromptModal } from "../api/ui/file-modals";
 import { Menu } from "../api/ui/menu";
-import { Modal } from "../api/ui/modal";
-import { Notice } from "../api/ui/notice";
 import { type FuzzyMatch, FuzzySuggestModal } from "../api/ui/suggest";
 import { excludedLast, isFileShown } from "../api/file-visibility";
 import { debounce, prepareFuzzySearch } from "../api/util";
@@ -321,14 +320,6 @@ export function retargetFolders(expanded: Iterable<string>, oldPath: string, new
 }
 
 // A file operation that fails (a name taken, a file in use) says why.
-async function attempt(action: () => Promise<unknown>) {
-	try {
-		await action();
-	} catch (err) {
-		new Notice(err instanceof Error ? err.message : String(err));
-	}
-}
-
 async function newNote(app: App, folder: TFolder) {
 	const file = await app.fileManager.createNewMarkdownFile(folder);
 	await app.workspace.getLeaf(false).openFile(file);
@@ -345,55 +336,6 @@ function renameFile(app: App, file: TAbstractFile) {
 		const dir = file.parent && !file.parent.isRoot() ? `${file.parent.path}/` : "";
 		return attempt(() => app.fileManager.renameFile(file, `${dir}${name}${isMd ? ".md" : ""}`));
 	}).open();
-}
-
-// Moves items into a folder picked from the vault's folders, except the
-// moved folders and the folders inside them.
-class MoveModal extends FuzzySuggestModal<TFolder> {
-	#items: TAbstractFile[];
-
-	constructor(app: App, items: TAbstractFile[]) {
-		super(app);
-		// An item inside a moved folder moves with it.
-		const inside = (item: TAbstractFile, folder: TAbstractFile) => folder instanceof TFolder && item.path.startsWith(`${folder.path}/`);
-		this.#items = items.filter((item) => !items.some((other) => inside(item, other)));
-		this.setPlaceholder("Move to folder...");
-	}
-
-	getItems() {
-		return this.app.vault.getAllFolders(true).filter((f) => !this.#items.some((item) => f === item || (item instanceof TFolder && f.path.startsWith(`${item.path}/`))));
-	}
-
-	getItemText(folder: TFolder) {
-		return folder.isRoot() ? "/" : folder.path;
-	}
-
-	async onChooseItem(folder: TFolder) {
-		for (const item of this.#items) {
-			if (item.parent !== folder) await attempt(() => this.app.fileManager.renameFile(item, folder.isRoot() ? item.name : `${folder.path}/${item.name}`));
-		}
-	}
-}
-
-export class PromptModal extends Modal {
-	constructor(app: App, title: string, value: string, onSubmit: (value: string) => any) {
-		super(app);
-		this.setTitle(title);
-		const input = this.contentEl.createEl("input", { type: "text", value, cls: "prompt-modal-input" });
-		const submit = () => {
-			const v = input.value.trim();
-			this.close();
-			if (v && v !== value) onSubmit(v);
-		};
-		this.scope.register([], "Enter", () => {
-			submit();
-			return false;
-		});
-		this.onOpen = () => {
-			input.focus();
-			input.select();
-		};
-	}
 }
 
 export class CommandPalette extends FuzzySuggestModal<any> {
