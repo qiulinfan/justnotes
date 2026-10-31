@@ -37,21 +37,26 @@ vault 就是一个放 Markdown 文件的文件夹. 已有的 Obsidian vault 可�
 
 ## 现在能用的
 
-- Live Preview: 标题, 粗体斜体, 链接, `[[wikilink]]`, 图片, 任务列表, 引用, callout, 表格, 行内和块级公式 (MathJax), mermaid, 嵌入 (笔记, 标题段落, PDF, base) 和插件的代码块.
+- Live Preview: 标题, 粗体斜体, 链接 (包括引用式链接, 脚注, 路径带空格的 Typora 写法), `[[wikilink]]`, 图片 (包括 `<img>` 和 HTML 块), 任务列表, 引用, callout, 表格, 行内和块级公式 (MathJax), mermaid, 嵌入 (笔记, 标题段落, PDF, base) 和插件的代码块.
 - 空的 `>` 行按 Enter 退出一层引用, 像 Typora.
+- 右键菜单有格式, 段落, 插入 (脚注, 表格, callout, 代码块, 公式块, 分隔线).
+- 粘贴和拖进来的图片默认写成 Typora 的 `<img>`. 双击图片可以缩放, 对齐, 重命名, 移动.
+- 选中文本拖到边缘时的滚动速度可以在设置的 Editor 页调.
 - 阅读视图 (`⌘E`). 链接悬停预览: 阅读视图里直接悬停, Live Preview 里按住 `⌘`.
 - 全文搜索 (`⌘⇧F`), 直接读文件, 没有索引. `tag:#标签` 按标签搜 (正文和 frontmatter, 含子标签).
 - Bases: `.base` 文件和 `base` 代码块, 表格, 卡片和列表视图, 排序, 分组, 筛选, 公式, 在表格里改属性.
 - 命令面板 (`⌘P`), 快速切换 (`⌘O`), 设置 (`⌘,`). vault 里 `.obsidian/hotkeys.json` 的快捷键会生效.
-- 核心插件: 反向链接 (侧栏和笔记底部, 含未链接的提及, 可以一键改成链接), 出链, 大纲 (可搜索, 跟随光标), 标签, 关系图谱 (全局和局部), Canvas (可以从文件栏, Finder 拖文件进去), 书签, 幻灯片, 日记, 模板, 笔记合并, 文件恢复, 所有属性, 字数统计. 默认开哪些跟 vault 的 `core-plugins.json` 走, 在设置的 "Core plugins" 页可以单独开关 (只存在 justnotes 里). 插件的设置 (比如模板文件夹) 要在 Obsidian 里改.
+- 核心插件: 反向链接 (侧栏和笔记底部, 含未链接的提及, 可以一键改成链接), 出链, 大纲 (可搜索, 跟随光标), 标签, 关系图谱 (全局和局部), Canvas (可以从文件栏, Finder 拖文件进去), 书签 (含网址书签), 幻灯片, 录音, 日记, 模板, 笔记合并, 文件恢复, 所有属性, 字数统计. 默认开哪些跟 vault 的 `core-plugins.json` 走, 在设置的 "Core plugins" 页可以单独开关 (只存在 justnotes 里). 核心插件自己的设置 (比如模板文件夹) 要在 Obsidian 里改.
+- 设置有 Obsidian 的常规, 编辑器, 文件与链接, 外观几页, 还有快捷键和插件. `.obsidian/themes` 和 `.obsidian/snippets` 里的主题和 CSS 片段可以切换, 不会下载东西.
+- 左下角切换 vault, 菜单栏有完整的 justnotes 菜单.
 - 属性: 在 Live Preview 和阅读视图里直接改, 按类型显示 (文本, 列表, 数字, 勾选, 日期, 标签).
 - 标签页可以拖动: 重排, 换到别的组, 拖到边上分屏, 拖出窗口变成弹出窗口. 文件栏的文件可以拖进笔记 (插入链接) 或终端 (输入路径).
 - 命令行 `justnotes`: Obsidian 自带的命令行命令 (同名同语法, Publish 和 Sync 除外) 加上插件注册的命令, 另外每个命令都能 `--json`, 只读的命令不开 app 也能用, 需要 app 时会自己启动它. `justnotes help` 列出全部, `justnotes completion fish` 生成补全. 放进 PATH: `ln -s "$PWD/src/cli/justnotes.ts" ~/.local/bin/justnotes` (需要 Bun).
 - 测过的 Obsidian 插件: Copy Location, Quick LaTeX, Completr, YOLO Completion Only, Background, kgdistiller, LaTeX Live, Git, omp, QuickAdd, Terminal, Translate.
 
-还没有的: 随机笔记, 录音这类其余核心插件, 新建网址书签, 幻灯片的演讲者备注.
+还没有的: 设置里的 vim 键位, 内联标题, 拼写检查语言, 幻灯片的演讲者备注.
 
-justnotes 只读 `.obsidian/` 里的配置, 不会写, 唯一的例外是书签 (`bookmarks.json`, 和 Obsidian 共用, 两边改了会合并). 所以和 Obsidian 交替打开同一个 vault 没问题.
+justnotes 在 `.obsidian/` 里只写三个文件, 都和 Obsidian 共用: `bookmarks.json`, 以及改设置时的 `app.json` 和 `appearance.json`. 只写你改的那几项, Obsidian 或 git 同时做的改动会保留. 所以和 Obsidian 交替打开同一个 vault 没问题.
 
 ## License
 
