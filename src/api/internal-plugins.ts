@@ -52,6 +52,7 @@ const IMPLEMENTED = new Set([
 	"outline",
 	"daily-notes",
 	"templates",
+	"note-composer",
 	"word-count",
 ]);
 

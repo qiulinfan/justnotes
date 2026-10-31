@@ -3,6 +3,7 @@ import { parseMetadata } from "../src/api/metadata";
 import { moment } from "../src/api/util";
 import { dailyNoteDate, dailyNotePath } from "../src/renderer/daily-notes";
 import { findMentions, headingAt, headingTree, mentionSkips, outlineMatches } from "../src/renderer/link-panes";
+import { addText, composeText, headingSection, mergeText, noteName, sectionReplacement } from "../src/renderer/note-composer";
 import { sortTags, type TagNode, tagTree } from "../src/renderer/tag-pane";
 import { fillTemplate, templateEdits } from "../src/renderer/templates";
 import { countWords } from "../src/renderer/word-count";
@@ -77,6 +78,51 @@ describe("tags view", () => {
 		expect(shape(sortTags(roots, "frequency"))).toEqual(["c 2", "a 1", "b 1"]);
 		expect(shape(sortTags(roots, "frequencyReverse"))).toEqual(["a 1", "b 1", "c 2"]);
 		expect(shape(sortTags(roots, "alphabeticalReverse"))).toEqual(["c 2", "b 1", "a 1"]);
+	});
+});
+
+describe("note composer", () => {
+	const vars = { content: "Body {{date}}", fromTitle: "Old", newTitle: "New", date: moment("2026-10-31", "YYYY-MM-DD") };
+
+	test("a template fills its variables; the content goes where {{content}} is and is left as written", () => {
+		expect(composeText("# {{newTitle}}\nfrom [[{{fromTitle}}]] on {{date:MMM D}}\n{{content}}\n", vars)).toBe("# New\nfrom [[Old]] on Oct 31\nBody {{date}}\n");
+	});
+
+	test("without {{content}} the content goes under the template; without a template it goes alone", () => {
+		expect(composeText("## From {{fromTitle}}\n\n", vars)).toBe("## From Old\n\nBody {{date}}");
+		expect(composeText(null, vars)).toBe("Body {{date}}");
+	});
+
+	test("text goes at the end after a blank line, or at the start below the frontmatter", () => {
+		expect(addText("A\n\n\n", "B\n", "end")).toBe("A\n\nB\n");
+		expect(addText("---\ntags: x\n---\nA\n", "B", "start")).toBe("---\ntags: x\n---\nB\n\nA\n");
+		expect(addText("", "B", "start")).toBe("B\n");
+	});
+
+	test("a merged note's frontmatter joins the destination's, adding only the properties it lacks", () => {
+		expect(mergeText("---\ntags: b\n---\nB\n", "---\ntags: a\nsource: x\n---\nA\n", "end")).toBe("---\ntags: b\nsource: x\n---\nB\n\nA\n");
+		expect(mergeText("B\n", "---\ntags: a\n---\nA\n", "end")).toBe("---\ntags: a\n---\nB\n\nA\n");
+	});
+
+	test("a heading's section runs to the next heading of the same or a higher level", () => {
+		const text = ["# Top", "intro", "## Part", "", "body", "### Sub", "deep", "## Next", "tail"].join("\n");
+		const section = headingSection(text, 4)!;
+		expect(section.heading.heading).toBe("Part");
+		expect(text.slice(section.from, section.to)).toBe("## Part\n\nbody\n### Sub\ndeep\n");
+		expect(section.body).toBe("body\n### Sub\ndeep");
+		expect(headingSection("text\n# A", 0)).toBeNull();
+	});
+
+	test("the link keeps the blank line before the next heading; with nothing left behind the section just goes", () => {
+		const text = "## A\nx\n## B\n";
+		const section = headingSection(text, 0)!;
+		const replace = (link: string) => text.slice(0, section.from) + sectionReplacement(text, section, link) + text.slice(section.to);
+		expect(replace("[[A]]")).toBe("[[A]]\n\n## B\n");
+		expect(replace("")).toBe("## B\n");
+	});
+
+	test("a note name drops what links and file systems reject", () => {
+		expect(noteName(" Limits: [part] #1 / x ")).toBe("Limits part 1 x");
 	});
 });
 

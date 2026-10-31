@@ -2,6 +2,7 @@ import type { App } from "../api/app";
 import { installBacklinksInDocument } from "./backlinks-in-document";
 import { installDailyNotes } from "./daily-notes";
 import { registerLinkPanes } from "./link-panes";
+import { installNoteComposer } from "./note-composer";
 import { TagView } from "./tag-pane";
 import { registerTemplateCommands } from "./templates";
 import { installWordCount } from "./word-count";
@@ -37,6 +38,7 @@ export function installCorePlugins(app: App) {
 	if (enabled("backlink")) installBacklinksInDocument(app);
 	if (enabled("daily-notes")) installDailyNotes(app);
 	if (enabled("templates")) registerTemplateCommands(app);
+	if (enabled("note-composer")) installNoteComposer(app);
 	if (enabled("word-count")) installWordCount(app);
 }
 
