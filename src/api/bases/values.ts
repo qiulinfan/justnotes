@@ -373,6 +373,9 @@ export class LinkValue extends StringValue {
 	link: string;
 	display: string | null;
 	sourcePath: string;
+	// Resolving can scan every file, and grouping compares links often. Values
+	// live for one query run, so the answer cannot go stale in practice.
+	#target: TFile | null | undefined;
 
 	constructor(app: App, link: string, sourcePath: string, display?: string | null) {
 		super(display ? `[[${link}|${display}]]` : `[[${link}]]`);
@@ -383,7 +386,8 @@ export class LinkValue extends StringValue {
 	}
 
 	resolve(): TFile | null {
-		return this.app.metadataCache.getFirstLinkpathDest(getLinkpath(this.link), this.sourcePath);
+		if (this.#target === undefined) this.#target = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(this.link), this.sourcePath);
+		return this.#target;
 	}
 
 	isTruthy() {
