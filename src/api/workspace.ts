@@ -1700,6 +1700,13 @@ export class Workspace extends Events {
 		for (const ww of [...this.floatingSplit.children]) this.#closeWindow(ww, false);
 	}
 
+	// The unload did not happen (a beforeunload handler kept the page): the
+	// layout, now without the popouts, saves again.
+	unloadCancelled() {
+		this.#unloading = false;
+		this.requestSaveLayout();
+	}
+
 	// Listeners each app window needs: resizes, the active window, tab drops.
 	#watchWindow(win: Window) {
 		const doc = win.document;

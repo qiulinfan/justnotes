@@ -209,6 +209,8 @@ function setApplicationMenu() {
 // Each popout's vault page, whose links its own count as (a popout's page
 // listens for no obsidian: URLs).
 const popoutOpeners = new WeakMap<WebContents, WebContents>();
+// The popouts of each vault page kept open while the app quits (setupPopout).
+const heldPopouts = new WeakMap<WebContents, Set<BrowserWindow>>();
 
 // Set once the app quits (the menu, Cmd+Q, `justnotes quit` or `restart`).
 let quitting = false;
@@ -241,7 +243,9 @@ function setupPopout(child: BrowserWindow, opener: WebContents) {
 	// before-close flush (lifecycle.ts): the page would drop their leaves and
 	// save a layout without them. They stay until the page goes.
 	child.on("close", (evt) => {
-		if (quitting && !opener.isDestroyed()) evt.preventDefault();
+		if (!quitting || opener.isDestroyed()) return;
+		evt.preventDefault();
+		heldPopouts.set(opener, (heldPopouts.get(opener) ?? new Set()).add(child));
 	});
 	opener.once("destroyed", close);
 	opener.on("did-start-navigation", onNavigation);
@@ -250,6 +254,19 @@ function setupPopout(child: BrowserWindow, opener: WebContents) {
 		opener.off("destroyed", close);
 		opener.off("did-start-navigation", onNavigation);
 	});
+}
+
+// A beforeunload handler of the vault page (a plugin's) kept it from closing:
+// Electron shows no dialog, the page stays and a quit in progress is over,
+// as Electron cancels its own. The page has already let go of its popouts
+// (closePopoutsForUnload), so the ones the quit held close now instead of
+// staying open with no page driving them, and the page saves its layout
+// again.
+function unloadCancelled(contents: WebContents) {
+	quitting = false;
+	for (const child of heldPopouts.get(contents) ?? []) if (!child.isDestroyed()) child.close();
+	heldPopouts.delete(contents);
+	contents.send("justnotes:unload-cancelled");
 }
 
 // One window per vault, by the vault folder's real path. main creates every
@@ -293,6 +310,7 @@ function openVault(vault: string) {
 		return { action: "deny" };
 	});
 	contents.on("did-create-window", (child) => setupPopout(child, contents));
+	contents.on("will-prevent-unload", () => unloadCancelled(contents));
 	// A link without a handler must not navigate the window away from the app;
 	// it opens as from window.open instead. Chromium never asks about an about:
 	// URL; the page cancels those navigations itself (boot.ts).

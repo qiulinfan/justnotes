@@ -664,7 +664,11 @@ plain style. Development notes belong in this file.
   on unload the page saves the layout first, then closes popouts without
   saving again. While the app quits, main keeps popouts open until their
   page goes (Electron closes them first otherwise), so the quit flush saves
-  them in the layout. New tabs, splits and `getLeaf(false)` follow the active leaf
+  them in the layout. A beforeunload handler that keeps the page (a
+  plugin's; Electron shows no dialog, `will-prevent-unload`) cancels the
+  close and any quit in progress: the page has already let go of its
+  popouts, so main closes the ones it held (`unloadCancelled`), the page
+  saves its layout again and the next close flushes again. New tabs, splits and `getLeaf(false)` follow the active leaf
   into its popout.
 - Cross-window rules: a node keeps the realm it was made in when it moves
   (`constructorWin`), so DOM `instanceof` checks in host code use
