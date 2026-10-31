@@ -306,9 +306,11 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 	async openFile(file: TFile, openState: OpenViewState = {}) {
 		const type = this.app.viewRegistry.getTypeByExtension(file.extension) ?? (file.extension === "md" ? "markdown" : undefined);
 		// A file no view can show opens in the system's default app rather than
-		// as text, which a save would write back over the binary.
+		// as text, which a save would write back over the binary. A tab opened
+		// just for it (empty and never active) goes away again.
 		if (!type) {
 			require("electron").shell.openPath(this.app.vault.adapter.getFullPath(file.path));
+			if (this.view.getViewType() === "empty" && !this.activeTime) this.detach();
 			return;
 		}
 		await this.setViewState({ type, state: { ...openState.state, file: file.path }, active: openState.active ?? true, group: openState.group }, openState.eState);
