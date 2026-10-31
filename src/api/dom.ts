@@ -1,6 +1,7 @@
 // Obsidian augments built-in prototypes and globals (see `declare global` in
 // obsidian.d.ts). Plugins call these everywhere, so they must exist before any
 // plugin code runs.
+import { moment } from "./util";
 
 type Info = {
 	cls?: string | string[];
@@ -21,13 +22,14 @@ function define(target: object, props: Record<string, any> & ThisType<any>) {
 	}
 }
 
-function setAttr(el: Element, name: string, value: string | number | boolean | null) {
-	if (value === null || value === false) el.removeAttribute(name);
-	else el.setAttribute(name, value === true ? "" : String(value));
+// Only null removes an attribute; other values are written as strings, so
+// `{ spellcheck: false }` sets spellcheck="false".
+function setAttr(el: Element, name: string, value: string | number | boolean | null | undefined) {
+	if (value === null || value === undefined) el.removeAttribute(name);
+	else el.setAttribute(name, String(value));
 }
 
-function applyInfo(el: Element, o: Info | string | undefined, parent: Node | null) {
-	const info: Info = typeof o === "string" ? { cls: o } : (o ?? {});
+function applyInfo(el: Element, info: Info) {
 	if (info.cls) {
 		const classes = Array.isArray(info.cls) ? info.cls : info.cls.split(" ");
 		el.classList.add(...classes.filter(Boolean));
@@ -39,30 +41,101 @@ function applyInfo(el: Element, o: Info | string | undefined, parent: Node | nul
 	if (info.type !== undefined) (el as any).type = info.type;
 	if (info.placeholder !== undefined) (el as any).placeholder = info.placeholder;
 	if (info.href !== undefined) (el as any).href = info.href;
+}
+
+// The callback sees the element before it is inserted, as the d.ts promises.
+function build<T extends Element>(el: T, parent: Node | null, o: Info | string | undefined, cb?: (el: T) => void) {
+	const info: Info = typeof o === "string" ? { cls: o } : (o ?? {});
+	applyInfo(el, info);
+	cb?.(el);
 	const target = info.parent ?? parent;
 	if (target) {
 		if (info.prepend) target.insertBefore(el, target.firstChild);
 		else target.appendChild(el);
 	}
+	return el;
 }
 
 function makeEl(parent: Node | null, tag: string, o?: Info | string, cb?: (el: any) => void) {
-	const el = document.createElement(tag);
-	applyInfo(el, o, parent);
-	cb?.(el);
-	return el;
+	return build(document.createElement(tag), parent, o, cb);
 }
 
 function makeSvg(parent: Node | null, tag: string, o?: Info | string, cb?: (el: any) => void) {
-	const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
-	applyInfo(el, o, parent);
-	cb?.(el);
-	return el;
+	return build(document.createElementNS("http://www.w3.org/2000/svg", tag), parent, o, cb);
 }
 
-export function installDomExtensions() {
-	const w = window as any;
+// Obsidian's renderer hands plugins Electron's module with @electron/remote as
+// `remote`, both from require("electron") and as window.electron. `remote` is
+// an own property of Electron's module object, so every require("electron")
+// sees it, including esbuild's `import * as electron`, which copies own
+// properties. @electron/remote loads through the page's require, so a plugin
+// that requires it directly gets the same instance. Set up on first use: it
+// needs the Electron renderer.
+let electronModule: any;
+export function getElectron() {
+	if (!electronModule) {
+		electronModule = require("electron");
+		if (!("remote" in electronModule)) {
+			Object.defineProperty(electronModule, "remote", {
+				get: () => (window as any).require("@electron/remote"),
+				enumerable: true,
+				configurable: true,
+			});
+		}
+	}
+	return electronModule;
+}
 
+interface InsertionWatch {
+	el: Element;
+	listener: () => any;
+	once: boolean;
+	connected: boolean;
+}
+
+// One observer serves every onNodeInserted registration; a listener fires when
+// its element goes from detached to connected (an element that is already
+// connected counts as just inserted, like a CSS animationstart hook).
+const insertionWatches = new Set<InsertionWatch>();
+let insertionObserver: MutationObserver | null = null;
+
+function checkInsertions() {
+	for (const watch of [...insertionWatches]) {
+		const connected = watch.el.isConnected;
+		if (connected && !watch.connected) {
+			if (watch.once) insertionWatches.delete(watch);
+			try {
+				watch.listener();
+			} catch (err) {
+				console.error(err);
+			}
+		}
+		watch.connected = connected;
+	}
+	if (insertionWatches.size === 0) {
+		insertionObserver?.disconnect();
+		insertionObserver = null;
+	}
+}
+
+function watchInsertion(watch: InsertionWatch) {
+	insertionWatches.add(watch);
+	if (!insertionObserver) {
+		insertionObserver = new MutationObserver(checkInsertions);
+		insertionObserver.observe(document.documentElement, { childList: true, subtree: true });
+	}
+	queueMicrotask(checkInsertions);
+	return () => {
+		insertionWatches.delete(watch);
+		if (insertionWatches.size === 0) checkInsertions();
+	};
+}
+
+// The inline display an element had before hide(), restored by show().
+const hiddenDisplay = new WeakMap<HTMLElement, string>();
+
+// Language-level augmentations, which need no DOM.
+export function installLanguageExtensions() {
 	define(Object, {
 		isEmpty: (o: object) => Object.keys(o).length === 0,
 		each(o: Record<string, any>, cb: (v: any, k: string) => boolean | void, ctx?: any) {
@@ -82,8 +155,7 @@ export function installDomExtensions() {
 			return this.includes(t);
 		},
 		remove(t: any) {
-			const i = this.indexOf(t);
-			if (i >= 0) this.splice(i, 1);
+			for (let i = this.length - 1; i >= 0; i--) if (this[i] === t) this.splice(i, 1);
 		},
 		shuffle() {
 			for (let i = this.length - 1; i > 0; i--) {
@@ -110,6 +182,11 @@ export function installDomExtensions() {
 		},
 	});
 	define(Number, { isNumber: (o: any) => typeof o === "number" });
+}
+
+export function installDomExtensions() {
+	const w = window as any;
+	installLanguageExtensions();
 
 	define(Node.prototype, {
 		detach() {
@@ -200,11 +277,11 @@ export function installDomExtensions() {
 		getAttr(name: string) {
 			return this.getAttribute(name);
 		},
+		// lastParent is the last ancestor tested, not excluded.
 		matchParent(selector: string, lastParent?: Element) {
-			let el: Element | null = this;
-			while (el && el !== lastParent) {
+			for (let el: Element | null = this; el; el = el.parentElement) {
 				if (el.matches(selector)) return el;
-				el = el.parentElement;
+				if (el === lastParent) break;
 			}
 			return null;
 		},
@@ -264,9 +341,13 @@ export function installDomExtensions() {
 	define(Document.prototype, { on, off });
 	define(HTMLElement.prototype, {
 		show() {
-			this.style.display = "";
+			if (this.style.display !== "none") return;
+			this.style.display = hiddenDisplay.get(this) ?? "";
+			hiddenDisplay.delete(this);
 		},
 		hide() {
+			if (this.style.display === "none") return;
+			hiddenDisplay.set(this, this.style.display);
 			this.style.display = "none";
 		},
 		toggle(show: boolean) {
@@ -285,22 +366,13 @@ export function installDomExtensions() {
 			this.addEventListener("auxclick", listener, options);
 		},
 		onNodeInserted(listener: () => any, once?: boolean) {
-			// Obsidian detects insertion with a CSS animation hook; observing the
-			// document is the closest equivalent without that stylesheet trick.
-			const observer = new MutationObserver(() => {
-				if (this.isConnected) {
-					if (once) observer.disconnect();
-					listener();
-				}
-			});
-			observer.observe(document.body, { childList: true, subtree: true });
-			return () => observer.disconnect();
+			return watchInsertion({ el: this, listener, once: !!once, connected: false });
 		},
 		onWindowMigrated() {
 			return () => {};
 		},
 		trigger(eventType: string) {
-			this.dispatchEvent(new Event(eventType));
+			this.dispatchEvent(new Event(eventType, { bubbles: true, cancelable: true }));
 		},
 	});
 	for (const key of ["innerWidth", "innerHeight"]) {
@@ -350,22 +422,44 @@ export function installDomExtensions() {
 		ready: (fn: () => any) => (document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", fn) : fn()),
 		activeWindow: window,
 		activeDocument: document,
-		ajax(opts: any) {
-			ajaxPromise(opts).then(
-				(r) => opts.success?.(r, opts.req),
-				(e) => opts.error?.(e, opts.req),
-			);
-		},
-		ajaxPromise,
+		ajax,
+		ajaxPromise: (opts: AjaxOptions) =>
+			new Promise((resolve, reject) => ajax(opts, resolve, (_err, req) => reject(req))),
+		// Obsidian's bundled moment is also a global; plugins call window.moment().
+		moment,
+		electron: getElectron(),
 	});
 }
 
-async function ajaxPromise(opts: any) {
-	const res = await fetch(opts.url, {
-		method: opts.method ?? "GET",
-		headers: opts.headers,
-		body: typeof opts.data === "object" && !(opts.data instanceof ArrayBuffer) ? JSON.stringify(opts.data) : opts.data,
-	});
-	if (!res.ok) throw new Error(`HTTP ${res.status}`);
-	return res.text();
+interface AjaxOptions {
+	method?: string;
+	url: string;
+	success?: (response: any, req: XMLHttpRequest) => any;
+	error?: (error: any, req: XMLHttpRequest) => any;
+	data?: object | string | ArrayBuffer;
+	headers?: Record<string, string>;
+	withCredentials?: boolean;
+	req?: XMLHttpRequest;
+}
+
+// Statuses 200-399 succeed; objects are sent as JSON; credentials default to
+// on when there is a body.
+function ajax(opts: AjaxOptions, resolve = opts.success, reject = opts.error) {
+	const req = new XMLHttpRequest();
+	opts.req = req;
+	req.open(opts.method ?? "GET", opts.url, true);
+	req.withCredentials = opts.withCredentials ?? opts.data !== undefined;
+	const headers = opts.headers ?? {};
+	for (const [name, value] of Object.entries(headers)) req.setRequestHeader(name, value);
+	let body = opts.data;
+	if (body !== undefined && typeof body !== "string" && !(body instanceof ArrayBuffer)) {
+		body = JSON.stringify(body);
+		if (!Object.keys(headers).some((name) => name.toLowerCase() === "content-type")) req.setRequestHeader("Content-Type", "application/json");
+	}
+	req.onload = () => {
+		if (req.status >= 200 && req.status < 400) resolve?.(req.response, req);
+		else reject?.(req.response, req);
+	};
+	req.onerror = (evt) => reject?.(evt, req);
+	req.send(body as XMLHttpRequestBodyInit | undefined);
 }

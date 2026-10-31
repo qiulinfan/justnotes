@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import type { Extension } from "@codemirror/state";
 import type { App } from "./app";
 import { Component } from "./events";
@@ -47,9 +48,24 @@ export abstract class PluginSettingTab extends SettingTab {
 	}
 }
 
+export interface CliFlag {
+	value?: string;
+	description: string;
+	required?: boolean;
+}
+
+export type CliFlags = Record<string, CliFlag>;
+export type CliData = Record<string, string>;
+export type CliHandler = (params: CliData) => string | Promise<string>;
+
 export class Plugin extends Component {
 	app: App;
 	manifest: PluginManifest;
+	// Plugins assign their loaded data here (Obsidian 1.13).
+	declare settings?: unknown;
+	// The data.json text this plugin last read or wrote, to tell its own
+	// writes apart from external ones.
+	#dataText: string | undefined;
 
 	constructor(app: App, manifest: PluginManifest) {
 		super();
@@ -63,9 +79,14 @@ export class Plugin extends Component {
 		this._loaded = true;
 		await this.onload();
 		for (const child of [...this._children]) child.load();
+		if (typeof this.onExternalSettingsChange === "function") this.#watchData();
 	}
 
 	onUserEnable() {}
+
+	// Optional, as in Obsidian: called when data.json changes on disk from
+	// outside the app (git, sync, an editor).
+	onExternalSettingsChange?(): any;
 
 	#dataPath() {
 		return `${this.manifest.dir}/data.json`;
@@ -73,32 +94,89 @@ export class Plugin extends Component {
 
 	async loadData() {
 		try {
-			return JSON.parse(await this.app.vault.adapter.read(this.#dataPath()));
+			const text = await this.app.vault.adapter.read(this.#dataPath());
+			this.#dataText = text;
+			return JSON.parse(text);
 		} catch {
 			return null;
 		}
 	}
 
 	async saveData(data: any) {
-		await this.app.vault.adapter.write(this.#dataPath(), JSON.stringify(data, null, 2));
+		const text = JSON.stringify(data, null, 2);
+		this.#dataText = text;
+		await this.app.vault.adapter.write(this.#dataPath(), text);
 	}
 
-	onExternalSettingsChange() {}
+	#watchData() {
+		let watcher: fs.FSWatcher;
+		try {
+			watcher = fs.watch(this.app.vault.adapter.getFullPath(this.manifest.dir ?? ""));
+		} catch {
+			return;
+		}
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		watcher.on("change", (_type, name) => {
+			if (String(name) !== "data.json") return;
+			clearTimeout(timer);
+			timer = setTimeout(() => this.#onDataChanged(), 200);
+		});
+		watcher.on("error", () => watcher.close());
+		this.register(() => {
+			clearTimeout(timer);
+			watcher.close();
+		});
+	}
 
+	async #onDataChanged() {
+		let text: string;
+		try {
+			text = await this.app.vault.adapter.read(this.#dataPath());
+		} catch {
+			return;
+		}
+		if (text === this.#dataText || !this._loaded) return;
+		this.#dataText = text;
+		try {
+			await this.onExternalSettingsChange?.();
+		} catch (err) {
+			console.error(`Plugin "${this.manifest.id}" failed to reload its settings`, err);
+		}
+	}
+
+	// Like Obsidian, prefixes the given object in place (accessors on it see
+	// the assignments) and registers and returns that same object.
 	addCommand(command: Command) {
-		const full: Command = { ...command, id: `${this.manifest.id}:${command.id}`, name: `${this.manifest.name}: ${command.name}` };
-		this.app.commands.addCommand(full);
-		this.register(() => this.app.commands.removeCommand(full.id));
-		return full;
+		command.id = `${this.manifest.id}:${command.id}`;
+		command.name = `${this.manifest.name}: ${command.name}`;
+		const id = command.id;
+		this.app.commands.addCommand(command);
+		this.register(() => this.app.commands.removeCommand(id));
+		return command;
 	}
 
 	removeCommand(id: string) {
 		this.app.commands.removeCommand(`${this.manifest.id}:${id}`);
 	}
 
+	// Command ids are global; a duplicate throws, as in Obsidian.
+	registerCliHandler(command: string, description: string, flags: CliFlags | null, handler: CliHandler) {
+		const handlers = this.app.cliHandlers;
+		if (handlers.has(command)) throw new Error(`CLI command "${command}" is already registered`);
+		const entry = { description, flags, handler, pluginId: this.manifest.id };
+		handlers.set(command, entry);
+		this.register(() => {
+			if (handlers.get(command) === entry) handlers.delete(command);
+		});
+	}
+
 	addRibbonIcon(icon: string, title: string, callback: (evt: MouseEvent) => any) {
-		const el = this.app.workspace.leftRibbon.addRibbonItemButton(`${this.manifest.id}:${title}`, icon, title, callback);
-		this.register(() => el.detach());
+		const ribbon = this.app.workspace.leftRibbon;
+		const el = ribbon.addRibbonItemButton(`${this.manifest.id}:${title}`, icon, title, callback);
+		this.register(() => {
+			if ("removeRibbonAction" in ribbon && typeof ribbon.removeRibbonAction === "function") ribbon.removeRibbonAction(title);
+			el.detach();
+		});
 		return el;
 	}
 
@@ -113,11 +191,19 @@ export class Plugin extends Component {
 		this.register(() => this.app.setting.removeSettingTab(tab));
 	}
 
+	// Like Obsidian, leaves of the type stay open when the plugin unloads: the
+	// workspace turns them into placeholders that keep their state until the
+	// type is registered again. It does so by listening for the registry's
+	// "view-unregistered"; while nothing listens (before that workspace change
+	// is merged), the leaves are closed instead, or the unloaded plugin's views
+	// would keep running. Drop the detach once the placeholders are in.
 	registerView(type: string, creator: ViewCreator) {
-		this.app.viewRegistry.registerView(type, creator);
+		const registry = this.app.viewRegistry;
+		registry.registerView(type, creator);
 		this.register(() => {
-			this.app.workspace.detachLeavesOfType(type);
-			this.app.viewRegistry.unregisterView(type);
+			const listeners = (registry as { _?: Record<string, unknown[]> })._?.["view-unregistered"];
+			if (!listeners?.length) this.app.workspace.detachLeavesOfType(type);
+			registry.unregisterView(type);
 		});
 	}
 
@@ -132,9 +218,11 @@ export class Plugin extends Component {
 		return postProcessor;
 	}
 
-	registerMarkdownCodeBlockProcessor(language: string, handler: any, _sortOrder?: number) {
+	registerMarkdownCodeBlockProcessor(language: string, handler: any, sortOrder?: number) {
 		MarkdownPreviewRenderer.registerCodeBlockPostProcessor(language, handler);
 		this.register(() => MarkdownPreviewRenderer.unregisterCodeBlockPostProcessor(language));
+		const processor = MarkdownPreviewRenderer.createCodeBlockPostProcessor(language, handler);
+		return sortOrder === undefined ? processor : Object.assign(processor, { sortOrder });
 	}
 
 	registerEditorExtension(extension: Extension) {
@@ -147,14 +235,21 @@ export class Plugin extends Component {
 		this.register(() => this.app.workspace.editorSuggest.removeSuggest(suggest));
 	}
 
+	// Unloading removes the registration only while it is still this one.
 	registerObsidianProtocolHandler(action: string, handler: (params: any) => any) {
-		this.app.protocolHandlers[action] = handler;
-		this.register(() => delete this.app.protocolHandlers[action]);
+		const handlers = this.app.protocolHandlers;
+		handlers[action] = handler;
+		this.register(() => {
+			if (handlers[action] === handler) delete handlers[action];
+		});
 	}
 
 	registerHoverLinkSource(id: string, info: any) {
-		this.app.workspace.hoverLinkSources[id] = info;
-		this.register(() => delete this.app.workspace.hoverLinkSources[id]);
+		const sources = this.app.workspace.hoverLinkSources;
+		sources[id] = info;
+		this.register(() => {
+			if (sources[id] === info) delete sources[id];
+		});
 	}
 
 	// CodeMirror 5 hooks only ran in Obsidian's legacy editor.

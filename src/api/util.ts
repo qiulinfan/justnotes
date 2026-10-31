@@ -1,6 +1,7 @@
 import moment from "moment";
 import TurndownService from "turndown";
 import * as YAML from "yaml";
+import type { RequestParams } from "../main/ipc";
 
 export { moment };
 
@@ -57,7 +58,35 @@ export function stringifyYaml(obj: any) {
 	return YAML.stringify(obj);
 }
 
-const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-" });
+const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-", emDelimiter: "*" });
+// The GFM and Obsidian syntax plain turndown drops.
+turndown.addRule("strikethrough", { filter: ["del", "s"], replacement: (content) => `~~${content}~~` });
+turndown.addRule("highlight", { filter: "mark", replacement: (content) => `==${content}==` });
+turndown.addRule("taskListItem", {
+	filter: (node) => node.nodeName === "INPUT" && node.getAttribute("type") === "checkbox" && node.parentNode?.nodeName === "LI",
+	replacement: (_content, node) => {
+		const mark = (node as HTMLInputElement).checked || (node as HTMLElement).hasAttribute("checked") ? "[x]" : "[ ]";
+		return /^\s/.test(node.nextSibling?.textContent ?? "") ? mark : `${mark} `;
+	},
+});
+turndown.addRule("table", {
+	filter: "table",
+	replacement: (_content, node) => `\n\n${tableToMarkdown(node as HTMLTableElement)}\n\n`,
+});
+
+function tableToMarkdown(table: HTMLTableElement) {
+	const rows = Array.from(table.querySelectorAll("tr")).filter((tr) => tr.closest("table") === table);
+	const cells = rows.map((tr) =>
+		Array.from(tr.children)
+			.filter((cell) => cell.nodeName === "TD" || cell.nodeName === "TH")
+			.map((cell) => turndown.turndown(cell.innerHTML).replace(/\s*\n+\s*/g, " ").replace(/\|/g, "\\|").trim()),
+	);
+	if (cells.length === 0) return "";
+	const width = Math.max(...cells.map((row) => row.length));
+	const line = (row: string[]) => `| ${Array.from({ length: width }, (_, i) => row[i] ?? "").join(" | ")} |`;
+	return [line(cells[0]), line(Array(width).fill("---")), ...cells.slice(1).map(line)].join("\n");
+}
+
 export function htmlToMarkdown(html: string | HTMLElement | Document | DocumentFragment) {
 	return turndown.turndown(html as any);
 }
@@ -72,8 +101,9 @@ export function sanitizeHTMLToDom(html: string) {
 	return tpl.content;
 }
 
+// The app language, "en" unless one was chosen; never the OS locale.
 export function getLanguage() {
-	return window.localStorage.getItem("language") || navigator.language.split("-")[0] || "en";
+	return window.localStorage.getItem("language") || "en";
 }
 
 const isMac = process.platform === "darwin";
@@ -93,7 +123,6 @@ export const Platform = {
 	resourcePathPrefix: "file:///",
 };
 
-// requestUrl runs from Node so plugins are not limited by CORS, as in Obsidian.
 export interface RequestUrlParam {
 	url: string;
 	method?: string;
@@ -103,33 +132,81 @@ export interface RequestUrlParam {
 	throw?: boolean;
 }
 
-export function requestUrl(request: RequestUrlParam | string) {
+export interface RequestUrlResponse {
+	status: number;
+	headers: Record<string, string>;
+	arrayBuffer: ArrayBuffer;
+	json: any;
+	text: string;
+}
+
+export interface RequestUrlResponsePromise extends Promise<RequestUrlResponse> {
+	arrayBuffer: Promise<ArrayBuffer>;
+	json: Promise<any>;
+	text: Promise<string>;
+}
+
+// What the main process returns for one request: the response, with header
+// names lower-cased, or why it could not be made.
+export type RawResponse = { status: number; headers: Record<string, string>; body: ArrayBuffer } | { error: string };
+
+function responseOf(raw: { status: number; headers: Record<string, string>; body: ArrayBuffer }): RequestUrlResponse {
+	let text: string | undefined;
+	let json: { value: any } | undefined;
+	return {
+		status: raw.status,
+		headers: raw.headers,
+		arrayBuffer: raw.body,
+		get text() {
+			text ??= new TextDecoder().decode(raw.body);
+			return text;
+		},
+		// Parsed on first read, so a body that is not JSON only throws when used.
+		get json() {
+			json ??= { value: JSON.parse(this.text) };
+			return json.value;
+		},
+	};
+}
+
+// Turns the main process's answer into the response, or into the rejection a
+// status of 400 or more causes unless `throw: false`. The error carries the
+// response's fields; reading them never parses the body.
+export function settleRequest(req: RequestUrlParam, raw: RawResponse): RequestUrlResponse {
+	if ("error" in raw) throw new Error(raw.error);
+	const response = responseOf(raw);
+	if (response.status < 400 || req.throw === false) return response;
+	const err = new Error(`Request failed, status ${response.status}`);
+	for (const key of ["status", "headers", "arrayBuffer", "text", "json"] as const) {
+		Object.defineProperty(err, key, { get: () => response[key], enumerable: true });
+	}
+	throw err;
+}
+
+// Like Obsidian, requests leave the browser: the main process makes them with
+// Node's http and https (main/ipc.ts), so headers such as User-Agent or Cookie
+// go out as given and no CORS rules apply.
+export function requestUrl(request: RequestUrlParam | string): RequestUrlResponsePromise {
 	const req = typeof request === "string" ? { url: request } : request;
 	const promise = (async () => {
-		const headers = { ...req.headers };
-		if (req.contentType) headers["content-type"] = req.contentType;
-		const res = await fetch(req.url, { method: req.method ?? "GET", headers, body: req.body as any });
-		const arrayBuffer = await res.arrayBuffer();
-		const text = new TextDecoder().decode(arrayBuffer);
-		const response = {
-			status: res.status,
-			headers: Object.fromEntries(res.headers.entries()),
-			arrayBuffer,
-			text,
-			get json() {
-				return JSON.parse(text);
-			},
+		const { ipcRenderer } = require("electron");
+		const params: RequestParams = {
+			url: req.url,
+			method: req.method ?? "GET",
+			headers: req.headers ?? {},
+			contentType: req.contentType,
+			body: req.body,
 		};
-		if (res.status >= 400 && req.throw !== false) {
-			throw Object.assign(new Error(`Request failed, status ${res.status}`), response);
-		}
-		return response;
+		const raw: RawResponse = await ipcRenderer.invoke("justnotes:request-url", params);
+		return settleRequest(req, raw);
 	})();
-	return Object.assign(promise, {
-		arrayBuffer: promise.then((r) => r.arrayBuffer),
-		text: promise.then((r) => r.text),
-		json: promise.then((r) => r.json),
-	});
+	// The shortcuts are made on first access, so a failed request the caller
+	// awaits directly does not also reject three unwatched promises.
+	return Object.defineProperties(promise, {
+		arrayBuffer: { get: () => promise.then((r) => r.arrayBuffer) },
+		json: { get: () => promise.then((r) => r.json) },
+		text: { get: () => promise.then((r) => r.text) },
+	}) as RequestUrlResponsePromise;
 }
 
 export async function request(req: RequestUrlParam | string) {
@@ -180,6 +257,11 @@ export function prepareSimpleSearch(query: string) {
 	};
 }
 
+// The deprecated prepared query older plugins pass to fuzzySearch.
+export function prepareQuery(query: string) {
+	return { query, tokens: query.split(/\s+/).filter(Boolean), fuzzy: query.toLowerCase().split("") };
+}
+
 export function fuzzySearch(q: { query: string }, text: string) {
 	return prepareFuzzySearch(q.query)(text);
 }
@@ -188,11 +270,13 @@ export function sortSearchResults(results: { match: SearchResult }[]) {
 	results.sort((a, b) => b.match.score - a.match.score);
 }
 
+// `offset` is added to every match position, so a match against a longer
+// string (a path) can highlight a part of it (the basename).
 export function renderMatches(el: HTMLElement | DocumentFragment, text: string, matches: [number, number][] | null, offset = 0) {
 	let pos = 0;
 	for (const [s, e] of matches ?? []) {
-		const start = s - offset;
-		const end = e - offset;
+		const start = s + offset;
+		const end = e + offset;
 		if (end <= 0 || start >= text.length) continue;
 		if (start > pos) el.appendText(text.slice(pos, start));
 		el.createSpan({ cls: "suggestion-highlight", text: text.slice(Math.max(start, pos), end) });
