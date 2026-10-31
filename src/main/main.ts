@@ -1,6 +1,8 @@
+import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell, type WebContents } from "electron";
+import { enclosingVault } from "../cli/vaults";
 import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
@@ -277,12 +279,52 @@ function openVault(vault: string) {
 	return win;
 }
 
+// Markdown files opened from the system: Finder's double-click and Open With
+// arrive as open-file events, at launch before the app is ready; Windows and
+// Linux pass them as arguments. Those that come before the first windows
+// open wait in launchFiles.
+const isMarkdown = (file: string) => /\.(md|markdown)$/i.test(file);
+const launchFiles = process.argv.slice(1).filter((arg) => isMarkdown(arg) && fs.statSync(arg, { throwIfNoEntry: false })?.isFile());
+let started = false;
+app.on("open-file", (evt, file) => {
+	evt.preventDefault();
+	if (started) void openFile(file);
+	else launchFiles.push(file);
+});
+
+// A note opens in the vault that holds it: a vault opened before, else the
+// nearest folder above with .obsidian, else the note's own folder, and then
+// as obsidian://open?path= opens it. A vault not opened before is confirmed
+// first, because its window runs the vault's community plugins; once
+// confirmed, links may open it as well.
+async function openFile(file: string) {
+	file = path.resolve(file);
+	const known = vaultOf(file, knownVaults());
+	const vault = known ?? enclosingVault(path.dirname(file)) ?? path.dirname(file);
+	if (!known) {
+		const { response } = await dialog.showMessageBox({
+			type: "question",
+			buttons: ["Open", "Cancel"],
+			defaultId: 0,
+			cancelId: 1,
+			message: `Open "${path.basename(vault)}" as a vault?`,
+			detail: `${file} is in no vault justnotes has opened. Opening the folder ${vault} runs the community plugins it has enabled.`,
+		});
+		if (response !== 0) return;
+		rememberVault(vault);
+	}
+	sendObsidianUrl(`obsidian://open?path=${encodeURIComponent(file)}`, openVault(vault).webContents);
+}
+
 // The first vaults come from `--vault <path>` (repeatable: `justnotes
-// restart` reopens every vault window); without one the user picks a folder.
-// Either way the user chose them, so links may open them from now on.
+// restart` reopens every vault window) and from the Markdown files the app
+// was opened with; without either the user picks a folder. The user chose
+// them, so links may open them from now on.
 async function openFirstVaults() {
 	let vaults = process.argv.flatMap((arg, i, all) => (all[i - 1] === "--vault" ? [arg] : []));
-	if (!vaults.length) {
+	const files = launchFiles.splice(0);
+	started = true;
+	if (!vaults.length && !files.length) {
 		const picked = await dialog.showOpenDialog({ properties: ["openDirectory"], title: "Open vault" });
 		if (picked.canceled || picked.filePaths.length === 0) return app.quit();
 		vaults = [picked.filePaths[0]];
@@ -292,6 +334,8 @@ async function openFirstVaults() {
 		rememberVault(resolved);
 		openVault(resolved);
 	}
+	for (const file of files) await openFile(file);
+	if (!BrowserWindow.getAllWindows().length) app.quit();
 }
 
 remoteMain.initialize();
