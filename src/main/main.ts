@@ -10,6 +10,7 @@ import { isLaunchData, isObsidianUrl, type LaunchData, type LaunchRequest, launc
 import { droppedSchemes, sameAppPage } from "./link-policy";
 import { microphoneRequest, systemMicrophoneAccess } from "./media";
 import { isPopoutOpen } from "./popout";
+import { registerPty } from "./pty";
 import { handleSchemes, registerSchemes } from "./protocol";
 import { confirmUnknownVault, registerVaultSwitcher } from "./vault-switcher";
 
@@ -476,6 +477,7 @@ if (primary) {
 	remoteMain.initialize();
 	registerSchemes();
 	registerIpc();
+	registerPty();
 	app.on("second-instance", (_evt, argv, cwd, data) => onSecondInstance(argv, cwd, data));
 	app.whenReady().then(() => {
 		handleSchemes();
