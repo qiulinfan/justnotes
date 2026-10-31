@@ -40,5 +40,6 @@ export function installWordCount(app: App) {
 	app.workspace.on("editor-change", update);
 	app.workspace.on("layout-change", update);
 	document.addEventListener("selectionchange", () => update());
+	app.workspace.on("window-open", (_win: unknown, win: Window) => win.document.addEventListener("selectionchange", () => update()));
 	update();
 }

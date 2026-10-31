@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { type HistoryState, LeafHistory, Tasks } from "../src/api/workspace";
+import { boundsOf, type HistoryState, LeafHistory, Tasks } from "../src/api/workspace";
 
 afterEach(() => mock.restore());
 
@@ -105,5 +105,15 @@ describe("LeafHistory", () => {
 		expect(l.history.forwardHistory).toEqual([]);
 		await l.history.back();
 		expect(l.now()).toBe("a");
+	});
+});
+
+// moveLeafToPopout and openPopoutLeaf take Obsidian's WorkspaceWindowInitData;
+// a size without both dimensions would open a zero-sized window.
+describe("boundsOf", () => {
+	test("position and size carry over; a missing or empty size is left to the default", () => {
+		expect(boundsOf({ x: 10, y: 20, size: { width: 640, height: 480 } })).toEqual({ x: 10, y: 20, width: 640, height: 480 });
+		expect(boundsOf({ size: { width: 0, height: 480 } })).toEqual({});
+		expect(boundsOf(undefined)).toEqual({});
 	});
 });

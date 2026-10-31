@@ -1394,7 +1394,8 @@ function attachHandlers(owner: MarkdownRenderer, el: HTMLElement, sourcePath: ()
 	});
 	owner.registerDomEvent(el, "mouseover", (evt: MouseEvent) => {
 		const a = (evt.target as Element).closest("a.internal-link");
-		if (!a || !el.contains(a) || !handles(evt, a) || (evt.relatedTarget instanceof Node && a.contains(evt.relatedTarget))) return;
+		const from = evt.relatedTarget as Node | null;
+		if (!a || !el.contains(a) || !handles(evt, a) || (from?.nodeType && a.contains(from))) return;
 		handledEvents.add(evt);
 		owner.onInternalLinkMouseover(evt, a as HTMLElement, a.getAttribute("data-href") ?? "", sourcePath());
 	});
@@ -1520,10 +1521,11 @@ export class MarkdownRenderer extends MarkdownRenderChild {
 
 	onInternalLinkContextMenu(evt: MouseEvent, _target: HTMLElement, linktext: string, sourcePath: string) {
 		evt.preventDefault();
-		const open = (newLeaf: "tab" | "split") => this.app.workspace.openLinkText(linktext, sourcePath, newLeaf);
+		const open = (newLeaf: "tab" | "split" | "window") => this.app.workspace.openLinkText(linktext, sourcePath, newLeaf);
 		const menu = new Menu();
 		menu.addItem((i) => i.setTitle("Open in new tab").setIcon("lucide-file-plus").setSection("open").onClick(() => open("tab")));
 		menu.addItem((i) => i.setTitle("Open to the right").setIcon("lucide-separator-vertical").setSection("open").onClick(() => open("split")));
+		menu.addItem((i) => i.setTitle("Open in new window").setIcon("lucide-picture-in-picture-2").setSection("open").onClick(() => open("window")));
 		const file = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(linktext), sourcePath);
 		if (file) this.app.workspace.trigger("file-menu", menu, file, "link-context-menu");
 		menu.showAtMouseEvent(evt);

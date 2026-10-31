@@ -6,10 +6,18 @@
 //   bun scripts/cdp.ts selectall                select all in the focused field or editor (Cmd+A / Ctrl+A)
 //   bun scripts/cdp.ts shot out.png             screenshot
 //   bun scripts/cdp.ts reload                   reload and print uncaught errors for a few seconds
+//
+// It attaches to the first vault page (popout windows are page targets of
+// their own, at about:blank). CDP_POPOUT=<n> attaches to the n-th popout
+// window instead (0 is the newest), for key events and screenshots there;
+// `eval` in the vault page reaches popouts' documents too.
 const [mode, arg] = process.argv.slice(2);
 const port = process.env.CDP_PORT ?? "9333";
-const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-const ws = new WebSocket(targets.find((t: any) => t.type === "page").webSocketDebuggerUrl);
+const targets: any[] = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).filter((t: any) => t.type === "page");
+const popout = process.env.CDP_POPOUT;
+const target = popout === undefined ? targets.find((t) => t.url !== "about:blank") : targets.filter((t) => t.url === "about:blank")[Number(popout)];
+if (!target) throw new Error(popout === undefined ? "No vault page" : `No popout window ${popout}`);
+const ws = new WebSocket(target.webSocketDebuggerUrl);
 let id = 0;
 const pending = new Map<number, (v: any) => void>();
 ws.onmessage = (m) => {

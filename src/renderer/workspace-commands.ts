@@ -36,6 +36,14 @@ export function registerWorkspaceCommands(app: App) {
 	);
 	command("workspace:split-vertical", "Split right", undefined, (leaf, act) => when(true, act, () => workspace.duplicateLeaf(leaf, "split", "vertical")));
 	command("workspace:split-horizontal", "Split down", undefined, (leaf, act) => when(true, act, () => workspace.duplicateLeaf(leaf, "split", "horizontal")));
+	// A tab in a sidebar has no window of its own to go to, nor has the only tab
+	// of a popout.
+	command("workspace:open-in-new-window", "Open current tab in new window", undefined, (leaf, act) =>
+		when(workspace.inMainArea(leaf), act, () => workspace.duplicateLeaf(leaf, "window")),
+	);
+	command("workspace:move-to-new-window", "Move current tab to new window", undefined, (leaf, act) =>
+		when(workspace.inMainArea(leaf) && !workspace.isOnlyLeafOfWindow(leaf), act, () => workspace.moveLeafToPopout(leaf)),
+	);
 	command("workspace:toggle-pin", "Toggle pin", undefined, (leaf, act) => when(true, act, () => leaf.togglePinned()));
 	command("workspace:close-others", "Close all other tabs", undefined, (leaf, act) =>
 		when(closable(leaf).length > 0, act, () => {

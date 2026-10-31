@@ -93,7 +93,11 @@ function handleWindowClose(app: App) {
 		}
 	});
 	ipcRenderer.send("justnotes:close-handler");
-	window.addEventListener("beforeunload", () => app.saveLayoutState());
+	// Popout windows close with the page, after the layout recorded them.
+	window.addEventListener("beforeunload", () => {
+		app.saveLayoutState();
+		app.workspace.closePopoutsForUnload();
+	});
 }
 
 async function boot() {

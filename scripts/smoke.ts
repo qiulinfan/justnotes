@@ -38,7 +38,8 @@ async function pageSocket() {
 	for (let i = 0; i < 60; i++) {
 		try {
 			const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-			const page = targets.find((t: any) => t.type === "page");
+			// The vault page, not a popout window restored with the layout.
+			const page = targets.find((t: any) => t.type === "page" && t.url !== "about:blank");
 			if (page) return page.webSocketDebuggerUrl as string;
 		} catch {}
 		await Bun.sleep(500);
