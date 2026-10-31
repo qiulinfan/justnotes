@@ -1,7 +1,10 @@
 import * as cmCommands from "@codemirror/commands";
-import { foldAll, foldCode, unfoldAll } from "@codemirror/language";
-import { EditorSelection, StateEffect, StateField, type Text } from "@codemirror/state";
+import { foldAll, toggleFold, unfoldAll } from "@codemirror/language";
+import { type ChangeSpec, EditorSelection, type EditorState, StateEffect, StateField, type Text, type TransactionSpec } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { type ClickableToken, clickableTokenAt } from "./live-preview";
+
+export { livePreviewState } from "./live-preview";
 
 export interface EditorPosition {
 	line: number;
@@ -13,10 +16,50 @@ export interface EditorRange {
 	to: EditorPosition;
 }
 
+export interface EditorRangeOrCaret {
+	from: EditorPosition;
+	to?: EditorPosition;
+}
+
 export interface EditorSelectionRange {
 	anchor: EditorPosition;
 	head: EditorPosition;
 }
+
+export interface EditorSelectionOrCaret {
+	anchor: EditorPosition;
+	head?: EditorPosition;
+}
+
+export interface EditorChange extends EditorRangeOrCaret {
+	text: string;
+}
+
+export interface EditorTransaction {
+	replaceSelection?: string;
+	changes?: EditorChange[];
+	selections?: EditorRangeOrCaret[];
+	selection?: EditorRangeOrCaret;
+}
+
+export type EditorCommandName =
+	| "goUp"
+	| "goDown"
+	| "goLeft"
+	| "goRight"
+	| "goStart"
+	| "goEnd"
+	| "goWordLeft"
+	| "goWordRight"
+	| "indentMore"
+	| "indentLess"
+	| "newlineAndIndent"
+	| "swapLineUp"
+	| "swapLineDown"
+	| "deleteLine"
+	| "toggleFold"
+	| "foldAll"
+	| "unfoldAll";
 
 // State fields Obsidian exposes so CM6 extensions can find their editor.
 const setInfo = StateEffect.define<any>();
@@ -31,6 +74,7 @@ export const editorEditorField = StateField.define<EditorView>({
 	create: () => null as unknown as EditorView,
 	update: (v, tr) => tr.effects.find((e) => e.is(setView))?.value ?? v,
 });
+// justnotes has only Live Preview, so this never turns false.
 export const editorLivePreviewField = StateField.define<boolean>({
 	create: () => true,
 	update: (v) => v,
@@ -40,17 +84,69 @@ export function bindEditorFields(view: EditorView, info: any) {
 	view.dispatch({ effects: [setView.of(view), setInfo.of(info)] });
 }
 
+// CodeMirror 5's clipPos, which Obsidian's Editor keeps: a line before the
+// first is the document start, a line past the last is the document end, and
+// ch is clamped to the line (a missing ch means the line end).
 export function posToOffset(doc: Text, pos: EditorPosition) {
-	const line = doc.line(Math.min(Math.max(pos.line, 0), doc.lines - 1) + 1);
-	return Math.min(line.from + Math.max(pos.ch, 0), line.to);
+	if (!(pos.line >= 0)) return 0;
+	if (pos.line >= doc.lines) return doc.length;
+	const line = doc.line(Math.floor(pos.line) + 1);
+	if (pos.ch < 0) return line.from;
+	return pos.ch <= line.length ? line.from + pos.ch : line.to;
 }
 
 export function offsetToPos(doc: Text, offset: number): EditorPosition {
-	const line = doc.lineAt(Math.min(Math.max(offset, 0), doc.length));
-	return { line: line.number - 1, ch: offset - line.from };
+	const clamped = offset > 0 ? Math.min(offset, doc.length) : 0;
+	const line = doc.lineAt(clamped);
+	return { line: line.number - 1, ch: clamped - line.from };
 }
 
-const EXEC: Record<string, (view: EditorView) => boolean> = {
+// One CodeMirror transaction for an EditorTransaction: `changes` and the
+// replaced selection are positions in the current document, the new
+// selection is read in the document those changes produce.
+export function transactionSpec(state: EditorState, tx: EditorTransaction): TransactionSpec {
+	const doc = state.doc;
+	const specs: ChangeSpec[] = [];
+	for (const c of tx.changes ?? []) {
+		const a = posToOffset(doc, c.from);
+		const b = c.to ? posToOffset(doc, c.to) : a;
+		specs.push({ from: Math.min(a, b), to: Math.max(a, b), insert: c.text });
+	}
+	const ranges = state.selection.ranges;
+	if (tx.replaceSelection !== undefined) {
+		for (const r of ranges) specs.push({ from: r.from, to: r.to, insert: tx.replaceSelection });
+	}
+	const changes = state.changes(specs);
+	const wanted = tx.selections?.length ? tx.selections : tx.selection ? [tx.selection] : null;
+	let selection: EditorSelection | undefined;
+	if (wanted) {
+		const next = changes.apply(doc);
+		selection = EditorSelection.create(wanted.map((s) => EditorSelection.range(posToOffset(next, s.from), posToOffset(next, s.to ?? s.from))));
+	} else if (tx.replaceSelection !== undefined) {
+		selection = EditorSelection.create(
+			ranges.map((r) => EditorSelection.cursor(changes.mapPos(r.to, 1))),
+			state.selection.mainIndex,
+		);
+	}
+	return { changes, selection, scrollIntoView: !!selection };
+}
+
+// The 0-based numbers of the lines the selections cover. A range that ends
+// at the start of a line does not cover that line.
+export function selectedLines(state: EditorState) {
+	const lines = new Set<number>();
+	for (const r of state.selection.ranges) {
+		const first = state.doc.lineAt(r.from).number;
+		const last = state.doc.lineAt(r.to).number;
+		for (let n = first; n <= last; n++) {
+			if (n === last && n > first && r.to === state.doc.line(n).from) break;
+			lines.add(n - 1);
+		}
+	}
+	return [...lines].sort((a, b) => a - b);
+}
+
+const EXEC: Record<EditorCommandName, (view: EditorView) => boolean> = {
 	goUp: cmCommands.cursorLineUp,
 	goDown: cmCommands.cursorLineDown,
 	goLeft: cmCommands.cursorCharLeft,
@@ -65,13 +161,13 @@ const EXEC: Record<string, (view: EditorView) => boolean> = {
 	swapLineUp: cmCommands.moveLineUp,
 	swapLineDown: cmCommands.moveLineDown,
 	deleteLine: cmCommands.deleteLine,
-	toggleFold: foldCode,
+	toggleFold,
 	foldAll,
 	unfoldAll,
 };
 
 // Obsidian's Editor: a CodeMirror 5-style API over a CM6 view. Lines and
-// columns are 0-based.
+// columns are 0-based; every call is one CodeMirror transaction.
 export class Editor {
 	cm: EditorView;
 
@@ -105,8 +201,8 @@ export class Editor {
 	}
 
 	setLine(n: number, text: string) {
-		const line = this.#doc.line(n + 1);
-		this.cm.dispatch({ changes: { from: line.from, to: line.to, insert: text } });
+		if (n < 0 || n >= this.#doc.lines) return;
+		this.replaceRange(text, { line: n, ch: 0 }, { line: n, ch: Number.POSITIVE_INFINITY });
 	}
 
 	lineCount() {
@@ -133,7 +229,7 @@ export class Editor {
 	}
 
 	replaceSelection(replacement: string, origin?: string) {
-		this.cm.dispatch(this.cm.state.replaceSelection(replacement), { userEvent: origin });
+		this.transaction({ replaceSelection: replacement }, origin);
 	}
 
 	replaceRange(replacement: string, from: EditorPosition, to?: EditorPosition, origin?: string) {
@@ -168,11 +264,14 @@ export class Editor {
 		this.cm.dispatch({ selection: { anchor: a, head: head ? this.posToOffset(head) : a }, scrollIntoView: true });
 	}
 
-	setSelections(ranges: EditorSelectionRange[], main?: number) {
+	// Like CodeMirror 5, the main selection defaults to the current main
+	// index, clamped to the new ranges.
+	setSelections(ranges: EditorSelectionOrCaret[], main?: number) {
 		if (ranges.length === 0) return;
+		const index = Math.min(Math.max(main ?? this.cm.state.selection.mainIndex, 0), ranges.length - 1);
 		const sel = EditorSelection.create(
 			ranges.map((r) => EditorSelection.range(this.posToOffset(r.anchor), this.posToOffset(r.head ?? r.anchor))),
-			main ?? 0,
+			index,
 		);
 		this.cm.dispatch({ selection: sel, scrollIntoView: true });
 	}
@@ -191,7 +290,7 @@ export class Editor {
 
 	getScrollInfo() {
 		const s = this.cm.scrollDOM;
-		return { top: s.scrollTop, left: s.scrollLeft, width: s.clientWidth, height: s.clientHeight, clientHeight: s.clientHeight, clientWidth: s.clientWidth };
+		return { top: s.scrollTop, left: s.scrollLeft, width: s.scrollWidth, height: s.scrollHeight, clientHeight: s.clientHeight, clientWidth: s.clientWidth };
 	}
 
 	scrollTo(x?: number | null, y?: number | null) {
@@ -200,9 +299,8 @@ export class Editor {
 	}
 
 	scrollIntoView(range: EditorRange, center?: boolean) {
-		this.cm.dispatch({
-			effects: EditorView.scrollIntoView(this.posToOffset(range.from), { y: center ? "center" : "nearest" }),
-		});
+		const target = EditorSelection.range(this.posToOffset(range.from), this.posToOffset(range.to));
+		this.cm.dispatch({ effects: EditorView.scrollIntoView(target, { y: center ? "center" : "nearest" }) });
 	}
 
 	undo() {
@@ -213,29 +311,13 @@ export class Editor {
 		cmCommands.redo(this.cm);
 	}
 
-	exec(command: string) {
+	exec(command: EditorCommandName) {
 		EXEC[command]?.(this.cm);
 	}
 
-	transaction(tx: any, origin?: string) {
-		const spec: any = { userEvent: origin };
-		if (tx.changes) {
-			spec.changes = tx.changes.map((c: any) => ({
-				from: this.posToOffset(c.from),
-				to: c.to ? this.posToOffset(c.to) : undefined,
-				insert: c.text,
-			}));
-		}
-		if (tx.replaceSelection !== undefined) {
-			this.cm.dispatch({ ...this.cm.state.replaceSelection(tx.replaceSelection), userEvent: spec.userEvent });
-		}
-		const sels = tx.selections ?? (tx.selection ? [tx.selection] : null);
-		if (sels) {
-			spec.selection = EditorSelection.create(
-				sels.map((s: any) => EditorSelection.range(this.posToOffset(s.from), this.posToOffset(s.to ?? s.from))),
-			);
-		}
-		if (spec.changes || spec.selection) this.cm.dispatch(spec);
+	transaction(tx: EditorTransaction, origin?: string) {
+		const spec = transactionSpec(this.cm.state, tx);
+		this.cm.dispatch(origin ? { ...spec, userEvent: origin } : spec);
 	}
 
 	wordAt(pos: EditorPosition): EditorRange | null {
@@ -251,17 +333,43 @@ export class Editor {
 		return offsetToPos(this.#doc, offset);
 	}
 
-	processLines<T>(read: (line: number, lineText: string) => T | null, write: (line: number, lineText: string, value: T | null) => any, ignoreEmpty = false) {
-		const changes: any[] = [];
-		for (let i = 0; i < this.#doc.lines; i++) {
-			const line = this.#doc.line(i + 1);
-			if (ignoreEmpty && !line.text) continue;
-			const value = read(i, line.text);
-			const change = write(i, line.text, value);
-			if (change) {
-				changes.push({ from: this.posToOffset(change.from), to: change.to ? this.posToOffset(change.to) : undefined, insert: change.text });
-			}
-		}
-		if (changes.length) this.cm.dispatch({ changes });
+	processLines<T>(
+		read: (line: number, lineText: string) => T | null,
+		write: (line: number, lineText: string, value: T | null) => EditorChange | void,
+		ignoreEmpty = false,
+	) {
+		let lines = selectedLines(this.cm.state);
+		if (ignoreEmpty && lines.length > 1) lines = lines.filter((n) => this.getLine(n) !== "");
+		const values = lines.map((n) => read(n, this.getLine(n)));
+		const changes: EditorChange[] = [];
+		lines.forEach((n, i) => {
+			const change = write(n, this.getLine(n), values[i]);
+			if (change) changes.push(change);
+		});
+		if (changes.length) this.transaction({ changes });
+	}
+
+	// Private Obsidian helpers some plugins call.
+	getClickableTokenAt(pos: EditorPosition): { type: ClickableToken["type"]; text: string; start: EditorPosition; end: EditorPosition } | null {
+		const token = clickableTokenAt(this.cm.state, this.posToOffset(pos));
+		return token ? { type: token.type, text: token.text, start: this.offsetToPos(token.from), end: this.offsetToPos(token.to) } : null;
+	}
+
+	coordsAtPos(pos: EditorPosition, local = false) {
+		const rect = this.cm.coordsAtPos(this.posToOffset(pos));
+		if (!rect || !local) return rect;
+		const box = this.cm.scrollDOM.getBoundingClientRect();
+		const dx = box.left - this.cm.scrollDOM.scrollLeft;
+		const dy = box.top - this.cm.scrollDOM.scrollTop;
+		return { left: rect.left - dx, right: rect.right - dx, top: rect.top - dy, bottom: rect.bottom - dy };
+	}
+
+	posAtCoords(left: number, top: number): EditorPosition | null {
+		const offset = this.cm.posAtCoords({ x: left, y: top }, false);
+		return this.offsetToPos(offset);
+	}
+
+	posAtMouse(evt: MouseEvent): EditorPosition | null {
+		return this.posAtCoords(evt.clientX, evt.clientY);
 	}
 }
