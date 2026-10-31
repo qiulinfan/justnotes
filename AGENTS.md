@@ -552,7 +552,9 @@ plain style. Development notes belong in this file.
   closing the window closes its leaves. The layout stores windows under
   `floating` (`type: "window"`, `x`, `y`, `width`, `height`) and reopens them;
   on unload the page saves the layout first, then closes popouts without
-  saving again. New tabs, splits and `getLeaf(false)` follow the active leaf
+  saving again. While the app quits, main keeps popouts open until their
+  page goes (Electron closes them first otherwise), so the quit flush saves
+  them in the layout. New tabs, splits and `getLeaf(false)` follow the active leaf
   into its popout.
 - Cross-window rules: a node keeps the realm it was made in when it moves
   (`constructorWin`), so DOM `instanceof` checks in host code use

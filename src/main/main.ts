@@ -183,6 +183,10 @@ function setApplicationMenu() {
 	);
 }
 
+// Set once the app quits (the menu, Cmd+Q, `justnotes quit` or `restart`).
+let quitting = false;
+app.on("before-quit", () => (quitting = true));
+
 // A popout window is a child window of the vault page, in the same renderer:
 // the page's own code builds and drives its document, as in Obsidian. Its links
 // follow the same policy as the page's, it never navigates away from its blank
@@ -204,6 +208,13 @@ function setupPopout(child: BrowserWindow, opener: WebContents) {
 	const onNavigation = (details: { isMainFrame: boolean; isSameDocument: boolean }) => {
 		if (details.isMainFrame && !details.isSameDocument) close();
 	};
+	// Quitting closes every window at once, popouts first on macOS (Electron
+	// closes the newest first), while the vault window waits for its
+	// before-close flush (lifecycle.ts): the page would drop their leaves and
+	// save a layout without them. They stay until the page goes.
+	child.on("close", (evt) => {
+		if (quitting && !opener.isDestroyed()) evt.preventDefault();
+	});
 	opener.once("destroyed", close);
 	opener.on("did-start-navigation", onNavigation);
 	child.once("closed", () => {
