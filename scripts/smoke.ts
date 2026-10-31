@@ -1,7 +1,8 @@
 // Launch an isolated justnotes instance, report boot errors and loaded plugins,
 // then quit it:
 //   bun scripts/smoke.ts --vault <copy> [--port 9400] [--profile <dir>] [--shot out.png] [--keep] [-- <electron flag> ...]
-// Prints JSON: { ok, plugins, failedPlugins, errors, files }. With --keep the
+// Prints JSON: { ok, plugins, failedPlugins, replacedPlugins, errors, files }
+// (replaced: community plugins a core plugin of justnotes' own stands in for). With --keep the
 // instance stays running for further `CDP_PORT=<port> bun scripts/cdp.ts` calls;
 // stop it with `pkill -f 'remote-debugging-port=<port>'`. Flags after `--` go
 // to Electron, e.g. `-- --use-fake-device-for-media-stream
@@ -86,10 +87,10 @@ for (let i = 0; i < 60 && !ready; i++) {
 await Bun.sleep(1000);
 const state = ready
 	? await evaluate(
-			"(async () => { let wanted = []; try { wanted = JSON.parse(await app.vault.adapter.read(app.vault.configDir + '/community-plugins.json')); } catch {} return JSON.stringify({ plugins: Object.keys(app.plugins.plugins), wanted, files: app.vault.getFiles().length }); })()",
+			"(async () => { let wanted = []; try { wanted = JSON.parse(await app.vault.adapter.read(app.vault.configDir + '/community-plugins.json')); } catch {} const replaced = wanted.filter((id) => app.plugins.replacedBy(id)); return JSON.stringify({ plugins: Object.keys(app.plugins.plugins), wanted, replaced, files: app.vault.getFiles().length }); })()",
 		)
 	: null;
-const info = state ? JSON.parse(state) : { plugins: [], wanted: [], files: 0 };
+const info = state ? JSON.parse(state) : { plugins: [], wanted: [], replaced: [], files: 0 };
 if (shot) {
 	const r = await send("Page.captureScreenshot", { format: "png" });
 	await Bun.write(shot, Buffer.from(r.result.data, "base64"));
@@ -100,7 +101,8 @@ console.log(
 			ok: ready && errors.length === 0,
 			ready,
 			plugins: info.plugins,
-			failedPlugins: info.wanted.filter((p: string) => !info.plugins.includes(p)),
+			failedPlugins: info.wanted.filter((p: string) => !info.plugins.includes(p) && !info.replaced.includes(p)),
+			replacedPlugins: info.replaced,
 			files: info.files,
 			errors,
 		},
