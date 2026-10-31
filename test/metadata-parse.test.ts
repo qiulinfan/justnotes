@@ -143,6 +143,35 @@ describe("parseMetadata links and tags", () => {
 		expect(c.tags!.map((t) => t.tag)).toEqual(["#e"]);
 	});
 
+	// A Jupyter or shell %% line in such a fence once opened a comment that
+	// hid the rest of the block from the index, as the reading view did (6f22dce).
+	test("fences in callouts, list items and quotes nested in items hide their links and keep their %%", () => {
+		const text = [
+			"> [!note]",
+			"> ```bash",
+			"> %%bash [[c1]] #c1",
+			"> ```",
+			"> [[q1]]",
+			"",
+			"- item",
+			"\t```py",
+			"\t%%timeit [[c2]]",
+			"\t```",
+			"- ```m",
+			"  %% cell [[c3]]",
+			"  ```",
+			"- quoted",
+			"  > ```sh",
+			"  > %% [[c4]]",
+			"  > ```",
+			"  > [[q2]] #q2",
+			"- [[q3]]",
+		].join("\n");
+		const c = parseMetadata(text);
+		expect(c.links!.map((l) => l.link)).toEqual(["q1", "q2", "q3"]);
+		expect(c.tags!.map((t) => t.tag)).toEqual(["#q2"]);
+	});
+
 	test("tags take letters of any script and stop at other punctuation", () => {
 		const c = parseMetadata("#标签，然后 #über/sub-tag_1 #2024 x#notatag #a.b (#paren)");
 		expect(c.tags!.map((t) => t.tag)).toEqual(["#标签", "#über/sub-tag_1", "#a"]);
