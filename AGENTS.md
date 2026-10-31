@@ -279,7 +279,10 @@ plain style. Development notes belong in this file.
 - Host overlays sit on the same `--layer-*` scale as Obsidian's (status bar,
   popover, modal, notice, menu and suggestion, tooltip). Each `.cm-editor`
   isolates its stacking, so CodeMirror's own panel (300) and tooltip (500)
-  z-indexes stay under host overlays.
+  z-indexes stay under host overlays. A leaf showing a CodeMirror tooltip goes
+  above the other leaves (`z-index: 1`), so a tooltip that reaches past its
+  pane (tinymist's completion docs and formula hovers beside its preview pane)
+  is not covered by the panes after it.
 - CodeMirror's base theme is the first `<style>` in `<head>`, and its light
   rules use two classes (`.ͼ2 .cm-panels`); justnotes never sets
   `EditorView.darkTheme`. Panel colours (the find panel included) are set by
