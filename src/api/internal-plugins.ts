@@ -43,7 +43,7 @@ const CORE_PLUGINS = [
 // Anything else stays disabled, so plugins that probe it take their fallbacks:
 // that includes switcher and command-palette, which justnotes has as commands
 // but whose instances would have none of Obsidian's members.
-const IMPLEMENTED = new Set(["file-explorer", "global-search", "backlink", "outgoing-link", "outline", "daily-notes", "templates", "word-count"]);
+const IMPLEMENTED = new Set(["file-explorer", "global-search", "graph", "backlink", "outgoing-link", "outline", "daily-notes", "templates", "word-count"]);
 
 export interface InternalPluginInstance {
 	id: string;

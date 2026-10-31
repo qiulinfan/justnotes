@@ -1,0 +1,185 @@
+/* Graph view and local graph */
+.workspace-leaf-content .view-content.graph-view-container {
+	position: relative;
+	padding: 0;
+	overflow: hidden;
+}
+
+.graph-canvas {
+	position: absolute;
+	inset: 0;
+	display: block;
+	touch-action: none;
+}
+
+.graph-canvas.is-hovering {
+	cursor: pointer;
+}
+
+.graph-canvas.is-dragging {
+	cursor: grabbing;
+}
+
+/* Probes the canvas reads its colours from; themes restyle them. */
+.graph-view.color-fill {
+	color: var(--graph-node);
+}
+
+.graph-view.color-fill-focused {
+	color: var(--graph-node-focused);
+}
+
+.graph-view.color-fill-tag {
+	color: var(--graph-node-tag);
+}
+
+.graph-view.color-fill-attachment {
+	color: var(--graph-node-attachment);
+}
+
+.graph-view.color-fill-unresolved {
+	color: var(--graph-node-unresolved);
+}
+
+.graph-view.color-arrow {
+	color: var(--text-normal);
+	opacity: 0.5;
+}
+
+.graph-view.color-circle {
+	color: var(--text-normal);
+}
+
+.graph-view.color-line {
+	color: var(--graph-line);
+}
+
+.graph-view.color-text {
+	color: var(--graph-text);
+}
+
+.graph-view.color-fill-highlight,
+.graph-view.color-line-highlight {
+	color: var(--interactive-accent);
+}
+
+.graph-empty {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-faint);
+	pointer-events: none;
+}
+
+.graph-controls {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	width: var(--graph-controls-width);
+	max-height: calc(100% - 16px);
+	overflow-y: auto;
+	padding: 28px 8px 8px;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+	font-size: var(--font-ui-small);
+	z-index: 2;
+}
+
+.graph-controls.is-close {
+	width: auto;
+	padding: 0;
+	overflow: visible;
+}
+
+.graph-controls.is-close > :not(.mod-open),
+.graph-controls:not(.is-close) > .mod-open {
+	display: none;
+}
+
+.graph-controls-button {
+	position: absolute;
+	top: 4px;
+	padding: 4px;
+}
+
+.graph-controls-button.mod-close {
+	right: 4px;
+}
+
+.graph-controls-button.mod-reset {
+	right: 30px;
+}
+
+.graph-controls.is-close .graph-controls-button.mod-open {
+	position: static;
+	padding: 6px;
+}
+
+.graph-control-section > .tree-item-self {
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.graph-control-section.is-collapsed > .tree-item-children {
+	display: none;
+}
+
+.graph-control-section > .tree-item-children {
+	margin-left: 0;
+	padding: 0 4px 4px;
+	border-left: none;
+}
+
+.graph-controls .setting-item {
+	gap: 8px;
+	padding: 6px 0;
+	border-top: none;
+}
+
+.graph-controls .setting-item-name {
+	font-size: var(--font-ui-small);
+}
+
+.graph-controls .setting-item.mod-slider {
+	flex-direction: column;
+	align-items: stretch;
+	gap: 2px;
+}
+
+.graph-controls .setting-item.mod-slider .slider {
+	width: 100%;
+}
+
+.graph-controls .mod-search-setting .setting-item-info,
+.graph-controls .graph-color-group .setting-item-info {
+	display: none;
+}
+
+.graph-controls .mod-search-setting .setting-item-control,
+.graph-controls .graph-color-group .setting-item-control {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.graph-controls .mod-search-setting .search-input-container,
+.graph-controls .graph-color-group .search-input-container {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.graph-controls .search-input-container input {
+	width: 100%;
+}
+
+.graph-controls .graph-color-button-container .setting-item-info {
+	display: none;
+}
+
+.graph-controls .graph-color-button-container .setting-item-control {
+	flex: 1 1 auto;
+	justify-content: center;
+}

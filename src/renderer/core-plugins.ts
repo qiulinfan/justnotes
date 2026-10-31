@@ -1,5 +1,6 @@
 import type { App } from "../api/app";
 import { installDailyNotes } from "./daily-notes";
+import { installGraph, registerGraphViews } from "./graph-view";
 import { registerLinkPanes } from "./link-panes";
 import { registerTemplateCommands } from "./templates";
 import { installWordCount } from "./word-count";
@@ -16,6 +17,7 @@ const PANES = [
 // panes back whatever the vault enables.
 export function registerCorePluginViews(app: App) {
 	registerLinkPanes(app);
+	registerGraphViews(app);
 }
 
 // The rest follows core-plugins.json, as in Obsidian: a disabled core plugin
@@ -30,6 +32,7 @@ export function installCorePlugins(app: App) {
 			callback: async () => app.workspace.revealLeaf(await app.workspace.ensureSideLeaf(pane.type, "right", { reveal: true })),
 		});
 	}
+	if (enabled("graph")) installGraph(app);
 	if (enabled("daily-notes")) installDailyNotes(app);
 	if (enabled("templates")) registerTemplateCommands(app);
 	if (enabled("word-count")) installWordCount(app);

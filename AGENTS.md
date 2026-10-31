@@ -71,18 +71,34 @@ plain style. Development notes belong in this file.
   Obsidian. Enabled instances exist only for those `IMPLEMENTED` in
   `internal-plugins.ts`; a disabled one adds no commands, ribbon button or
   pane. Their commands keep Obsidian's ids (`backlink:open`,
-  `outgoing-links:open`, `outline:open`, `daily-notes`,
-  `daily-notes:goto-prev`/`-next`, `insert-template`,
+  `outgoing-links:open`, `outline:open`, `graph:open`, `graph:open-local`,
+  `daily-notes`, `daily-notes:goto-prev`/`-next`, `insert-template`,
   `insert-current-date`/`-time`), so `hotkeys.json` binds them. The panes'
-  views (`backlink`, `outgoing-link`, `outline`) register always, so a saved
-  layout keeps them; they follow the active file. Unlinked mentions are
+  views (`backlink`, `outgoing-link`, `outline`, `graph`, `localgraph`)
+  register always, so a saved layout keeps them; they follow the active file. Unlinked mentions are
   computed only while their section is open, by reading every note
   (`findMentions`: whole words ignoring case, a name next to a Chinese or
   Japanese character counts, links, frontmatter and code blocks skipped).
   Templates insert a template's frontmatter at the top, adding only the
   properties the note lacks. Not there yet: backlinks at the bottom of a note,
-  the outline's search and cursor following, the other core plugins (graph,
-  canvas, note composer, tag pane, file recovery, ...).
+  the outline's search and cursor following, the other core plugins (canvas,
+  note composer, tag pane, file recovery, ...).
+- Graph view (`graph-data.ts` for options, queries and nodes, tested;
+  `graph-renderer.ts` for the canvas; `graph-view.ts` for the views): a
+  d3-force simulation drawn with Canvas 2D, frames only while the layout moves
+  or a hover fades, several simulation steps a frame within a 6 ms budget.
+  Nodes come from `resolvedLinks`/`unresolvedLinks` (unresolved nodes are
+  keyed by link text, tags by `#tag`); the search filter and colour groups
+  use one subset of Obsidian's search syntax (`compileQuery`), reading note
+  texts only for content terms. The global graph's options start from
+  `graph.json` (read only) and changes live in the view state (`options`),
+  as the local graph's do; `scale` is the zoom. Colours come from the
+  `.graph-view.color-*` probe classes and `--graph-*` variables, re-read on
+  `css-change`. The local graph follows `file-open` and centres on its note.
+  The slider-to-d3 mapping (`setForces`) was tuned by eye, not taken from
+  Obsidian. A hidden page runs no `requestAnimationFrame`: frame-time checks
+  over CDP need the test window shown (`showInactive()` on the remote
+  window); the ~560-note courses text copy runs at the display rate.
 - Keyboard: a capture-phase `keydown` listener walks the keymap scope stack
   before CodeMirror sees the key; the active scope follows keyboard focus. The
   root scope has one catch-all handler that runs command hotkeys; plugins may
