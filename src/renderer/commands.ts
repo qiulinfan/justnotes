@@ -46,7 +46,15 @@ export function registerCoreCommands(app: App) {
 		input.focus();
 		input.select();
 	});
-	add("app:reload", "Reload app without saving", [["Mod"], "r"], () => location.reload());
+	// Open views, the layout and plugins' quit tasks are saved first, as when
+	// the window closes.
+	add("app:reload", "Reload app without saving", [["Mod"], "r"], async () => {
+		try {
+			await app.workspace.flushBeforeQuit();
+		} finally {
+			location.reload();
+		}
+	});
 	add("workspace:new-tab", "New tab", [["Mod"], "t"], () => app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true }));
 	add("workspace:close", "Close current tab", [["Mod"], "w"], () => app.workspace.activeLeaf?.detach());
 	add("file-explorer:new-file", "Create new note", [["Mod"], "n"], async () => {
