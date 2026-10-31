@@ -59,6 +59,24 @@ function safeDecode(text: string) {
 	}
 }
 
+// Follows a resize handle's drag until the pointer lets go. Meanwhile
+// body.is-resizing lets the pointer through <webview> and <iframe> pages: one
+// under the pointer would take the moves and the release from the handle, so
+// the drag would stop following and stay attached to the handle.
+function dragHandle(evt: PointerEvent, move: (e: PointerEvent) => void, end: () => void) {
+	const handle = evt.currentTarget as HTMLElement;
+	handle.setPointerCapture(evt.pointerId);
+	document.body.addClass("is-resizing");
+	const done = () => {
+		handle.removeEventListener("pointermove", move);
+		handle.removeEventListener("lostpointercapture", done);
+		document.body.removeClass("is-resizing");
+		end();
+	};
+	handle.addEventListener("pointermove", move);
+	handle.addEventListener("lostpointercapture", done);
+}
+
 // Leaves showing a recorded state again (going back or forward, a restored
 // layout, a reopened tab); such a load adds no history entry.
 const replaying = new WeakSet<WorkspaceLeaf>();
@@ -683,21 +701,16 @@ export class WorkspaceSplit extends WorkspaceParent {
 		const start = vertical ? evt.clientX : evt.clientY;
 		const pair = sizes[index] + sizes[index + 1];
 		const min = Math.min(80, pair / 2);
-		const handle = evt.currentTarget as HTMLElement;
-		handle.setPointerCapture(evt.pointerId);
-		const move = (e: PointerEvent) => {
-			const a = Math.clamp(sizes[index] + (vertical ? e.clientX : e.clientY) - start, min, pair - min);
-			child.setDimension((a / total) * 100);
-			next.setDimension(((pair - a) / total) * 100);
-			this.app.workspace.requestResize();
-		};
-		const up = () => {
-			handle.removeEventListener("pointermove", move);
-			handle.removeEventListener("pointerup", up);
-			this.app.workspace.onLayoutChange();
-		};
-		handle.addEventListener("pointermove", move);
-		handle.addEventListener("pointerup", up);
+		dragHandle(
+			evt,
+			(e) => {
+				const a = Math.clamp(sizes[index] + (vertical ? e.clientX : e.clientY) - start, min, pair - min);
+				child.setDimension((a / total) * 100);
+				next.setDimension(((pair - a) / total) * 100);
+				this.app.workspace.requestResize();
+			},
+			() => this.app.workspace.onLayoutChange(),
+		);
 	}
 }
 
@@ -793,19 +806,14 @@ export class WorkspaceSidedock extends WorkspaceSplit {
 		evt.preventDefault();
 		const start = evt.clientX;
 		const width = this.width;
-		const handle = evt.currentTarget as HTMLElement;
-		handle.setPointerCapture(evt.pointerId);
-		const move = (e: PointerEvent) => {
-			this.setWidth(width + (this.side === "left" ? e.clientX - start : start - e.clientX));
-			this.app.workspace.requestResize();
-		};
-		const up = () => {
-			handle.removeEventListener("pointermove", move);
-			handle.removeEventListener("pointerup", up);
-			this.app.workspace.onLayoutChange();
-		};
-		handle.addEventListener("pointermove", move);
-		handle.addEventListener("pointerup", up);
+		dragHandle(
+			evt,
+			(e) => {
+				this.setWidth(width + (this.side === "left" ? e.clientX - start : start - e.clientX));
+				this.app.workspace.requestResize();
+			},
+			() => this.app.workspace.onLayoutChange(),
+		);
 	}
 }
 
