@@ -28,6 +28,14 @@ export function stripHeadingForLink(heading: string) {
 	return heading.replace(/[:#|^\\\r\n]|%%|\[\[|\]\]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+// A link destination as written, read as CommonMark (and the reading view)
+// reads it: `<...>` (a path with spaces, as in [a](<My note.md>)) without its
+// angle brackets, and backslash escapes unescaped ([x](a\_b.md) is a_b.md).
+export function destinationText(text: string) {
+	const bare = text.startsWith("<") && text.endsWith(">") ? text.slice(1, -1) : text;
+	return bare.replace(/\\([!-/:-@[-`{-~])/g, "$1");
+}
+
 // The frontmatter block: '---' on the first line up to the next '---' line,
 // possibly empty. Both lines are exactly three dashes, as the editor and the
 // reading view require: '--- ' opens no frontmatter in Obsidian. `from`/`to` delimit the YAML and `end` is just past the

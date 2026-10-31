@@ -8,7 +8,7 @@ import type { Component } from "./events";
 import { setIcon } from "./icons";
 import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, onCodeBlockProcessorsChange, renderMath, resolveHtmlSrc, toggledTask } from "./markdown";
 import { editorMetadataHost, MetadataEditor, type MetadataEditorHost, metadataEditorOf } from "./metadata-editor";
-import { getLinkpath } from "./metadata-utils";
+import { destinationText, getLinkpath } from "./metadata-utils";
 import type { TFile } from "./vault";
 
 export interface LivePreviewHost {
@@ -118,15 +118,12 @@ function autolinkHref(node: SyntaxNode, url: string) {
 
 // A Markdown link's or image's destination, as the reading view reads it:
 // the URL after the text's closing bracket, not one in the text itself
-// ([a@b.co](mailto:a@b.co), [www.x.com](https://x.com)), and `<...>` (a
-// path with spaces, as in [a](<My note.md>)) without its angle brackets.
-// Null for a reference link, whose destination is elsewhere.
+// ([a@b.co](mailto:a@b.co), [www.x.com](https://x.com)), read by
+// destinationText. Null for a reference link, whose destination is elsewhere.
 function destination(state: EditorState, node: SyntaxNode) {
 	const textEnd = node.getChildren("LinkMark")[1]?.to;
 	const url = textEnd === undefined ? undefined : node.getChildren("URL").find((u) => u.from >= textEnd);
-	if (!url) return null;
-	const text = state.sliceDoc(url.from, url.to);
-	return text.startsWith("<") && text.endsWith(">") ? text.slice(1, -1) : text;
+	return url ? destinationText(state.sliceDoc(url.from, url.to)) : null;
 }
 
 function tokenOf(state: EditorState, n: SyntaxNode): ClickableToken | null {

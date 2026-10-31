@@ -193,6 +193,23 @@ describe("links", () => {
 		expect(clickableTokenAt(stateOf(doc, 0), 1)).toEqual({ type: "internal-link", text: "Known", from: 0, to: 12 });
 	});
 
+	// CommonMark unescapes a destination's backslash escapes, as the reading
+	// view and Obsidian do; the backslash stayed in the target, which then
+	// named no note.
+	test("backslash escapes in a destination are unescaped for the link, its click and an image", () => {
+		const doc = "[x](a\\_b.md) ![i](p\\_q.png)\nend";
+		const decos = decorate(doc, doc.length);
+		expect(decos.find((d) => d.mark?.includes("cm-underline"))?.attrs).toEqual({ class: "internal-link", "data-href": "a_b.md" });
+		expect(clickableTokenAt(stateOf(doc, 0), 1)).toMatchObject({ type: "internal-link", text: "a_b.md" });
+		const images: string[] = [];
+		for (const set of stateOf(doc, doc.length).facet(EditorView.decorations) as DecorationSet[]) {
+			set.between(0, doc.length, (_from, _to, value: Decoration) => {
+				if (value.spec.widget?.constructor.name === "ImageWidget") images.push(value.spec.widget.src);
+			});
+		}
+		expect(images).toEqual(["app://vault/p_q.png"]);
+	});
+
 	// Page preview and the click handler read data-href as link text, as the
 	// reading view's links have it; an encoded path found no note to preview.
 	test("a Markdown link to a note carries its decoded path, a wikilink its text as written", () => {
