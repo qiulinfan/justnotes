@@ -1,10 +1,9 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { CliFlags, CliHandler } from "../src/api/plugin";
-import { ask } from "../src/cli/justnotes";
-import { type CliResponse, cliAddress, EXIT_USAGE } from "../src/cli/protocol";
+import { ask, type CliResponse, cliAddress, EXIT_USAGE } from "../src/cli/protocol";
 import { closeCli, serveCli } from "../src/main/cli-server";
 import { pickVault } from "../src/cli/vaults";
 import { parseCliArgs } from "../src/cli/args";
@@ -142,6 +141,10 @@ describe("pickVault", () => {
 // The socket the `justnotes` command reaches the app over.
 describe("command-line socket", () => {
 	const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jn-cli-")));
+	// ask() moves into the socket's folder when its path is long, as the
+	// one-shot command may; later tests must not start in a removed folder.
+	const home = process.cwd();
+	afterEach(() => process.chdir(home));
 	afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));
 	const echo = async (req: { argv: string[]; cwd: string }): Promise<CliResponse> => ({ stdout: req.argv.join(" "), stderr: req.cwd, code: 3 });
 

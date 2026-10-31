@@ -16,11 +16,10 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { escapeValue, parseCliArgs } from "./args";
 import { completionScript } from "./completion";
 import { CliError, list, NeedsApp, render } from "./output";
-import { type CliAddress, type CliRequest, type CliResponse, cliAddress, defaultProfile, EXIT_FAILURE, EXIT_USAGE, enterSocketDir, LineReader } from "./protocol";
+import { ask, type CliAddress, type CliRequest, type CliResponse, cliAddress, defaultProfile, EXIT_FAILURE, EXIT_USAGE, enterSocketDir } from "./protocol";
 import { BUILTINS, builtinHelp, type CommandSpec, flagsOf, helpText, missingReason } from "./spec";
 import { pickVault, readKnownVaults } from "./vaults";
 
-const MAX_RESPONSE = 64 << 20;
 const ROOT = path.resolve(import.meta.dirname, "../..");
 // How long a started app may take to answer.
 const LAUNCH_WAIT = 60_000;
@@ -59,30 +58,6 @@ export function splitArgs(args: string[]): Options {
 	if (args.slice(0, i).includes("--json") && options.argv.length) options.argv.push("--json");
 	options.profile = path.resolve(options.profile);
 	return options;
-}
-
-// Sends one request and resolves with the app's answer, or rejects with the
-// connection error (ENOENT or ECONNREFUSED: no app serves this profile).
-export function ask(address: CliAddress, request: CliRequest): Promise<CliResponse> {
-	return new Promise((resolve, reject) => {
-		const reader = new LineReader(MAX_RESPONSE);
-		const socket = net.connect(enterSocketDir(address));
-		socket.setEncoding("utf8");
-		socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
-		socket.on("data", (chunk: string) => {
-			try {
-				const response = reader.push(chunk) as CliResponse | undefined;
-				if (response === undefined) return;
-				resolve(response);
-				socket.end();
-			} catch (err) {
-				reject(err);
-				socket.destroy();
-			}
-		});
-		socket.on("error", reject);
-		socket.on("close", () => reject(new Error("The app closed the connection without an answer.")));
-	});
 }
 
 function notRunning(err: unknown) {
