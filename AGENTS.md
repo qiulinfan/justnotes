@@ -659,7 +659,10 @@ plain style. Development notes belong in this file.
   sidebar panes only above or below). `.workspace-drop-overlay` shows the
   target; `body.is-grabbing` keeps `<webview>`/`<iframe>` guests from taking
   the drag. A main-area tab dropped outside every app window moves to a new
-  popout there. Moves go through `removeChild`/`insertChild`, so
+  popout there. A tab drag ends on its drop, and in every window also on any
+  dragend, the start of another drag, a pointer press, or a dragover or drop
+  that carries no tab: the dragged header's dragend never comes once a drop
+  in another window has moved it there. Moves go through `removeChild`/`insertChild`, so
   `layout-change` fires and the layout saves the result.
 - Resize drags end on `lostpointercapture`, and `body.is-resizing` turns off
   pointer events in `<webview>` and `<iframe>` guests, which would otherwise

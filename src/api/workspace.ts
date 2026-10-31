@@ -572,6 +572,8 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 
 // Tab groups by their containerEl, to find the group under a dragged tab.
 const tabsByEl = new WeakMap<Element, WorkspaceTabs>();
+// The drag data type a dragged tab carries (its leaf id).
+const LEAF_DRAG_TYPE = "application/x-justnotes-leaf";
 
 // A tab group: tab headers plus one visible leaf.
 export class WorkspaceTabs extends WorkspaceParent {
@@ -1171,7 +1173,7 @@ export class Workspace extends Events {
 	#unloading = false;
 	// While closing a popout window, its leaves are not remembered as closed tabs.
 	#closingWindow = false;
-	#drag: { leaf: WorkspaceLeaf; target: DropTarget | null; dropped: boolean } | null = null;
+	#drag: { leaf: WorkspaceLeaf; target: DropTarget | null } | null = null;
 	#layoutChanged = debounce(() => {
 		this.#updateWindowTitles();
 		this.trigger("layout-change");
@@ -1707,6 +1709,14 @@ export class Workspace extends Events {
 		win.addEventListener("focus", () => setActiveWindow(win));
 		doc.addEventListener("dragover", (evt) => this.#onDragOver(evt), true);
 		doc.addEventListener("drop", (evt) => this.#onDrop(evt), true);
+		// A tab's dragend may never come: Chromium sends it to the dragged
+		// header, which a drop in another window has moved out of its document.
+		// So a tab drag also ends on its drop, on any dragend, on the start of
+		// any other drag and on a pointer press (none happens during a drag),
+		// in every window; stale, it would block guests and take later drags.
+		doc.addEventListener("dragstart", () => this.#endTabDrag(), true);
+		doc.addEventListener("dragend", () => win.setTimeout(() => this.#endTabDrag()), true);
+		doc.addEventListener("pointerdown", () => this.#endTabDrag(), true);
 		// Chromium gives dragleave no relatedTarget even between elements; the
 		// pointer leaving the page is what hides the indicator.
 		doc.addEventListener("dragleave", (evt) => {
@@ -1763,9 +1773,9 @@ export class Workspace extends Events {
 
 	onTabDragStart(evt: DragEvent, leaf: WorkspaceLeaf) {
 		if (!evt.dataTransfer) return;
-		this.#drag = { leaf, target: null, dropped: false };
+		this.#drag = { leaf, target: null };
 		evt.dataTransfer.effectAllowed = "move";
-		evt.dataTransfer.setData("application/x-justnotes-leaf", leaf.id);
+		evt.dataTransfer.setData(LEAF_DRAG_TYPE, leaf.id);
 		// A <webview> or <iframe> under the pointer would take the drag events.
 		for (const win of appWindows()) win.document.body.addClass("is-grabbing");
 	}
@@ -1774,12 +1784,8 @@ export class Workspace extends Events {
 	// window there, as in Obsidian.
 	onTabDragEnd(evt: DragEvent, leaf: WorkspaceLeaf) {
 		const drag = this.#drag;
-		this.#drag = null;
-		for (const win of appWindows()) {
-			win.document.body.removeClass("is-grabbing");
-			this.#showDropTarget(win.document, null);
-		}
-		if (!drag || drag.leaf !== leaf || drag.dropped || evt.dataTransfer?.dropEffect !== "none") return;
+		this.#endTabDrag();
+		if (!drag || drag.leaf !== leaf || evt.dataTransfer?.dropEffect !== "none") return;
 		const { screenX: x, screenY: y } = evt;
 		// A drag cancelled without a pointer position reports the screen origin.
 		if (x === 0 && y === 0) return;
@@ -1787,6 +1793,18 @@ export class Workspace extends Events {
 		if (inside || !leaf.parent || !this.inMainArea(leaf) || this.isOnlyLeafOfWindow(leaf)) return;
 		const bounds = this.#screenBoundsOf(leaf);
 		this.moveLeafToPopout(leaf, { x: x - 40, y: y - 20, size: bounds.width && bounds.height ? { width: bounds.width, height: bounds.height } : undefined });
+	}
+
+	// Clears a tab drag's state in every window.
+	#endTabDrag() {
+		const wasDragging = !!this.#drag;
+		this.#drag = null;
+		for (const win of appWindows()) {
+			const body = win.document.body;
+			if (!wasDragging && !body.hasClass("is-grabbing")) continue;
+			body.removeClass("is-grabbing");
+			this.#showDropTarget(win.document, null);
+		}
 	}
 
 	// The drop target under the pointer: a tab header bar, or a pane. A pane in
@@ -1810,6 +1828,8 @@ export class Workspace extends Events {
 
 	#onDragOver(evt: DragEvent) {
 		if (!this.#drag) return;
+		// Not a tab: the tab drag ended without telling us.
+		if (evt.dataTransfer && !evt.dataTransfer.types.includes(LEAF_DRAG_TYPE)) return this.#endTabDrag();
 		const doc = (evt.target as Node).doc;
 		const target = this.#dropTargetAt(evt);
 		this.#drag.target = target;
@@ -1824,13 +1844,14 @@ export class Workspace extends Events {
 	#onDrop(evt: DragEvent) {
 		const drag = this.#drag;
 		if (!drag) return;
+		if (evt.dataTransfer && !evt.dataTransfer.types.includes(LEAF_DRAG_TYPE)) return this.#endTabDrag();
 		evt.preventDefault();
 		evt.stopPropagation();
 		const target = this.#dropTargetAt(evt);
-		this.#showDropTarget((evt.target as Node).doc, null);
-		if (!target) return;
-		drag.dropped = true;
-		this.#moveLeaf(drag.leaf, target);
+		// The drag ends here: a dragend after a move to another window may
+		// never arrive, and one that does finds nothing left to do.
+		this.#endTabDrag();
+		if (target) this.#moveLeaf(drag.leaf, target);
 	}
 
 	// The drop indicator: the part of a pane a dropped tab would take, or a bar
