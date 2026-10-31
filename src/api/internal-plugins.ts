@@ -57,6 +57,7 @@ const IMPLEMENTED = new Set([
 	"templates",
 	"note-composer",
 	"word-count",
+	"slides",
 	"file-recovery",
 ]);
 
@@ -134,12 +135,16 @@ export class InternalPlugins {
 	}
 }
 
+// The implemented core plugins a vault without core-plugins.json starts
+// with off, as Obsidian does.
+const OFF_BY_DEFAULT = new Set(["slides"]);
+
 // core-plugins.json is an object of id -> boolean, or, in older vaults, an
 // array of enabled ids. Without the file Obsidian's defaults apply.
 export function parseCoreConfig(raw: unknown): Record<string, boolean> {
 	if (Array.isArray(raw)) return Object.fromEntries(raw.filter((id) => typeof id === "string").map((id) => [id, true]));
 	if (raw && typeof raw === "object") return Object.fromEntries(Object.entries(raw).map(([id, on]) => [id, on === true]));
-	return Object.fromEntries([...IMPLEMENTED].map((id) => [id, true]));
+	return Object.fromEntries([...IMPLEMENTED].filter((id) => !OFF_BY_DEFAULT.has(id)).map((id) => [id, true]));
 }
 
 function createInstance(app: App, id: string): InternalPluginInstance {

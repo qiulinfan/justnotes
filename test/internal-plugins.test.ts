@@ -20,6 +20,13 @@ describe("core-plugins.json", () => {
 		expect(parseCoreConfig({ "daily-notes": true, bookmarks: false })).toEqual({ "daily-notes": true, bookmarks: false });
 		expect(parseCoreConfig(["templates", "switcher"])).toEqual({ templates: true, switcher: true });
 	});
+
+	test("without the file the defaults apply: Slides stays off, as in Obsidian", () => {
+		const defaults = parseCoreConfig(null);
+		expect(defaults.outline).toBe(true);
+		expect(defaults.slides).toBeUndefined();
+		expect(parseCoreConfig({ slides: true }).slides).toBe(true);
+	});
 });
 
 describe("app.internalPlugins", () => {

@@ -1,0 +1,152 @@
+/* Slides: a full-window presentation in reveal.js's markup */
+.slides-container {
+	position: fixed;
+	inset: 0;
+	z-index: var(--layer-slides);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	overflow: hidden;
+}
+
+.slides-container .reveal {
+	position: absolute;
+	inset: 0;
+	font-family: var(--font-text);
+	font-size: 32px;
+}
+
+/* An embedded note follows the slide's text size. */
+.reveal .markdown-preview-view {
+	font-size: inherit;
+}
+
+.reveal .slides {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 960px;
+	height: 700px;
+	transform: translate(-50%, -50%) scale(var(--slides-scale, 1));
+}
+
+.reveal .slides > section.slide {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	overflow: hidden;
+	transition: opacity 0.2s ease;
+}
+
+.reveal .slides > section.slide.past,
+.reveal .slides > section.slide.future {
+	visibility: hidden;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.reveal .slides > section.slide.is-scrollable {
+	justify-content: flex-start;
+	overflow-y: auto;
+}
+
+/* Fitted with zoom, not a transform: a zoomed box takes its zoomed size in
+   the layout, so a slide that scrolls scrolls only as far as its content.
+   The fixed width keeps the text from re-wrapping as the zoom changes. */
+.reveal .slide-content {
+	flex-shrink: 0;
+	align-self: center;
+	width: 960px;
+	zoom: var(--slide-content-scale, 1);
+}
+
+.reveal .slide-content > :first-child {
+	margin-top: 0;
+}
+
+.reveal .slide-content > :last-child {
+	margin-bottom: 0;
+}
+
+.reveal .slide-content img {
+	max-width: 100%;
+}
+
+.reveal .controls {
+	position: absolute;
+	right: 16px;
+	bottom: 16px;
+	display: flex;
+	gap: 4px;
+	z-index: 1;
+}
+
+.reveal .controls button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	padding: 0;
+	border: none;
+	border-radius: var(--radius-m);
+	background: transparent;
+	color: var(--interactive-accent);
+	cursor: pointer;
+	opacity: 0.2;
+	pointer-events: none;
+}
+
+.reveal .controls button.enabled {
+	opacity: 0.9;
+	pointer-events: auto;
+}
+
+.reveal .controls button.enabled:hover {
+	background: var(--background-modifier-hover);
+	opacity: 1;
+}
+
+.reveal .controls .svg-icon {
+	width: 28px;
+	height: 28px;
+}
+
+.reveal .slide-number {
+	position: absolute;
+	left: 16px;
+	bottom: 16px;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+	z-index: 1;
+}
+
+.reveal .progress {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 3px;
+	z-index: 1;
+}
+
+.reveal .progress span {
+	display: block;
+	height: 100%;
+	background: var(--interactive-accent);
+	transition: width 0.2s ease;
+}
+
+.slides-close-btn {
+	position: absolute;
+	top: 16px;
+	right: 16px;
+	z-index: 2;
+}
+
+.slides-close-btn .svg-icon {
+	width: 24px;
+	height: 24px;
+}

@@ -85,7 +85,7 @@ plain style. Development notes belong in this file.
   `graph:open`, `graph:open-local`, `tag-pane:open`, `daily-notes`, `daily-notes:goto-prev`/`-next`,
   `insert-template`, `insert-current-date`/`-time`,
   `note-composer:merge-file`/`split-file`/`extract-heading`,
-  `file-recovery:open`), so `hotkeys.json` binds them. The panes' views
+  `file-recovery:open`, `slides:start`), so `hotkeys.json` binds them. The panes' views
   (`backlink`, `outgoing-link`, `outline`, `tag`, `graph`, `localgraph`)
   register always, so a saved
   layout keeps them; the first three follow the active file. Unlinked mentions
@@ -115,7 +115,25 @@ plain style. Development notes belong in this file.
   lacks. `properties` is the All properties pane
   (`all-properties`, `properties:open`): names with type and note count,
   unfolding to their notes; its menu sets the type or renames the property in
-  every note (each note's YAML changed only at that key). Not there yet: the other core plugins (bookmarks,
+  every note (each note's YAML changed only at that key). Slides
+  (`slides.ts`, off without core-plugins.json, as in Obsidian) presents the
+  active note, or the note of a More options or tab menu, from its open
+  view's text: slides are the text between top-level `---` rules
+  (`slideSources`; not the frontmatter, a setext heading, or a rule in code,
+  math, a list or a quote; empty slides dropped), each rendered with
+  `MarkdownRenderer.render` into reveal.js's markup (`.slides-container` >
+  `.reveal` > `.slides` > `section.slide`, `aside.controls` with
+  `.navigate-left`/`-right`, `.slide-number`, `.progress`; the close button,
+  `.slides-close-btn`, is a guess), since Obsidian's Slides is built on
+  reveal.js. The 960x700 slide scales to the window as reveal.js scales it;
+  content larger than its slide is shrunk with CSS `zoom` (a zoomed box
+  reports its unzoomed size, so fitting never feeds back into the observer,
+  and a slide that still overflows at half size scrolls only as far as its
+  content; a transform would leave the unscaled box in the scroll range).
+  It opens in the focused window, asks for fullscreen (refused without a user
+  gesture, so CDP `eval` starts get the full window) and closes when
+  fullscreen ends; its key scope has no parent, so app hotkeys stay off while
+  it shows. Not there yet: the other core plugins (bookmarks,
   ...), the Tags view's Mod-click to add a tag to the search, links to an
   extracted heading (`[[Note#Heading]]`) are not redirected to the new note.
 - Graph view (`graph-data.ts` for options, queries and nodes, tested;
