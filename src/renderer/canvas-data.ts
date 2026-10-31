@@ -305,3 +305,39 @@ export function renameInCanvas(text: string, oldPath: string, newPath: string): 
 	}
 	return changed ? stringifyCanvas(data) : null;
 }
+
+export interface Size {
+	width: number;
+	height: number;
+}
+
+// Where cards dropped together go: next to each other in a row (up to four),
+// more of them in a grid of about as many columns as rows, `gap` apart, the
+// whole block centred on the drop point. Each card keeps its own size inside
+// a cell as wide as its column's widest card and as tall as its row's
+// tallest.
+export function dropLayout(at: Point, sizes: Size[], gap = 20): Rect[] {
+	if (!sizes.length) return [];
+	const columns = sizes.length <= 4 ? sizes.length : Math.ceil(Math.sqrt(sizes.length));
+	const rows = Math.ceil(sizes.length / columns);
+	const widths = Array.from({ length: columns }, (_, c) => Math.max(...sizes.filter((_, i) => i % columns === c).map((s) => s.width)));
+	const heights = Array.from({ length: rows }, (_, r) => Math.max(...sizes.slice(r * columns, (r + 1) * columns).map((s) => s.height)));
+	const total = { width: widths.reduce((a, b) => a + b, 0) + gap * (columns - 1), height: heights.reduce((a, b) => a + b, 0) + gap * (rows - 1) };
+	const left = at.x - total.width / 2;
+	const top = at.y - total.height / 2;
+	return sizes.map((size, i) => {
+		const c = i % columns;
+		const r = Math.floor(i / columns);
+		const x = left + widths.slice(0, c).reduce((a, b) => a + b, 0) + gap * c;
+		const y = top + heights.slice(0, r).reduce((a, b) => a + b, 0) + gap * r;
+		return { x: Math.round(x), y: Math.round(y), width: size.width, height: size.height };
+	});
+}
+
+// A card for media of `natural` size: its aspect ratio, as large as fits in
+// `box`. Unknown sizes take the whole box.
+export function fitSize(natural: Size | null, box: Size): Size {
+	if (!natural?.width || !natural.height) return box;
+	const scale = Math.min(box.width / natural.width, box.height / natural.height);
+	return { width: Math.round(natural.width * scale), height: Math.round(natural.height * scale) };
+}

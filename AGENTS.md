@@ -147,9 +147,21 @@ plain style. Development notes belong in this file.
   Files are written in Obsidian's layout (one node or edge per line), only
   after a change, and keep unknown fields of nodes, edges and the file in
   place. Renaming a file or folder rewrites the canvases that show it, open
-  or not. Link cards show the URL, not the page. Not there yet: dragging
-  files in from the explorer or the OS, node z-order changes, snapping,
-  editing a note card in place (double-click opens it in a tab), export.
+  or not. Link cards show the URL, not the page. Drops onto the canvas: files
+  dragged from the explorer, search results or link panes become file cards
+  at the pointer, several next to each other (`dropLayout`: a row of up to
+  four, then a grid, centred on the drop point); a folder adds the files
+  directly in it. Images and videos keep their aspect ratio inside the
+  400x400 card (`fitSize`), audio gets a short card. A dragged link adds a
+  card for its file and subpath, an unresolved one a text card holding the
+  link. Files from the OS go through `importFile` (`attachments.ts`, shared
+  with the editor's paste and drop) into the attachment folder for the
+  canvas, a file already in the vault is used in place; a URL (`uri-list`, or
+  plain text that is one URL) makes a link card, other text a text card. The
+  card menu's buttons also drag onto the canvas. A multi-card drop is one undo
+  step. Not there yet: node z-order changes, snapping, editing a note card in
+  place (double-click opens it in a tab), PDF cards (shown as a file card),
+  export.
 - Keyboard: a capture-phase `keydown` listener walks the keymap scope stack
   before CodeMirror sees the key; the active scope follows keyboard focus. The
   root scope has one catch-all handler that runs command hotkeys; plugins may
@@ -255,7 +267,7 @@ plain style. Development notes belong in this file.
   targets read only `draggable` and CodeMirror inserts no text.
   Terminal 3.29 reads it to type the dragged paths; the editor accepts the drag
   in `dragover` on its whole DOM (the drag carries no data, so the browser would
-  not drop it) and inserts links where it lands.
+  not drop it) and inserts links where it lands; the canvas adds cards.
 - Never write Obsidian's own config files (`workspace.json`,
   `community-plugins.json`, `app.json`, `appearance.json`, `hotkeys.json`,
   `core-plugins.json`, `types.json`). justnotes state lives in localStorage through

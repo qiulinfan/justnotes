@@ -13,6 +13,7 @@ import { IterMode, NodeProp, type NodePropSource, type Parser, type SyntaxNode }
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import { type BlockContext, type Element, type LeafBlock, type LeafBlockParser, type Line, type MarkdownConfig, parseCode, parser as commonmark } from "@lezer/markdown";
 import type { App } from "./app";
+import { importFile } from "./attachments";
 import { DragManager } from "./drag-manager";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
 import { setIcon } from "./icons";
@@ -20,7 +21,7 @@ import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview
 import { inlineMathEnd, mathBlockClose } from "./markdown";
 import { parseLinktext } from "./metadata-utils";
 import type { MarkdownView } from "./markdown-view";
-import { debounce, moment } from "./util";
+import { debounce } from "./util";
 import { TFile } from "./vault";
 
 // Obsidian syntax that lezer-markdown does not know. Nodes for Obsidian-only
@@ -691,20 +692,11 @@ const URL_ONLY = /^[a-z][\w+.-]*:\/\/\S+$/i;
 async function attach(view: MarkdownView, files: File[], pasted: boolean) {
 	const { app } = view;
 	const sourcePath = view.file?.path ?? "";
-	const webUtils = require("electron").webUtils;
 	const links: string[] = [];
 	for (const file of files) {
 		// A file dragged from inside the vault is linked, not copied.
-		const disk: string | undefined = webUtils?.getPathForFile?.(file);
-		const base = app.vault.adapter.basePath;
-		let target: TFile | null = disk?.startsWith(`${base}/`) ? app.vault.getFileByPath(disk.slice(base.length + 1)) : null;
-		if (!target) {
-			const ext = /\.([^.]+)$/.exec(file.name)?.[1] ?? file.type.split("/")[1]?.replace("jpeg", "jpg") ?? "bin";
-			const name = pasted && file.type.startsWith("image/") ? `Pasted image ${moment().format("YYYYMMDDHHmmss")}.${ext}` : file.name;
-			const path = await app.fileManager.getAvailablePathForAttachment(name, sourcePath);
-			target = await app.vault.createBinary(path, await file.arrayBuffer());
-		}
 		// generateMarkdownLink embeds files that are no notes, as Obsidian's does.
+		const target = await importFile(app, file, sourcePath, pasted);
 		links.push(app.fileManager.generateMarkdownLink(target, sourcePath));
 	}
 	view.editor.replaceSelection(links.join("\n"), "input.paste");

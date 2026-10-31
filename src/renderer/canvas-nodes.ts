@@ -14,9 +14,9 @@ import { textChanges } from "../api/view";
 import { type AllCanvasNodeData, type CanvasEdgeData, edgeGeometry, facingSides, type NodeSide, parseColor, type Point, type Rect, SIDES, sidePoint } from "./canvas-data";
 import type { Canvas } from "./canvas-view";
 
-const IMAGE = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "avif"]);
-const AUDIO = new Set(["mp3", "wav", "m4a", "ogg", "3gp", "flac", "webm"]);
-const VIDEO = new Set(["mp4", "webm", "ogv", "mov", "mkv"]);
+export const IMAGE = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "avif"]);
+export const AUDIO = new Set(["mp3", "wav", "m4a", "ogg", "3gp", "flac", "webm"]);
+export const VIDEO = new Set(["mp4", "webm", "ogv", "mov", "mkv"]);
 const RESIZERS = ["top", "right", "bottom", "left", "top-left", "top-right", "bottom-left", "bottom-right"];
 
 function applyColor(el: Element, color: unknown) {

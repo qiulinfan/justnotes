@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { App } from "../src/api/app";
+import { importFile } from "../src/api/attachments";
 import { FileManager } from "../src/api/file-manager";
 import { MetadataCache } from "../src/api/metadata";
 import { TFile, Vault } from "../src/api/vault";
@@ -158,6 +159,18 @@ describe("FileManager paths", () => {
 		expect(await fm.getAvailablePathForAttachment("img.png", "posts/p.md")).toBe("posts/附件/img 1.png");
 		expect(await fm.getAvailablePathForAttachment("a.png", "notes/n.md")).toBe("notes/附件/a.png");
 		expect(vault.getFolderByPath("notes/附件")).not.toBeNull();
+	});
+
+	// Files dropped from the OS onto a canvas or a note: the canvas's cards and
+	// the note's links point at the copy, so a wrong folder or a clobbered
+	// existing attachment breaks them.
+	test("a file dropped from outside the vault is copied into the attachment folder under a free name", async () => {
+		const { vault, dir } = await setup({ "boards/b.canvas": "{}", "assets/photo.png": "old" }, { attachmentFolderPath: "assets" });
+		const app = { vault, fileManager: new FileManager({ vault, workspace: { getActiveFile: () => null } } as unknown as App) } as unknown as App;
+		const copy = await importFile(app, new File([new Uint8Array([1, 2, 3])], "photo.png", { type: "image/png" }), "boards/b.canvas");
+		expect(copy.path).toBe("assets/photo 1.png");
+		expect([...fs.readFileSync(path.join(dir, "assets/photo 1.png"))]).toEqual([1, 2, 3]);
+		expect(fs.readFileSync(path.join(dir, "assets/photo.png"), "utf8")).toBe("old");
 	});
 
 	test("an attachment folder configured in another case than on disk is the folder on disk", async () => {

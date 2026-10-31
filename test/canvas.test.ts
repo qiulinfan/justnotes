@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { installLanguageExtensions } from "../src/api/dom";
 import { Vault } from "../src/api/vault";
 import { mergeWith, TextFileView } from "../src/api/view";
-import { facingSides, mergeCanvas, nearestSide, parseCanvas, parseColor, renameInCanvas, stringifyCanvas } from "../src/renderer/canvas-data";
+import { dropLayout, facingSides, fitSize, mergeCanvas, nearestSide, parseCanvas, parseColor, renameInCanvas, stringifyCanvas } from "../src/renderer/canvas-data";
 
 const text = (id: string, extra: Record<string, unknown> = {}) => ({ id, type: "text", text: id, x: 0, y: 0, width: 250, height: 60, ...extra });
 const file = (nodes: object[], edges: object[] = [], extra: Record<string, unknown> = {}) => stringifyCanvas({ nodes, edges, ...extra } as any);
@@ -193,5 +193,38 @@ describe("edge sides", () => {
 	test("an edge dropped on a node attaches to the side nearest the pointer", () => {
 		expect(nearestSide(box, { x: 95, y: 30 })).toBe("right");
 		expect(nearestSide(box, { x: 50, y: 48 })).toBe("bottom");
+	});
+});
+
+// Files dropped together onto a canvas: cards that overlap or land far from
+// the pointer are what the user would see go wrong.
+describe("dropped cards", () => {
+	const card = { width: 400, height: 400 };
+
+	test("a few cards sit side by side in a row centred on the drop point", () => {
+		expect(dropLayout({ x: 0, y: 0 }, [card, card, card], 20)).toEqual([
+			{ x: -620, y: -200, width: 400, height: 400 },
+			{ x: -200, y: -200, width: 400, height: 400 },
+			{ x: 220, y: -200, width: 400, height: 400 },
+		]);
+	});
+
+	test("more than four wrap into a grid whose cells fit each column's widest and each row's tallest card", () => {
+		const sizes = [card, { width: 400, height: 225 }, { width: 200, height: 400 }, card, { width: 400, height: 100 }];
+		const rects = dropLayout({ x: 0, y: 0 }, sizes, 20);
+		// Three columns (400, 400, 200 wide), two rows (400, 400 tall).
+		expect(rects.map((r) => [r.x, r.y])).toEqual([
+			[-520, -410],
+			[-100, -410],
+			[320, -410],
+			[-520, 10],
+			[-100, 10],
+		]);
+	});
+
+	test("media cards keep their aspect ratio inside the default card; an unknown size takes the whole card", () => {
+		expect(fitSize({ width: 1920, height: 1080 }, card)).toEqual({ width: 400, height: 225 });
+		expect(fitSize({ width: 1000, height: 2000 }, card)).toEqual({ width: 200, height: 400 });
+		expect(fitSize(null, card)).toEqual(card);
 	});
 });
