@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { installLanguageExtensions } from "../src/api/dom";
 import { type Command, Commands, HotkeyManager, Keymap, Scope } from "../src/api/keymap";
+import { Platform } from "../src/api/util";
 
 installLanguageExtensions();
 
@@ -106,5 +107,39 @@ describe("Commands", () => {
 		expect(app.commands.isAvailable(cmd)).toBe(false);
 		expect(app.commands.executeCommand(cmd)).toBe(false);
 		expect(ran).toBe(false);
+	});
+});
+
+// A plugin view keys its own editor on a scope under the app's (tinymist's
+// Typst view registers Mod-B, Mod-E and more on `new Scope(this.app.scope)`
+// and leaves Mod-S and Mod-F to Obsidian). While the view has focus its keys
+// come before any command hotkey, and the keys it leaves alone still reach the
+// app's hotkeys, or the editor when no hotkey takes them.
+describe("a view's scope", () => {
+	test("takes its own keys first and passes the others on to the app's hotkeys", () => {
+		const app = fakeApp();
+		const root = new Scope();
+		const win = new EventTarget();
+		const keymap = new Keymap(root, win);
+		root.register(null, null, (evt, ctx) => app.hotkeyManager.onTrigger(evt, ctx));
+		const ran: string[] = [];
+		app.commands.addCommand({ id: "p:bold", name: "Bold", callback: () => ran.push("app bold"), hotkeys: [{ modifiers: ["Mod"], key: "b" }] });
+		app.commands.addCommand({ id: "p:save", name: "Save", callback: () => ran.push("save"), hotkeys: [{ modifiers: ["Mod"], key: "s" }] });
+		const view = new Scope(root);
+		view.register(["Mod"], "b", () => {
+			ran.push("view bold");
+			return false;
+		});
+		keymap.pushScope(view);
+		const press = (key: string, mod: boolean) => {
+			const modifiers = { altKey: false, shiftKey: false, ctrlKey: mod && !Platform.isMacOS, metaKey: mod && Platform.isMacOS };
+			const evt = Object.assign(new Event("keydown", { cancelable: true }), { key, code: `Key${key.toUpperCase()}`, repeat: false, ...modifiers });
+			win.dispatchEvent(evt);
+			return evt.defaultPrevented;
+		};
+		expect(press("b", true)).toBe(true);
+		expect(press("s", true)).toBe(true);
+		expect(press("x", false)).toBe(false);
+		expect(ran).toEqual(["view bold", "save"]);
 	});
 });
