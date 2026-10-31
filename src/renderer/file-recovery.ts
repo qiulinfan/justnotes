@@ -120,15 +120,25 @@ export class SnapshotStore {
 	}
 }
 
+// What FileRecovery needs of its snapshot store (SnapshotStore in the app).
+export type RecoveryStore = Pick<SnapshotStore, "add" | "list" | "paths" | "prune" | "rename">;
+
+// A snapshot waiting for the interval to pass, with the latest text seen.
+interface Pending {
+	timer: number;
+	due: number;
+	data: string;
+}
+
 export class FileRecovery {
 	app: App;
-	store: SnapshotStore;
+	store: RecoveryStore;
 	#last = new Map<string, { ts: number; data: string } | null>();
-	#timers = new Map<string, number>();
+	#pending = new Map<string, Pending>();
 
-	constructor(app: App) {
+	constructor(app: App, store?: RecoveryStore) {
 		this.app = app;
-		this.store = new SnapshotStore(`${app.appId}-file-recovery`);
+		this.store = store ?? new SnapshotStore(`${app.appId}-file-recovery`);
 	}
 
 	get options(): RecoveryOptions {
@@ -153,20 +163,52 @@ export class FileRecovery {
 		host.registerEvent(vault.on("modify", watch));
 		// The text as it was opened, before any edit.
 		host.registerEvent(workspace.on("file-open", watch));
-		host.registerEvent(
-			vault.on("rename", (file: TAbstractFile, oldPath: string) => {
-				if (!(file instanceof TFile)) return;
-				this.#last.delete(oldPath);
-				this.store.rename(oldPath, file.path).catch((err) => console.error(err));
-			}),
-		);
+		host.registerEvent(vault.on("rename", (file: TAbstractFile, oldPath: string) => file instanceof TFile && this.#renamed(file, oldPath)));
+		host.registerEvent(vault.on("delete", (file: TAbstractFile) => file instanceof TFile && this.#deleted(file.path)));
 		const prune = () => this.store.prune(Date.now() - this.keep).catch((err) => console.error(err));
 		prune();
 		host.registerInterval(window.setInterval(prune, 60 * MINUTE));
 		host.register(() => {
-			for (const timer of this.#timers.values()) clearTimeout(timer);
-			this.#timers.clear();
+			for (const pending of this.#pending.values()) clearTimeout(pending.timer);
+			this.#pending.clear();
 		});
+	}
+
+	// The snapshots, the last one known and a pending one go with the note.
+	#renamed(file: TFile, oldPath: string) {
+		const last = this.#last.get(oldPath);
+		this.#last.delete(oldPath);
+		if (last !== undefined) this.#last.set(file.path, last);
+		else this.#last.delete(file.path);
+		const pending = this.#pending.get(oldPath);
+		if (pending) {
+			clearTimeout(pending.timer);
+			this.#pending.delete(oldPath);
+			if (RECOVERABLE.has(file.extension)) this.#arm(file.path, pending);
+		}
+		this.store.rename(oldPath, file.path).catch((err) => console.error(err));
+	}
+
+	// A deleted note's text since its last snapshot is kept as one more.
+	#deleted(path: string) {
+		const pending = this.#pending.get(path);
+		this.#last.delete(path);
+		if (!pending) return;
+		clearTimeout(pending.timer);
+		this.#pending.delete(path);
+		this.save(path, pending.data).catch((err) => console.error(err));
+	}
+
+	#arm(path: string, pending: Pending) {
+		pending.timer = window.setTimeout(
+			() => {
+				this.#pending.delete(path);
+				const now = this.app.vault.getFileByPath(path);
+				if (now) this.schedule(now);
+			},
+			Math.max(0, pending.due - Date.now()),
+		);
+		this.#pending.set(path, pending);
 	}
 
 	async #lastOf(path: string) {
@@ -175,22 +217,16 @@ export class FileRecovery {
 	}
 
 	async schedule(file: TFile) {
-		if (this.#timers.has(file.path)) return;
 		try {
+			const pending = this.#pending.get(file.path);
+			if (pending) {
+				pending.data = await this.app.vault.cachedRead(file);
+				return;
+			}
 			const [last, data] = await Promise.all([this.#lastOf(file.path), this.app.vault.cachedRead(file)]);
 			const due = snapshotDue(last, data, Date.now(), this.interval);
 			if (due === "now") await this.save(file.path, data);
-			else if (due !== "skip" && !this.#timers.has(file.path)) {
-				const path = file.path;
-				this.#timers.set(
-					path,
-					window.setTimeout(() => {
-						this.#timers.delete(path);
-						const now = this.app.vault.getFileByPath(path);
-						if (now) this.schedule(now);
-					}, due - Date.now()),
-				);
-			}
+			else if (due !== "skip" && !this.#pending.has(file.path)) this.#arm(file.path, { timer: 0, due, data });
 		} catch (err) {
 			console.error(err);
 		}

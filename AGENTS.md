@@ -132,7 +132,9 @@ plain style. Development notes belong in this file.
   whole-text snapshots of `.md` and `.canvas` files in the profile's IndexedDB
   (`<appId>-file-recovery`), one when a file is opened and then at most one
   per `intervalMinutes` (default 5) after edits, pruned after `keepDays`
-  (default 7); a restore snapshots the current text first. Templates insert a
+  (default 7); a restore snapshots the current text first. Snapshots, and
+  one waiting for the interval, follow a renamed file; deleting a file with
+  one waiting saves its last text at once. Templates insert a
   template's frontmatter at the top, adding only the properties the note
   lacks. `properties` is the All properties pane
   (`all-properties`, `properties:open`): names with type and note count,
