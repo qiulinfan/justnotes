@@ -6,7 +6,7 @@ import * as zlib from "node:zlib";
 // A namespace import, so tests can load this module outside Electron.
 import * as electron from "electron";
 import type { RawResponse } from "../api/util";
-import { readKnownVaults, realPathOf } from "../cli/vaults";
+import { readKnownVaults, realPathOf, withoutVault } from "../cli/vaults";
 
 export { realPathOf, vaultNamed, vaultOf } from "../cli/vaults";
 
@@ -294,5 +294,18 @@ export function rememberVault(vault: string) {
 		writePrivateJson(vaultsFile(), [...vaults, real]);
 	} catch (err) {
 		console.error("Could not remember the vault", vault, err);
+	}
+}
+
+// Takes a vault off the list (the switcher's Remove from list); its folder is
+// left as it is. Links no longer open it until it is opened on purpose again.
+export function forgetVault(vault: string) {
+	const vaults = knownVaults();
+	const kept = withoutVault(vaults, vault);
+	if (kept.length === vaults.length) return;
+	try {
+		writePrivateJson(vaultsFile(), kept);
+	} catch (err) {
+		console.error("Could not forget the vault", vault, err);
 	}
 }

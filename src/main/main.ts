@@ -10,6 +10,7 @@ import { droppedSchemes, sameAppPage } from "./link-policy";
 import { microphoneRequest, systemMicrophoneAccess } from "./media";
 import { isPopoutOpen } from "./popout";
 import { handleSchemes, registerSchemes } from "./protocol";
+import { confirmUnknownVault, registerVaultSwitcher } from "./vault-switcher";
 
 // @electron/remote resolves remote.require() through the real module tree, so
 // it loads from node_modules at runtime instead of being bundled.
@@ -297,6 +298,9 @@ function openVault(vault: string) {
 	return win;
 }
 
+// The left sidebar's vault switcher lists, opens and adds vaults through main.
+registerVaultSwitcher(vaultWindows, openVault);
+
 // Markdown files opened from the system: Finder's double-click and Open With
 // arrive as open-file events, at launch before the app is ready; Windows and
 // Linux pass them as arguments. Those that come before the first windows
@@ -320,15 +324,7 @@ async function openFile(file: string) {
 	const known = vaultOf(file, knownVaults());
 	const vault = known ?? enclosingVault(path.dirname(file)) ?? path.dirname(file);
 	if (!known) {
-		const { response } = await dialog.showMessageBox({
-			type: "question",
-			buttons: ["Open", "Cancel"],
-			defaultId: 0,
-			cancelId: 1,
-			message: `Open "${path.basename(vault)}" as a vault?`,
-			detail: `${file} is in no vault justnotes has opened. Opening the folder ${vault} runs the community plugins it has enabled.`,
-		});
-		if (response !== 0) return;
+		if (!(await confirmUnknownVault(vault, `${file} is in no vault justnotes has opened.`))) return;
 		rememberVault(vault);
 	}
 	sendObsidianUrl(`obsidian://open?path=${encodeURIComponent(file)}`, openVault(vault).webContents);
