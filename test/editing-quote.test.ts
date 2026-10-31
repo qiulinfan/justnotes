@@ -3,7 +3,7 @@ import { insertNewlineAndIndent } from "@codemirror/commands";
 import { insertNewlineContinueMarkup, markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorSelection, EditorState, type Transaction } from "@codemirror/state";
-import { exitEmptyQuote, obsidianMarkdown } from "../src/api/editor-extensions";
+import { continueQuotedCode, exitEmptyQuote, obsidianMarkdown } from "../src/api/editor-extensions";
 
 // Enter at the `|` in a note, with the editor's Enter bindings in their
 // order, then typing "typed": the new text, and where the typed text sits in
@@ -17,7 +17,7 @@ function enterAndType(marked: string) {
 	});
 	ensureSyntaxTree(state, doc.length, 5000);
 	const target = { state, dispatch: (tr: Transaction) => (state = tr.state) };
-	if (!exitEmptyQuote(target) && !insertNewlineContinueMarkup(target)) insertNewlineAndIndent(target);
+	if (!exitEmptyQuote(target) && !continueQuotedCode(target) && !insertNewlineContinueMarkup(target)) insertNewlineAndIndent(target);
 	const at = state.selection.main.head;
 	state = state.update({ changes: { from: at, insert: "typed" } }).state;
 	let quotes = 0;
@@ -64,5 +64,15 @@ describe("Enter on an empty quote line", () => {
 		expect(enterAndType("```\n>|\n```")).toEqual({ text: "```\n>\ntyped\n```", quotes: 0, inList: false });
 		expect(enterAndType("```\ncode\n> |\n```")).toEqual({ text: "```\ncode\n> \ntyped\n```", quotes: 0, inList: false });
 		expect(enterAndType("> ```\n> code\n> |\n> ```").text).toStartWith("> ```\n> code\n> \n");
+	});
+
+	// Obsidian keeps a new line in a quoted fence inside the quote; a plain
+	// newline ended the quote and the fence, and the rest of the code fell out.
+	test("Enter in a fenced code block inside a quote continues the quote marks", () => {
+		expect(enterAndType("> ```py\n> x = 1|\n> ```")).toEqual({ text: "> ```py\n> x = 1\n> typed\n> ```", quotes: 1, inList: false });
+		expect(enterAndType("> ```|\n> ```").text).toBe("> ```\n> typed\n> ```");
+		expect(enterAndType("> > ```\n> >     if x:|\n> > ```").text).toBe("> > ```\n> >     if x:\n> >     typed\n> > ```");
+		expect(enterAndType("> - item\n>   ```\n>   co|de\n>   ```")).toEqual({ text: "> - item\n>   ```\n>   co\n>   typedde\n>   ```", quotes: 1, inList: true });
+		expect(enterAndType("> ```\n> code\n> |\n> ```").text).toBe("> ```\n> code\n> \n> typed\n> ```");
 	});
 });

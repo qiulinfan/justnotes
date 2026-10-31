@@ -436,6 +436,39 @@ function addsLines(from: string, text: string) {
 	return true;
 }
 
+// Whether `line` is `of` with text inserted at one place in it.
+function grows(line: string, of: string) {
+	if (line.length <= of.length) return false;
+	let head = 0;
+	while (head < of.length && line[head] === of[head]) head++;
+	let tail = 0;
+	while (tail < of.length - head && line[line.length - 1 - tail] === of[of.length - 1 - tail]) tail++;
+	return head + tail === of.length;
+}
+
+// Whether `text` is `from` with text inserted: lines added (addsLines), or
+// text inserted inside lines too (QuickAdd's inline insert). Lines the two
+// have in common anchor the comparison (a line diff); between anchors each
+// line of `from` that holds text must be followed, in order, by a line of
+// `text` that is it with text inserted, and a blank one may be filled.
+function insertsText(from: string, text: string) {
+	if (addsLines(from, text)) return true;
+	const a = from.split("\n");
+	const b = text.split("\n");
+	let i = 0;
+	let j = 0;
+	for (const [endA, endB] of [...matchLines(a, b), [a.length, b.length]]) {
+		let k = j;
+		for (; i < endA; i++) {
+			if (a[i].trim()) while (k < endB && !grows(b[k], a[i])) k++;
+			if (k++ >= endB) return false;
+		}
+		i = endA + 1;
+		j = endB + 1;
+	}
+	return true;
+}
+
 // The lines of `text` that hold text, in order.
 const textLines = (text: string) => text.split("\n").filter((line) => line.trim()).join("\n");
 
@@ -443,10 +476,12 @@ const textLines = (text: string) => text.split("\n").filter((line) => line.trim(
 // took in, unless the change was made from the text its last write replaced
 // (a capture that read the note just before a save and wrote it right after).
 // Merged against the write, such a change would undo it. Within a second of
-// the write, a change is taken for one when it only adds lines to the
-// replaced text, keeps the write's edits without a conflict when merged with
-// them, and is no version of the file the document has had. A rewrite
-// removes or changes lines of the replaced text, a change made from the write
+// the write, a change is taken for one when it only inserts text into the
+// replaced text (lines, or text inside lines: QuickAdd's inline insert),
+// keeps the write's edits without a conflict when merged with them, and is no
+// version of the file the document has had. An insert into a line the write
+// changed conflicts with it, so the change wins there. A rewrite removes or
+// changes text of the replaced text, a change made from the write
 // holds every line of it, and a revert (git discarding changes, a plugin
 // restoring a version) brings back a version the document has had. Two kinds
 // of change pass for a capture all the same. A rewrite of only lines the
@@ -457,11 +492,11 @@ const textLines = (text: string) => text.split("\n").filter((line) => line.trim(
 // is taken as written. A revert to a version from before the document was
 // opened (an earlier session, or the note closed in every pane and opened
 // again) passes when the text the write replaced is that version with lines
-// removed or emptied; the write's own edits, changed and added lines
-// included, then survive it.
+// removed or emptied, or with text removed inside lines; the write's own
+// edits, changed and added lines included, then survive it.
 function mergeBase(doc: TextDoc, text: string, merge: TextMerge["merge"]) {
 	const prior = doc.prior;
-	if (!prior || Date.now() - prior.at > 1000 || !addsLines(prior.text, text) || doc.seen.has(digest(text))) return doc.base;
+	if (!prior || Date.now() - prior.at > 1000 || !insertsText(prior.text, text) || doc.seen.has(digest(text))) return doc.base;
 	// Made from the written text: it holds every line of it. But a change that
 	// holds every line of the replaced text (as this one does) still has any
 	// line with text the write dropped, so it was not made from such a write;
@@ -888,16 +923,31 @@ function indexOfLines(lines: string[], run: string[]) {
 	return -1;
 }
 
+// Whether text is written with CRLF line breaks: when its first line break is
+// one. Text without a line break keeps `current`.
+export function crlfOf(text: string, current: boolean) {
+	const at = text.indexOf("\n");
+	return at < 0 ? current : text[at - 1] === "\r";
+}
+
 // A three-way line merge (diff3) of two edits of `base`. Changes on one side,
 // the same change on both, and changes to different lines next to each other
 // merge cleanly, as do lines one side added next to lines the other changed.
 // Where the sides changed the same lines differently, both
 // versions are kept, `theirs` first, and the region counts as a conflict. Two
 // insertions at one place are both kept the same way, but no line was changed
-// twice, so that is no conflict.
+// twice, so that is no conflict. Line breaks are compared as LF, and the
+// result takes those of `theirs` (its first line break): a CRLF note
+// converted to LF on disk while it has unsaved edits merges line by line and
+// stays LF.
 export function mergeText(base: string, ours: string, theirs: string): { text: string; conflicts: number } {
 	if (ours === base || ours === theirs) return { text: theirs, conflicts: 0 };
 	if (theirs === base) return { text: ours, conflicts: 0 };
+	if (base.includes("\r\n") || ours.includes("\r\n") || theirs.includes("\r\n")) {
+		const lf = (text: string) => text.replace(/\r\n/g, "\n");
+		const merged = mergeText(lf(base), lf(ours), lf(theirs));
+		return crlfOf(theirs, false) ? { text: merged.text.replace(/\n/g, "\r\n"), conflicts: merged.conflicts } : merged;
+	}
 	const o = base.split("\n");
 	const a = ours.split("\n");
 	const b = theirs.split("\n");

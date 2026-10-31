@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Events } from "../src/api/events";
 import { convertValue, MetadataTypeManager } from "../src/api/metadata-types";
+import { dayOf } from "../src/api/metadata-widgets";
 
 // An app with notes' frontmatter, a types.json and per-vault localStorage.
 function appWith(frontmatters: Record<string, Record<string, unknown>>, typesJson: unknown, storage = new Map<string, string>()) {
@@ -119,5 +120,17 @@ describe("changing a property's type converts what it can", () => {
 		expect(convertValue("soon", "date")).toBeUndefined();
 		expect(convertValue({ a: 1 }, "multitext")).toBeUndefined();
 		expect(convertValue(null, "number")).toBeNull();
+	});
+});
+
+// A date or date & time property links to the daily note of the day it names
+// (the Daily notes plugin opens it); a value that names no day links nowhere.
+describe("the day a date property links to", () => {
+	test("dates and date-times name their day; other values none", () => {
+		expect(dayOf("2026-10-30")).toBe("2026-10-30");
+		expect(dayOf("2026-10-30T10:30:00")).toBe("2026-10-30");
+		expect(dayOf("2026-02-30")).toBeNull();
+		expect(dayOf("30/10/2026")).toBeNull();
+		expect(dayOf(20261030)).toBeNull();
 	});
 });

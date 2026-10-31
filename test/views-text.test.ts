@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { installLanguageExtensions } from "../src/api/dom";
 import { Vault } from "../src/api/vault";
-import { mergeText, TextFileView, textChanges } from "../src/api/view";
+import { crlfOf, mergeText, TextFileView, textChanges } from "../src/api/view";
 
 const apply = (text: string, changes: { from: number; to: number; insert: string }[]) => {
 	let out = "";
@@ -86,6 +86,27 @@ describe("mergeText", () => {
 		const merged = mergeText(lines("base"), lines("mine"), lines("theirs"));
 		expect(merged.text).toBe(`${lines("theirs")}\n${lines("mine")}`);
 		expect(merged.conflicts).toBe(1);
+	});
+
+	// A CRLF note converted to LF on disk while it had unsaved edits once
+	// conflicted on every line (each line differed by its \r) and kept CRLF.
+	test("a change of line breaks on disk merges line by line and takes the file's line breaks", () => {
+		const crlf = (text: string) => text.replace(/\n/g, "\r\n");
+		const ours = "# Notes\n\nfirst line, edited\nsecond line\n";
+		const theirs = "# Notes\n\nfirst line\nsecond line\n- added\n";
+		expect(mergeText(crlf(base), crlf(ours), theirs)).toEqual({ text: "# Notes\n\nfirst line, edited\nsecond line\n- added\n", conflicts: 0 });
+		expect(mergeText(base, ours, crlf(theirs))).toEqual({ text: crlf("# Notes\n\nfirst line, edited\nsecond line\n- added\n"), conflicts: 0 });
+	});
+});
+
+// MarkdownView writes CRLF for a note whose first line break is CRLF; text it
+// is given on a reload or merge brings its own, so a note converted to LF
+// while open is not saved back as CRLF.
+describe("crlfOf", () => {
+	test("the first line break decides, and text without one keeps the current style", () => {
+		expect(crlfOf("a\r\nb\nc", false)).toBe(true);
+		expect(crlfOf("a\nb\r\nc", true)).toBe(false);
+		expect(crlfOf("one line", true)).toBe(true);
 	});
 });
 
@@ -192,6 +213,23 @@ describe("TextFileView saves", () => {
 			await view.save();
 			await vault.modify(file, captured);
 			// Saving again waits for the view to take the change in.
+			await view.save();
+			expect(fs.readFileSync(full, "utf8")).toBe(merged);
+			expect(view.text).toBe(merged);
+		});
+	}
+
+	// QuickAdd's inline insert writes inside a line of the text it read before
+	// the save; that write once undid the saved edit.
+	const inlineInserts: [string, string, string][] = [
+		["at the end of a line", "line1\nline2 inserted\nline3\n", "line1 edit\nline2 inserted\nline3\n"],
+		["in the middle of a line, with a line added", "line1\nli(new)ne2\nline3\n- added\n", "line1 edit\nli(new)ne2\nline3\n- added\n"],
+	];
+	for (const [name, captured, merged] of inlineInserts) {
+		test(`a write built on the text from before the view's save that inserts text ${name} keeps the saved edit`, async () => {
+			const { vault, view, file, full } = await editedNote("line1\nline2\nline3\n");
+			await view.save();
+			await vault.modify(file, captured);
 			await view.save();
 			expect(fs.readFileSync(full, "utf8")).toBe(merged);
 			expect(view.text).toBe(merged);

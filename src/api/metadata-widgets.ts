@@ -9,6 +9,8 @@ import { Keymap } from "./keymap";
 import { searchTag } from "./live-preview";
 import { type PropertyRenderContext, type PropertyWidget, type PropertyWidgetComponent, validateType } from "./metadata-types";
 import { AbstractInputSuggest } from "./ui/suggest";
+import { moment } from "./util";
+import type { PaneType } from "./workspace";
 
 const WIKILINK = /^\[\[([^\]|#]*)(#[^\]|]*)?(?:\|([^\]]*))?\]\]$/;
 const URL_TEXT = /^[a-z][\w+.-]*:\/\/\S+$/i;
@@ -209,6 +211,46 @@ function renderList(el: HTMLElement, value: unknown, ctx: PropertyRenderContext,
 	return { focus: (at) => caret(input, at), unload: () => suggest.close() };
 }
 
+// The day (YYYY-MM-DD) a date or date & time value names, or null.
+export function dayOf(value: unknown) {
+	const m = typeof value === "string" ? /^(\d{4}-\d\d-\d\d)(?:T\d\d:\d\d(?::\d\d(?:\.\d+)?)?)?$/.exec(value.trim()) : null;
+	return m && moment(m[1], "YYYY-MM-DD", true).isValid() ? m[1] : null;
+}
+
+type OpenDailyNote = (day: string, newLeaf: boolean | PaneType) => Promise<void>;
+
+// While the Daily notes core plugin is on, a date or date & time value links
+// to its day's daily note, as Obsidian's date widget does: a click on the
+// date text opens it (Mod-click in a new tab), and the calendar icon and the
+// keyboard still edit the value. A focused field takes clicks as edits.
+function linkToDailyNote(input: HTMLInputElement, ctx: PropertyRenderContext) {
+	const opener = () => ctx.app.internalPlugins?.getEnabledPluginById("daily-notes")?.openDailyNoteOf as OpenDailyNote | undefined;
+	const sync = () => input.toggleClass("is-daily-note-link", !!opener() && !!dayOf(input.value));
+	sync();
+	input.addEventListener("input", sync);
+	// Over the date text, not the space after it or the calendar icon.
+	const onText = (evt: MouseEvent) => {
+		const style = getComputedStyle(input);
+		const context = document.createElement("canvas").getContext("2d");
+		if (!context) return false;
+		context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+		const width = context.measureText(input.value.replace("T", ", ")).width;
+		return evt.offsetX >= 0 && evt.offsetX <= parseFloat(style.paddingLeft) + width + 4;
+	};
+	input.addEventListener("mousedown", (evt) => {
+		const open = opener();
+		const day = dayOf(input.value);
+		if (!open || !day || evt.button !== 0 || input.ownerDocument.activeElement === input || !onText(evt)) return;
+		evt.preventDefault();
+		evt.stopPropagation();
+		open(day, Keymap.isModEvent(evt));
+	});
+	input.addEventListener("mousemove", (evt) => {
+		input.toggleClass("is-over-text", input.hasClass("is-daily-note-link") && input.ownerDocument.activeElement !== input && onText(evt));
+	});
+	input.addEventListener("mouseleave", () => input.removeClass("is-over-text"));
+}
+
 function renderInput(el: HTMLElement, value: unknown, ctx: PropertyRenderContext, type: "number" | "date" | "datetime"): PropertyWidgetComponent {
 	const input = el.createEl("input", {
 		cls: type === "number" ? "metadata-input metadata-input-number" : `metadata-input metadata-input-text mod-${type}`,
@@ -243,6 +285,7 @@ function renderInput(el: HTMLElement, value: unknown, ctx: PropertyRenderContext
 		commit();
 		ctx.blur();
 	});
+	if (type !== "number") linkToDailyNote(input, ctx);
 	return { focus: () => input.focus() };
 }
 

@@ -30,6 +30,15 @@ describe("parseMetadata sections", () => {
 		expect(c.sections!.map((s) => s.type)).toEqual(["yaml", "paragraph", "thematicBreak", "paragraph"]);
 		expect(getFrontMatterInfo("---\n---\nbody")).toEqual({ exists: true, frontmatter: "", from: 4, to: 4, contentStart: 7 });
 	});
+
+	// Obsidian, its editor and its reading view take only a line of exactly
+	// '---' as the frontmatter's fences; '--- ' is a rule and text.
+	test("a fence line with trailing spaces opens or closes no frontmatter", () => {
+		expect(getFrontMatterInfo("--- \na: 1\n---\nbody").exists).toBe(false);
+		expect(getFrontMatterInfo("---\na: 1\n--- \nbody").exists).toBe(false);
+		expect(parseMetadata("--- \na: 1\n---\nbody").frontmatter).toBeUndefined();
+		expect(getFrontMatterInfo("---\r\na: 1\r\n---\r\nbody")).toMatchObject({ exists: true, frontmatter: "a: 1" });
+	});
 });
 
 describe("parseMetadata list items", () => {

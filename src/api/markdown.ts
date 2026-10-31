@@ -146,9 +146,24 @@ function embedPlaceholder(src: string, label?: string) {
 // hides the rest of the note. Their text is blanked before block parsing, so
 // line numbers stay those of the file; the frontmatter, fenced code (also in
 // a quote, callout or list item, as Live Preview's tree has it, and after an
-// item's marker: '- ```py') and inline code keep their %%. A backtick fence's
-// info string holds no backtick: '```a``` b' is inline code.
+// item's marker: '- ```py'), `$$` math blocks, indented code and inline code
+// keep their %%, as in Obsidian's reading view and Live Preview. A backtick
+// fence's info string holds no backtick: '```a``` b' is inline code.
+const CONTAINERS = /^(?:[ \t]*(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t])))*[ \t]*/;
 const FENCE = /^(?:[ \t]*(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t])))*[ \t]*(`{3,}(?=[^`]*$)|~{3,})/;
+const QUOTES = /^(?:[ ]{0,3}>[ ]?)*/;
+const LIST_ITEM = /^([-*+]|\d{1,9}[.)])([ \t]+|$)/;
+
+// The column a line's text starts at, tabs stopping every 4 columns.
+function indentOf(text: string) {
+	let col = 0;
+	for (const c of text) {
+		if (c === " ") col++;
+		else if (c === "\t") col += 4 - (col % 4);
+		else break;
+	}
+	return col;
+}
 
 function stripComments(src: string) {
 	if (!src.includes("%%")) return src;
@@ -159,17 +174,54 @@ function stripComments(src: string) {
 		if (close > 0) i = close + 1;
 	}
 	let fence: string | null = null;
+	let math = false;
 	let inComment = false;
+	// For indented code: the content columns of the list items the line may
+	// be in, whether the previous line was blank (code cannot interrupt a
+	// paragraph) and whether it was indented code.
+	const items: number[] = [];
+	let afterBlank = true;
+	let inCode = false;
 	for (; i < lines.length; i++) {
 		const line = lines[i];
 		if (!inComment) {
-			const f = FENCE.exec(line);
 			if (fence) {
+				const f = FENCE.exec(line);
 				if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !line.slice(f[0].length).trim()) fence = null;
 				continue;
 			}
+			if (math) {
+				if (line.includes("$$")) math = false;
+				continue;
+			}
+			const body = line.slice(QUOTES.exec(line)![0].length);
+			if (!body.trim()) {
+				afterBlank = true;
+				continue;
+			}
+			const indent = indentOf(body);
+			const text = body.trimStart();
+			const item = indent < (items.at(-1) ?? 0) + 4 ? LIST_ITEM.exec(text) : null;
+			while (items.length && indent < items.at(-1)! && (afterBlank || item)) items.pop();
+			if (indent >= (items.at(-1) ?? 0) + 4 && (afterBlank || inCode)) {
+				inCode = true;
+				afterBlank = false;
+				continue;
+			}
+			inCode = false;
+			afterBlank = false;
+			if (item) {
+				const gap = indentOf(item[2]);
+				items.push(indent + item[1].length + (gap === 0 || gap > 4 ? 1 : gap));
+			}
+			const f = FENCE.exec(line);
 			if (f) {
 				fence = f[1];
+				continue;
+			}
+			const close = mathBlockClose(line.slice(CONTAINERS.exec(line)![0].length));
+			if (close !== null) {
+				math = close < 0;
 				continue;
 			}
 		}

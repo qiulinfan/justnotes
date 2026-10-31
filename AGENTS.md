@@ -198,8 +198,8 @@ plain style. Development notes belong in this file.
   WebM/Opus as Obsidian's desktop recordings (MP4, then Ogg, only where WebM
   is not recorded), named `Recording YYYYMMDDHHmmss.webm`, saved through
   `importFile` into the attachment folder for the active note and embedded
-  at its cursor on a line of its own (Obsidian's docs say at the end of the
-  note); with no note open it opens in a tab. Media players
+  at the end of the note on a line of its own, as Obsidian's docs say (the
+  cursor stays); with no note open it opens in a tab. Media players
   (`createMediaPlayer` in `markdown.ts`, used by embeds in both views and by
   the `audio`/`video` views of `media-view.ts`, registered at boot for
   Obsidian's extensions) turn a video file without a picture into an audio
@@ -690,7 +690,10 @@ plain style. Development notes belong in this file.
   are one step and a plugin's concurrent write is merged, not lost. An outside
   change to an open file merges line by line with unsaved edits (`mergeText`,
   a line diff3), including lines one side added next to a line the other side
-  changed; a real conflict keeps both versions and shows a notice. The take-in
+  changed; a real conflict keeps both versions and shows a notice. Line breaks
+  compare as LF and the result takes the file's (a CRLF note converted to LF
+  while open merges cleanly and saves as LF; MarkdownView re-detects CRLF from
+  the text a reload or merge sets, `crlfOf`). The take-in
   during a save, the reload on vault `modify` and the quit flush all merge
   this way. A view whose text is structured data registers its own merge with
   `mergeWith` (the canvas merges by node and edge id, field by field, so a
@@ -700,7 +703,8 @@ plain style. Development notes belong in this file.
   (`prior`), for QuickAdd's capture, which reads, computes and then writes:
   merged against the save, it would undo it. `mergeBase` merges a change
   against the replaced text only when the change is that text with lines
-  inserted (an inserted line may fill a blank one), merges with the save's
+  inserted (an inserted line may fill a blank one) or with text inserted
+  inside lines (QuickAdd's inline insert; `insertsText`), merges with the save's
   edits without a conflict, is no version the document has had (`seen`: every
   text it loaded, saved or took in) and was not made from the saved text
   (holding all its lines: QuickAdd reading after the autosave, a line appended
@@ -709,14 +713,16 @@ plain style. Development notes belong in this file.
   comment on `mergeBase` has the exact rules.
 - Limits of judging by content: a revert to a version from before the note was
   opened, landing within the second, passes for a capture when the replaced
-  text is that version with lines removed or emptied, and the save's edits
-  survive it. A rewrite of only lines the save inserted (a formatter tidying
+  text is that version with lines removed or emptied (or text removed inside
+  lines), and the save's edits survive it. A rewrite of only lines the save inserted (a formatter tidying
   the line just typed) is byte for byte a capture, so the typed line is kept
   beside its rewrite once; the write that saves it records no `prior`
   (`keptCapture`), so a writer that rewrites on every save does not grow the
   note. After a save that only removed the final newline, a line appended
-  within the second loses its own. QuickAdd's inline insert, which writes
-  inside a line, still loses a racing save.
+  within the second loses its own. QuickAdd's inline insert into the very
+  line the racing save changed conflicts with it line by line, so the insert's
+  version of that line wins and the save's change to it is lost (its other
+  edits stay).
 - Vault writes go in place, never to a temp file renamed over the note: a
   rename resets the birth time (Bases `file.ctime`), the inode, the mode and
   xattrs such as Finder tags. A read of a path waits for a write putting that
@@ -803,6 +809,15 @@ plain style. Development notes belong in this file.
   callback changed the same way, property by property, and throws on YAML
   that is not a map rather than replacing it. A Bases cell edit it refuses
   (`writeCell`) shows the reason in a Notice and puts the cell back.
+- While Daily notes is on, a date or date & time property links to its day's
+  daily note, as Obsidian's date widget does: the date shows in the link
+  colour, a click on its text opens the note (made from the daily note
+  template when missing; Mod-click in a new tab) through the plugin
+  instance's `openDailyNoteOf`, which the installer sets and removes; the
+  calendar icon, a click beside the text and the keyboard edit the value.
+  `color-scheme` follows the theme on `body`, so native date pickers (their
+  calendar icon), checkboxes and scrollbars are dark on the dark theme in
+  properties and plugin views alike.
 
 ## Live Preview and math
 
@@ -813,6 +828,17 @@ plain style. Development notes belong in this file.
   line syntax (heading marks, quote marks, list bullets, tasks, rules, block
   math) shows while the selection is on those lines.
 - `editorLivePreviewField` false means Source mode: no decorations at all.
+- Links as Obsidian renders them: a destination is read as CommonMark reads
+  it (`destinationText`: no angle brackets, backslash escapes unescaped, so
+  `[x](a\_b.md)` opens `a_b.md`); reference links (`[text][ref]`,
+  `[text][]`, `[text]`) render with the destination of the note's definition,
+  found in the same tree pass and applied after it, and a definition line
+  shows its label small (`cm-link-ref-label`) and its destination as a link.
+  Ordered tasks keep their number before the box (a bullet gives way to it),
+  in both views. Footnote references (`[^1]`) show their source as a faint
+  superscript (`sup.cm-footref-rendered`); a definition's `[^id]: ` becomes
+  the footnote's number as the reading view counts it (references by first
+  use, inline `^[notes]` included; the label when nothing refers to it).
 - Raw HTML: an `<img>` alone or inline becomes an `HtmlImageWidget` (its src
   found as the reading view finds it); any other HTML block (`<p
   align="center">`, `<div>`, `<details>`, ...) renders through
@@ -860,15 +886,21 @@ plain style. Development notes belong in this file.
   is in. Only a line inside a real quote counts (the syntax tree reaches a
   `Blockquote` before any text block): a `>` line in code, HTML, math or
   frontmatter gets a plain newline. Inside a fence lang-markdown's Enter never
-  continues quote or list markup, so a new line in a quoted fence gets no `> `.
+  continues quote or list markup, so `continueQuotedCode` (bound after
+  `exitEmptyQuote`) starts a new line in a fenced block inside a quote with the
+  line's quote marks and the whitespace after them, as Obsidian does, also on
+  an empty code line.
 - Only heading sections (`foldHeading`) and what is nested in list items
   (`foldIndent`) fold, as in Obsidian: `markdownSupport` strips lang-markdown's
   block folds and the folds of every language it mounts: fenced code
   (`foldless`), HTML in notes and in `html`/`xhtml` fences (elements, script
   and style contents, `style` and event-handler attribute values), and
   `markdown` fences (CommonMark without lang-markdown's folds, so their
-  headings are no sections). Vue, Angular, PHP, Liquid and Jinja fences still
-  fold the code nested in them.
+  headings are no sections). Vue, Angular, PHP, Liquid and Jinja fences nest
+  HTML, CSS and JavaScript through private parsers that share the exported
+  languages' node types, so `deeplyFoldless` wraps their parser: each parsed
+  tree's mounted trees are copied with fold-free node types
+  (`foldlessMounts`); those inner trees are parsed again on each change.
 - Scripts and styles in a note's HTML parse by their type or lang exactly as
   lang-html decides, at once: `editor-extensions.ts` copies lang-html's
   nesting rules with fold-free parsers, including its private list of event
@@ -902,6 +934,11 @@ plain style. Development notes belong in this file.
   collapsed. Search results are tree rows: `.tree-item.search-result` with a
   title row (basename, chevron folding the matches, match count as flair;
   the path is its tooltip) and `.search-result-file-matches` below.
+- Main-area tabs are `--tab-width` (200px) wide, as Obsidian's, and shrink
+  evenly when they no longer fit, down to their icon; past that the tab bar
+  scrolls. The width is a `width`, not only a flex basis: a flex container's
+  intrinsic size counts its items' content, so a basis alone squeezed the tabs
+  to their titles beside free space.
 - Links take their colours from the `--link-*` variables, and a base `a` rule
   gives plain anchors in plugin views the link colour. Live Preview's link
   marks carry `.internal-link` and `.external-link`, so the reading view's link

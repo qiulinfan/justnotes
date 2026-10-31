@@ -3,6 +3,7 @@ import type { App } from "../api/app";
 import { Notice } from "../api/ui/notice";
 import { moment, normalizePath } from "../api/util";
 import type { TFile } from "../api/vault";
+import type { PaneType } from "../api/workspace";
 import { fillTemplate } from "./templates";
 
 export interface DailyNoteOptions {
@@ -74,10 +75,10 @@ export async function dailyNote(app: App, date: moment.Moment) {
 	return app.vault.create(path, content);
 }
 
-export async function openDailyNote(app: App, date = moment()) {
+export async function openDailyNote(app: App, date = moment(), newLeaf: PaneType | boolean = false) {
 	try {
 		const file = await dailyNote(app, date);
-		await app.workspace.getLeaf(false).openFile(file, { active: true });
+		await app.workspace.getLeaf(newLeaf).openFile(file, { active: true });
 	} catch (err) {
 		new Notice(`Could not open the daily note: ${err instanceof Error ? err.message : String(err)}`);
 	}
@@ -112,5 +113,12 @@ export function installDailyNotes(app: App, host: CorePluginHost) {
 	host.addCommand({ id: "daily-notes:goto-prev", name: "Daily notes: Open previous daily note", checkCallback: go(-1) });
 	host.addCommand({ id: "daily-notes:goto-next", name: "Daily notes: Open next daily note", checkCallback: go(1) });
 	host.addRibbonIcon("daily-notes", "calendar-days", "Open today's daily note", () => openDailyNote(app));
+	// Date properties link to their day's daily note while the plugin is on,
+	// as Obsidian's date widget does (metadata-widgets.ts calls this).
+	const instance = app.internalPlugins.getEnabledPluginById("daily-notes");
+	if (instance) {
+		instance.openDailyNoteOf = (day: string, newLeaf: PaneType | boolean) => openDailyNote(app, moment(day, "YYYY-MM-DD", true), newLeaf);
+		host.register(() => delete instance.openDailyNoteOf);
+	}
 	if (dailyNoteOptions(app).autorun && !host.userEnabled) app.workspace.onLayoutReady(() => openDailyNote(app));
 }

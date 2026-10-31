@@ -342,3 +342,33 @@
 	color: var(--text-muted);
 	cursor: pointer;
 }
+
+/* A link reference definition: its label small and faint before the link. */
+.markdown-source-view.mod-cm6 .cm-link-ref-label {
+	font-size: var(--font-smaller, 0.875em);
+	color: var(--text-faint);
+}
+
+.markdown-source-view.mod-cm6 .cm-link-ref-title,
+.markdown-source-view.mod-cm6 .cm-link-ref-title * {
+	color: var(--text-faint);
+}
+
+/* Footnotes: a reference's source as a faint superscript, a definition's
+   label as the footnote's number. */
+.markdown-source-view.mod-cm6 sup.cm-footref-rendered,
+.markdown-source-view.mod-cm6 sup.cm-footref-rendered .cm-footref,
+.markdown-source-view.mod-cm6 .cm-footref sup.cm-footref-rendered {
+	color: var(--text-faint);
+	font-size: var(--font-smaller, 0.875em);
+}
+
+.markdown-source-view.mod-cm6 sup.cm-footref-rendered {
+	line-height: 0;
+}
+
+.markdown-source-view.mod-cm6 .footnote-def-number {
+	margin-inline-end: 0.4em;
+	color: var(--text-muted);
+	line-height: 0;
+}

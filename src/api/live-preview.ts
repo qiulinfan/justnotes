@@ -8,7 +8,7 @@ import type { Component } from "./events";
 import { setIcon } from "./icons";
 import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, onCodeBlockProcessorsChange, renderMath, resolveHtmlSrc, toggledTask } from "./markdown";
 import { editorMetadataHost, MetadataEditor, type MetadataEditorHost, metadataEditorOf } from "./metadata-editor";
-import { getLinkpath } from "./metadata-utils";
+import { destinationText, getLinkpath } from "./metadata-utils";
 import type { TFile } from "./vault";
 
 export interface LivePreviewHost {
@@ -118,15 +118,56 @@ function autolinkHref(node: SyntaxNode, url: string) {
 
 // A Markdown link's or image's destination, as the reading view reads it:
 // the URL after the text's closing bracket, not one in the text itself
-// ([a@b.co](mailto:a@b.co), [www.x.com](https://x.com)), and `<...>` (a
-// path with spaces, as in [a](<My note.md>)) without its angle brackets.
-// Null for a reference link, whose destination is elsewhere.
+// ([a@b.co](mailto:a@b.co), [www.x.com](https://x.com)), read by
+// destinationText. Null for a reference link, whose destination is elsewhere.
 function destination(state: EditorState, node: SyntaxNode) {
 	const textEnd = node.getChildren("LinkMark")[1]?.to;
 	const url = textEnd === undefined ? undefined : node.getChildren("URL").find((u) => u.from >= textEnd);
-	if (!url) return null;
-	const text = state.sliceDoc(url.from, url.to);
-	return text.startsWith("<") && text.endsWith(">") ? text.slice(1, -1) : text;
+	return url ? destinationText(state.sliceDoc(url.from, url.to)) : null;
+}
+
+// A link reference label as CommonMark matches it: case and runs of
+// whitespace do not count.
+const labelKey = (label: string) => label.trim().replace(/\s+/g, " ").toLowerCase();
+
+// The label a reference link ([text][ref], [text][], [text]) names, or null
+// for a link that names none (an inline footnote, ^[note]).
+function referenceLabel(state: EditorState, node: SyntaxNode) {
+	const marks = node.getChildren("LinkMark");
+	if (marks.length < 2 || state.sliceDoc(node.from - 1, node.from) === "^") return null;
+	const label = node.getChild("LinkLabel");
+	const text = label && label.to - label.from > 2 ? state.sliceDoc(label.from + 1, label.to - 1) : state.sliceDoc(marks[0].to, marks[1].from);
+	return text.trim() ? labelKey(text) : null;
+}
+
+// The destination of each link reference definition ([ref]: url "title") in
+// the note, by label; the first definition of a label wins.
+function referenceDefinitions(state: EditorState) {
+	const defs = new Map<string, string>();
+	syntaxTree(state).iterate({
+		enter: (ref) => {
+			if (ref.name !== "LinkReference") return;
+			const def = definitionOf(state, ref.node);
+			if (def && !defs.has(def.key)) defs.set(def.key, def.href);
+			return false;
+		},
+	});
+	return defs;
+}
+
+function definitionOf(state: EditorState, node: SyntaxNode) {
+	const label = node.getChild("LinkLabel");
+	const url = node.getChild("URL");
+	if (!label || !url) return null;
+	return { key: labelKey(state.sliceDoc(label.from + 1, label.to - 1)), href: destinationText(state.sliceDoc(url.from, url.to)), label, url };
+}
+
+// A Markdown link's destination, inline or from the definition its label names.
+function linkDestination(state: EditorState, node: SyntaxNode) {
+	const href = destination(state, node);
+	if (href !== null || node.name !== "Link") return href;
+	const key = referenceLabel(state, node);
+	return key === null ? null : (referenceDefinitions(state).get(key) ?? null);
 }
 
 function tokenOf(state: EditorState, n: SyntaxNode): ClickableToken | null {
@@ -139,7 +180,7 @@ function tokenOf(state: EditorState, n: SyntaxNode): ClickableToken | null {
 		}
 		case "Link":
 		case "Image": {
-			const href = destination(state, n);
+			const href = linkDestination(state, n);
 			if (href === null) return null;
 			return SCHEME.test(href)
 				? { type: "external-link", text: href, from: n.from, to: n.to }
@@ -148,6 +189,10 @@ function tokenOf(state: EditorState, n: SyntaxNode): ClickableToken | null {
 		case "URL": {
 			const parent = n.parent?.name;
 			if (parent === "Link" || parent === "Image") return null;
+			if (parent === "LinkReference") {
+				const href = destinationText(text(n));
+				return SCHEME.test(href) ? { type: "external-link", text: href, from: n.from, to: n.to } : { type: "internal-link", text: safeDecode(href), from: n.from, to: n.to };
+			}
 			return { type: "external-link", text: autolinkHref(n, text(n)), from: n.from, to: n.to };
 		}
 		case "hashtag":
@@ -240,6 +285,21 @@ class CheckboxWidget extends WidgetType {
 
 	ignoreEvent() {
 		return true;
+	}
+}
+
+// A footnote definition's label, shown as the footnote's number.
+class FootnoteNumberWidget extends WidgetType {
+	constructor(readonly text: string) {
+		super();
+	}
+
+	eq(other: FootnoteNumberWidget) {
+		return other.text === this.text;
+	}
+
+	toDOM() {
+		return createEl("sup", { cls: "footnote-def-number", text: this.text });
 	}
 }
 
@@ -729,6 +789,27 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 		decos.push(block ? Decoration.replace({ widget, block: true }).range(line.from, line.to) : Decoration.replace({ widget }).range(node.from, node.to));
 	};
 
+	// The mark of a link to `href`. A note link carries its decoded path, as
+	// the reading view's does.
+	const linkTo = (href: string) => {
+		const path = safeDecode(href);
+		return SCHEME.test(href) ? linkMark("external-link", href) : linkMark("internal-link", path, !!cx.linkDest(getLinkpath(path)));
+	};
+	// A link's text as a link to `href`, its brackets and destination hidden.
+	const renderLink = (from: number, to: number, textFrom: number, textTo: number, href: string) => {
+		decos.push(hide.range(from, textFrom));
+		if (textTo > textFrom) decos.push(linkTo(href).range(textFrom, textTo));
+		decos.push(hide.range(textTo, to));
+	};
+	// Reference links render once the definitions, wherever they are in the
+	// note, are known.
+	const definitions = new Map<string, string>();
+	const referenceLinks: { from: number; to: number; textFrom: number; textTo: number; key: string }[] = [];
+	// Footnotes in the order the reading view numbers them: a reference's label
+	// (its first reference counts), or null for an inline ^[note].
+	const footnoteOrder: (string | null)[] = [];
+	const footnoteDefinitions: { from: number; to: number; label: string }[] = [];
+
 	syntaxTree(state).iterate({
 		enter: (ref) => {
 			const { from, to, name } = ref;
@@ -848,8 +929,9 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 				}
 				case "TaskMarker": {
 					if (touchesLines(from, to)) return;
+					// A bullet gives way to the box; an ordered task keeps its number.
 					const mark = node.parent?.parent?.firstChild;
-					const start = mark?.name === "ListMark" ? mark.from : from;
+					const start = mark?.name === "ListMark" && node.parent?.parent?.parent?.name === "BulletList" ? mark.from : from;
 					decos.push(Decoration.replace({ widget: new CheckboxWidget(state.sliceDoc(from + 1, from + 2), from) }).range(start, to));
 					return;
 				}
@@ -868,22 +950,30 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					return false;
 				}
 				case "Link": {
+					if (state.sliceDoc(from - 1, from) === "^") footnoteOrder.push(null);
 					if (touches(from, to)) return;
 					const marks = node.getChildren("LinkMark");
 					const href = destination(state, node);
-					if (href === null) return;
-					const textEnd = marks[1].from;
-					decos.push(hide.range(from, marks[0].to));
-					if (textEnd > marks[0].to) {
-						// A note link carries its decoded path, as the reading view's does.
-						const path = safeDecode(href);
-						const mark = SCHEME.test(href) ? linkMark("external-link", href) : linkMark("internal-link", path, !!cx.linkDest(getLinkpath(path)));
-						decos.push(mark.range(marks[0].to, textEnd));
+					if (href !== null) renderLink(from, to, marks[0].to, marks[1].from, href);
+					else {
+						const key = referenceLabel(state, node);
+						if (key !== null) referenceLinks.push({ from, to, textFrom: marks[0].to, textTo: marks[1].from, key });
 					}
-					decos.push(hide.range(textEnd, to));
 					// The link text's own syntax (emphasis, code, math, a badge
 					// image) renders inside the link, as in the reading view.
 					return;
+				}
+				// A definition shows its label small and its destination as a link.
+				case "LinkReference": {
+					const def = definitionOf(state, node);
+					if (!def) return false;
+					if (!definitions.has(def.key)) definitions.set(def.key, def.href);
+					if (touches(from, to)) return false;
+					decos.push(Decoration.mark({ class: "cm-link-ref-label" }).range(def.label.from, def.label.to));
+					decos.push(linkTo(def.href).range(def.url.from, def.url.to));
+					const title = node.getChild("LinkTitle");
+					if (title) decos.push(Decoration.mark({ class: "cm-link-ref-title" }).range(title.from, title.to));
+					return false;
 				}
 				case "Autolink": {
 					if (touches(from, to)) return false;
@@ -960,8 +1050,17 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					decos.push(hide.range(shown.to, to));
 					return false;
 				}
+				// A reference shows its source as a faint superscript; a definition's
+				// label becomes the footnote's number, as in Obsidian.
 				case "footref": {
-					if (doc.lineAt(from).from === from && state.sliceDoc(to, to + 1) === ":") addLine(from, "HyperMD-footnote");
+					const label = state.sliceDoc(from + 2, to - 1);
+					if (doc.lineAt(from).from === from && state.sliceDoc(to, to + 1) === ":") {
+						addLine(from, "HyperMD-footnote");
+						footnoteDefinitions.push({ from, to, label });
+						return;
+					}
+					footnoteOrder.push(label);
+					if (!touches(from, to)) decos.push(Decoration.mark({ tagName: "sup", class: "cm-footref-rendered" }).range(from, to));
 					return;
 				}
 				case "hashtag": {
@@ -989,6 +1088,23 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 		},
 	});
 
+	if (footnoteDefinitions.length) {
+		const numbers = new Map<string, number>();
+		let count = 0;
+		for (const label of footnoteOrder) {
+			if (label === null) count++;
+			else if (!numbers.has(label)) numbers.set(label, ++count);
+		}
+		for (const def of footnoteDefinitions) {
+			if (touchesLines(def.from, def.to)) continue;
+			const end = state.sliceDoc(def.to + 1, def.to + 2) === " " ? def.to + 2 : def.to + 1;
+			decos.push(Decoration.replace({ widget: new FootnoteNumberWidget(String(numbers.get(def.label) ?? def.label)) }).range(def.from, end));
+		}
+	}
+	for (const link of referenceLinks) {
+		const href = definitions.get(link.key);
+		if (href !== undefined) renderLink(link.from, link.to, link.textFrom, link.textTo, href);
+	}
 	for (const [from, depth] of quoteDepth) {
 		addLine(from, `HyperMD-quote HyperMD-quote-${depth}`);
 		const line = doc.lineAt(from);

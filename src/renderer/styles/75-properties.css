@@ -269,9 +269,15 @@ div.metadata-input-longtext {
 	cursor: pointer;
 }
 
-/* Native date pickers and checkboxes follow the theme. */
-body.theme-dark .metadata-container {
-	color-scheme: dark;
+/* A date that links to its daily note (the Daily notes plugin is on). */
+.metadata-property-value input.metadata-input.is-daily-note-link {
+	color: var(--link-color);
+}
+
+.metadata-property-value input.metadata-input.is-daily-note-link.is-over-text {
+	cursor: pointer;
+	color: var(--link-color-hover);
+	text-decoration: var(--link-decoration-hover, underline);
 }
 
 /* The All properties pane. */

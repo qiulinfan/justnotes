@@ -9,7 +9,7 @@ import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range, type StateCommand } from "@codemirror/state";
 import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { IterMode, NodeProp, type NodePropSource, type Parser, type SyntaxNode } from "@lezer/common";
+import { IterMode, MountedTree, NodeProp, type NodePropSource, type NodeSet, type Parser, type PartialParse, type SyntaxNode, Tree, TreeBuffer } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import { type BlockContext, type Element, type LeafBlock, type LeafBlockParser, type Line, type MarkdownConfig, parseCode, parser as commonmark } from "@lezer/markdown";
 import type { App } from "./app";
@@ -451,6 +451,32 @@ export const exitEmptyQuote: StateCommand = ({ state, dispatch }) => {
 	return true;
 };
 
+// Enter in a fenced code block inside a quote keeps the new line in the
+// quote, as Obsidian does: it starts with the line's quote marks and the
+// whitespace after them (a list item's indentation, the code's own).
+// lang-markdown's Enter continues no markup inside a fence, so the new line
+// would end the quote and the fence with it.
+export const continueQuotedCode: StateCommand = ({ state, dispatch }) => {
+	const sel = state.selection;
+	if (sel.ranges.length !== 1) return false;
+	const { from, to } = sel.main;
+	const line = state.doc.lineAt(from);
+	if (state.doc.lineAt(to).number !== line.number) return false;
+	const prefix = /^(?:[ \t]*>)+[ \t]*/.exec(line.text)?.[0];
+	if (!prefix || from - line.from < prefix.length) return false;
+	let inFence = false;
+	for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(from, -1); node; node = node.parent) {
+		if (node.name === "FencedCode") inFence = true;
+		else if (node.name === "Blockquote") {
+			if (!inFence) return false;
+			const insert = `\n${prefix}`;
+			dispatch(state.update({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, scrollIntoView: true, userEvent: "input" }));
+			return true;
+		}
+	}
+	return false;
+};
+
 // Tab indents list items and selections, and otherwise inserts one indent
 // unit at the cursor, as Obsidian does.
 function indentOrInsertTab(view: EditorView) {
@@ -518,17 +544,71 @@ function foldless(lang: Language): Language | null {
 	return out;
 }
 
+// A tree with the folds of every language mounted in it left out: the trees
+// mounted in it are copied with their node types taken from their parser's
+// node set without folds (and so on into the trees mounted in those). Its own
+// node types are kept, so the parser still reuses it when the text changes;
+// the copied trees are parsed again. Template languages (Vue, Angular, PHP,
+// Liquid, Jinja) nest HTML, CSS and JavaScript with private parsers that
+// share their node types with the exported languages, so their folds can
+// only go this way.
+const foldlessSets = new WeakMap<NodeSet, NodeSet>();
+function foldlessSet(set: NodeSet) {
+	let out = foldlessSets.get(set);
+	if (!out) foldlessSets.set(set, (out = set.extend(foldNodeProp.add(() => noFold))));
+	return out;
+}
+
+function foldlessMounts(tree: Tree, set: NodeSet | null): Tree {
+	const mapped = set?.types[tree.type.id];
+	const type = mapped && mapped.name === tree.type.name ? mapped : tree.type;
+	const children = tree.children.map((child) => (child instanceof TreeBuffer ? (set ? new TreeBuffer(child.buffer, child.length, set) : child) : foldlessMounts(child, set)));
+	const props = tree.propValues.map(([prop, mount]): [NodeProp<any> | number, any] => {
+		if (!(mount instanceof MountedTree)) return [prop, mount];
+		const inner = (mount.parser as { nodeSet?: NodeSet }).nodeSet;
+		return [prop, new MountedTree(foldlessMounts(mount.tree, inner ? foldlessSet(inner) : null), mount.overlay, mount.parser, mount.bracketed)];
+	});
+	return new Tree(type, children, tree.positions, tree.length, props);
+}
+
+// A language whose trees have no folds, also in the trees mounted in them.
+function deeplyFoldless(lang: Language): Language | null {
+	const parser = lang.parser as Parser & { configure?(config: { props?: NodePropSource[]; wrap?: (inner: PartialParse) => PartialParse }): Parser };
+	if (!parser.configure) return null;
+	const wrap = (inner: PartialParse): PartialParse => ({
+		advance: () => {
+			const tree = inner.advance();
+			return tree && foldlessMounts(tree, null);
+		},
+		get parsedPos() {
+			return inner.parsedPos;
+		},
+		stopAt: (pos) => inner.stopAt(pos),
+		get stoppedAt() {
+			return inner.stoppedAt;
+		},
+	});
+	return new Language(lang.data, parser.configure({ props: [foldNodeProp.add(() => noFold)], wrap }), [], lang.name);
+}
+
+const deeplyFoldlessLanguages = new WeakMap<Language, Language | null>();
+const templateLanguages = new Set(["Vue", "Angular Template", "PHP", "Liquid", "Jinja"]);
+
 // A fenced block's language from language-data with its folds left out, or
 // its description while it is not loaded (lang-markdown loads it and parses
 // again) and for a stream language, which has no folds. That leaves the folds
 // of the languages a fenced one nests, so HTML and Markdown fences get
-// versions nesting fold-free ones; Vue, Angular, PHP, Liquid and Jinja fences
-// still fold the HTML, CSS and JavaScript in them.
+// versions nesting fold-free ones, and template languages drop the folds of
+// the trees mounted in theirs.
 function codeLanguage(info: string): Language | LanguageDescription | null {
 	const found = LanguageDescription.matchLanguageName(languages, info, true);
 	if (found?.name === "HTML") return htmlFence;
 	if (found?.name === "Markdown") return markdownFence;
 	const lang = found?.support?.language;
+	if (lang && templateLanguages.has(found!.name)) {
+		if (!deeplyFoldlessLanguages.has(lang)) deeplyFoldlessLanguages.set(lang, deeplyFoldless(lang));
+		return deeplyFoldlessLanguages.get(lang) ?? found;
+	}
 	return (lang && foldless(lang)) ?? found;
 }
 
@@ -785,7 +865,7 @@ function dropDefault(view: MarkdownView, evt: DragEvent) {
 export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
 	return [
 		editorLivePreviewField,
-		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }])),
+		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }, { key: "Enter", run: continueQuotedCode }])),
 		indentation.of(indentConfig(host.app)),
 		history(),
 		drawSelection(),
@@ -821,7 +901,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		editorEditorField.init(() => view.editor?.cm ?? null),
 		editorLivePreviewField,
 		plugins.of(app.workspace.editorExtensions),
-		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }])),
+		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }, { key: "Enter", run: continueQuotedCode }])),
 		EditorState.allowMultipleSelections.of(true),
 		// Alt-click adds a cursor, as in Obsidian; Mod-click opens links.
 		EditorView.clickAddsSelectionRange.of((evt) => evt.altKey),
