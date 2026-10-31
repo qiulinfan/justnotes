@@ -300,7 +300,8 @@ All of the owner's plugins load and their features were tested live on vault
 copies: copy-location, quick-latex, obsidian-completr, yolo (live completion,
 paid: only within the owner's small test budget), background, kgdistiller
 (0.1.5 and 3.0.2), latex-live (0.2.0; 0.1.7 loads), obsidian-git, omp-sidebar,
-quickadd and terminal. Known gaps: popout windows, a canvas view (QuickAdd's
+quickadd, terminal and obsidian-tinymist (0.1.0, its YOLO bridge against a
+local mock provider). Known gaps: popout windows, a canvas view (QuickAdd's
 capture into the active canvas), a CLI transport for `registerCliHandler`,
 `app.metadataTypeManager`, editable properties, tab drag and drop.
 
@@ -321,7 +322,10 @@ capture into the active canvas), a CLI transport for `registerCliHandler`,
   whatever listens on 9333; with two windows it attaches to the first page
   target). Mouse input goes through `Input.dispatchMouseEvent`. Injected keys
   never trigger macOS menu key equivalents, so Cmd+A needs `cdp.ts selectall`;
-  native `<select>` popups cannot be driven.
+  native `<select>` popups cannot be driven. A plugin's `<iframe>` from
+  another origin (tinymist's preview on 127.0.0.1) is a target of its own
+  (type `iframe` in `/json`): read positions inside it through that target,
+  then click at them in page coordinates.
 - Stub openers before clicking anything that may open a URL. Assigning
   `require("@electron/remote").shell.openExternal` patches only the renderer
   proxy; evaluate in main instead (`remote.require("vm").runInThisContext`
@@ -340,4 +344,13 @@ capture into the active canvas), a CLI transport for `registerCliHandler`,
   `GIT_CONFIG_NOSYSTEM=1`; quickadd keeps online features off; terminal shells
   are the owner's login shell, so launch with `fish_private_mode=1` and type
   nothing that should not run; latex-live keeps shell escape off and builds in
-  the system temp folder.
+  the system temp folder; obsidian-tinymist runs two `tinymist lsp` processes
+  (the editor's and the formula renderer) and a preview server on 127.0.0.1,
+  rooted at the copy, but downloads a `@preview` package missing from Typst's
+  package cache into that cache, so use fixtures whose packages are cached
+  (`~/Library/Caches/typst/packages`). Copies get the vault's `.typ` and `.bib`
+  files; notes has none, so copy in Typst fixtures (courses' `_editor-test`
+  holds a demo and a book with a `.tinymist-preview.typ`). Its YOLO bridge
+  completes through yolo: with yolo enabled, blank the copy's API keys and
+  point its completion model at a local OpenAI-compatible mock (YOLO's chat
+  protocol accepts `http://127.0.0.1`; Mercury FIM only Inception's host).
