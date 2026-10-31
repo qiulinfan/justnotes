@@ -848,6 +848,11 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 
 const refresh = StateEffect.define<null>();
 
+// Resolves links and images again, after the vault's files changed.
+export function refreshLivePreview(view: EditorView) {
+	view.dispatch({ effects: refresh.of(null) });
+}
+
 // A tag click opens search for it, as in Obsidian.
 export async function searchTag(app: App, tag: string) {
 	const search = (app as any).internalPlugins?.getPluginById?.("global-search")?.instance;
@@ -861,7 +866,7 @@ export async function searchTag(app: App, tag: string) {
 
 export function livePreview(host: LivePreviewHost): Extension {
 	// Link and image resolution scan the vault, so each is cached per editor
-	// until the vault's files change.
+	// until refreshLivePreview.
 	const resolved = new Map<string, boolean>();
 	const images = new Map<string, string | null>();
 	const cached = <T>(cache: Map<string, T>, link: string, resolve: () => T) => {
@@ -877,34 +882,18 @@ export function livePreview(host: LivePreviewHost): Extension {
 	const field = StateField.define<DecorationSet>({
 		create: (state) => build(state, cx),
 		update(decos, tr) {
-			if (tr.docChanged || syntaxTree(tr.state) !== syntaxTree(tr.startState) || tr.effects.some((e) => e.is(refresh))) return build(tr.state, cx);
+			if (tr.effects.some((e) => e.is(refresh))) {
+				resolved.clear();
+				images.clear();
+				return build(tr.state, cx);
+			}
+			if (tr.docChanged || syntaxTree(tr.state) !== syntaxTree(tr.startState)) return build(tr.state, cx);
 			if (tr.state.field(editorLivePreviewField, false) !== tr.startState.field(editorLivePreviewField, false)) return build(tr.state, cx);
 			if (tr.effects.some((e) => e.is(setMousedown) && !e.value)) return build(tr.state, cx);
 			if (tr.selection && !tr.state.field(mousedownField, false)) return build(tr.state, cx);
 			return decos;
 		},
 		provide: (f) => EditorView.decorations.from(f),
-	});
-	const watcher = ViewPlugin.define((view) => {
-		let timer = 0;
-		const changed = () => {
-			window.clearTimeout(timer);
-			timer = window.setTimeout(() => {
-				resolved.clear();
-				images.clear();
-				view.dispatch({ effects: refresh.of(null) });
-			}, 300);
-		};
-		const { vault } = host.app;
-		const refs = ["create", "delete", "rename"].map((name) => vault.on(name, changed));
-		// An edited image gets a new resource URL.
-		refs.push(vault.on("modify", (file: { extension?: string }) => file.extension !== "md" && changed()));
-		return {
-			destroy() {
-				window.clearTimeout(timer);
-				for (const ref of refs) vault.offref(ref);
-			},
-		};
 	});
 	const tagClicks = EditorView.domEventHandlers({
 		mousedown(evt) {
@@ -915,5 +904,5 @@ export function livePreview(host: LivePreviewHost): Extension {
 			return true;
 		},
 	});
-	return [frontmatterRevealed, field, watcher, tagClicks];
+	return [frontmatterRevealed, field, tagClicks];
 }

@@ -12,9 +12,9 @@ import type { BlockContext, LeafBlock, LeafBlockParser, MarkdownConfig } from "@
 import type { App } from "./app";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
 import { setIcon } from "./icons";
-import { type LivePreviewHost, livePreview, livePreviewState } from "./live-preview";
+import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
 import type { MarkdownView } from "./markdown-view";
-import { moment } from "./util";
+import { debounce, moment } from "./util";
 import type { TFile } from "./vault";
 
 // Obsidian syntax that lezer-markdown does not know. Nodes for Obsidian-only
@@ -488,11 +488,29 @@ function indentConfig(app: App) {
 	return [indentUnit.of(useTab ? "\t" : " ".repeat(tabSize)), EditorState.tabSize.of(tabSize)];
 }
 
-function followConfig(app: App) {
-	return ViewPlugin.define((view) => {
-		const ref = app.vault.on("config-changed", () => view.dispatch({ effects: indentation.reconfigure(indentConfig(app)) }));
-		return { destroy: () => app.vault.offref(ref) };
-	});
+// A view's editor follows the vault: its indentation settings, and the files
+// that links and images resolve to. The view subscribes once and unsubscribes
+// when it closes; a subscription per editor state would outlive a closed tab
+// whose editor is never destroyed.
+const following = new WeakSet<MarkdownView>();
+function followVault(view: MarkdownView) {
+	if (following.has(view)) return;
+	following.add(view);
+	const { app } = view;
+	const editor = () => view.editor?.cm;
+	view.registerEvent(app.vault.on("config-changed", () => editor()?.dispatch({ effects: indentation.reconfigure(indentConfig(app)) })));
+	const filesChanged = debounce(
+		() => {
+			const cm = editor();
+			if (cm) refreshLivePreview(cm);
+		},
+		300,
+		true,
+	);
+	for (const name of ["create", "delete", "rename"]) view.registerEvent(app.vault.on(name, filesChanged));
+	// An edited image gets a new resource URL.
+	view.registerEvent(app.vault.on("modify", (file: TFile) => file.extension !== "md" && filesChanged()));
+	view.register(() => filesChanged.cancel());
 }
 
 // Obsidian's own paste and drop handling, after plugins had their turn:
@@ -559,6 +577,7 @@ function dropDefault(view: MarkdownView, evt: DragEvent) {
 // `plugins` holds the extensions plugins registered.
 export function markdownEditorExtensions(view: MarkdownView, plugins: Compartment): Extension[] {
 	const app = view.app;
+	followVault(view);
 	const host: LivePreviewHost = {
 		app,
 		sourcePath: () => view.file?.path ?? "",
@@ -574,7 +593,6 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		// Alt-click adds a cursor, as in Obsidian; Mod-click opens links.
 		EditorView.clickAddsSelectionRange.of((evt) => evt.altKey),
 		indentation.of(indentConfig(app)),
-		followConfig(app),
 		history(),
 		drawSelection(),
 		dropCursor(),
