@@ -212,6 +212,15 @@ describe("FileManager paths", () => {
 		expect(fm.getNewFileParent("a/b/n.md").path).toBe("a");
 	});
 
+	// Clicking an unresolved link creates its note; the owner's Markdown
+	// links carry '.md', which must not be doubled.
+	test("a note created from link text written with '.md' gets that name, not '.md.md'", async () => {
+		const { fm } = await setup({ "a/n.md": "" });
+		expect((await fm.createNewMarkdownFileFromLinktext("New Note.md", "a/n.md")).path).toBe("New Note.md");
+		expect((await fm.createNewMarkdownFileFromLinktext("sub/Other.MD", "a/n.md")).path).toBe("sub/Other.md");
+		expect((await fm.createNewMarkdownFileFromLinktext("Plain", "a/n.md")).path).toBe("Plain.md");
+	});
+
 	test("trashOption 'local' moves to .trash and 'none' deletes permanently", async () => {
 		const { vault, fm, dir } = await setup({ "keep.md": "", "gone.md": "" }, { trashOption: "local" });
 		await fm.trashFile(vault.getFileByPath("keep.md")!);

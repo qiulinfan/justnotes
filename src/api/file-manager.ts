@@ -66,7 +66,8 @@ export class FileManager {
 		const dir = nodePath.posix.dirname(linktext);
 		const folderPath = dir === "." ? parent.path : normalizePath(`${parent.isRoot() ? "" : parent.path}/${dir}`);
 		const folder = this.#folder(folderPath) ?? (await this.app.vault.createFolder(folderPath));
-		return this.createNewMarkdownFile(folder, nodePath.posix.basename(linktext));
+		// A Markdown link names the note with its extension ([x](New.md)).
+		return this.createNewMarkdownFile(folder, nodePath.posix.basename(linktext).replace(/\.md$/i, ""));
 	}
 
 	// Moves the file or folder, then rewrites every link that no longer
