@@ -5,11 +5,24 @@ import { Commands, HotkeyManager, Keymap, Scope } from "./keymap";
 import { MetadataCache } from "./metadata";
 import type { CliFlags, CliHandler } from "./plugin";
 import { Plugins } from "./plugins";
+import { type SecretBackend, SecretStorage } from "./secret-storage";
 import { SettingModal } from "./setting-modal";
 import { normalizePath } from "./util";
 import { type TFile, Vault } from "./vault";
 import { ViewRegistry } from "./view";
 import { Workspace } from "./workspace";
+
+// Secrets live with the main process (main/ipc.ts), per vault.
+function ipcSecretBackend(vaultId: string): SecretBackend {
+	const { ipcRenderer } = getElectron();
+	return {
+		load: () => ipcRenderer.sendSync("justnotes:secrets-load", vaultId),
+		set: (id, secret) => {
+			const error: string | null = ipcRenderer.sendSync("justnotes:secret-set", vaultId, id, secret);
+			if (error) throw new Error(error);
+		},
+	};
+}
 
 // An app-level hover parent, for markdown rendered or hover links triggered
 // outside any view.
@@ -48,6 +61,7 @@ export class App {
 	// is no command-line transport yet.
 	cliHandlers = new Map<string, { description: string; flags: CliFlags | null; handler: CliHandler; pluginId: string }>();
 	renderContext = new RenderContext();
+	secretStorage: SecretStorage;
 	isMobile = false;
 	lastEvent: UIEvent | null = null;
 	dom: AppDom;
@@ -69,6 +83,7 @@ export class App {
 		this.plugins = new Plugins(this);
 		this.internalPlugins = new InternalPlugins(this);
 		this.setting = new SettingModal(this);
+		this.secretStorage = new SecretStorage(ipcSecretBackend(this.appId));
 		this.statusBar = createDiv("status-bar");
 		this.dom = {
 			appContainerEl: createDiv("app-container"),
