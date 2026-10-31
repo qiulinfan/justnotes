@@ -159,9 +159,11 @@ plain style. Development notes belong in this file.
   canvas, a file already in the vault is used in place; a URL (`uri-list`, or
   plain text that is one URL) makes a link card, other text a text card. The
   card menu's buttons also drag onto the canvas. A multi-card drop is one undo
-  step. Not there yet: node z-order changes, snapping, editing a note card in
-  place (double-click opens it in a tab), PDF cards (shown as a file card),
-  export.
+  step. Selecting a card brings it to the front of its layer (groups stay
+  under the other cards) and last in the node list, which the next save
+  writes; the click alone writes nothing. Not there yet: snapping, editing a
+  note card in place (double-click opens it in a tab), PDF cards (shown as a
+  file card), export.
 - Keyboard: a capture-phase `keydown` listener walks the keymap scope stack
   before CodeMirror sees the key; the active scope follows keyboard focus. The
   root scope has one catch-all handler that runs command hotkeys; plugins may

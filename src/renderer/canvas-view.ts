@@ -355,6 +355,28 @@ export class Canvas {
 		return all.find((n) => !(n instanceof CanvasGroupNode) && at(n)) ?? all.find(at) ?? null;
 	}
 
+	// Selecting a card moves it to the front, as in Obsidian: last in its layer
+	// (groups stay under the other cards) and last in the file's node list,
+	// which the next save writes. Cards already in front are not moved, so a
+	// click on one leaves its element (a playing video) alone.
+	bringToFront(nodes: CanvasNode[]) {
+		const all = [...this.nodes.values()];
+		const raise = all.filter((n) => nodes.includes(n));
+		const inFront = (layer: CanvasNode[]) => {
+			const moved = layer.filter((n) => raise.includes(n));
+			return moved.every((n, i) => layer[layer.length - moved.length + i] === n);
+		};
+		const groups = all.filter((n) => n instanceof CanvasGroupNode);
+		const others = all.filter((n) => !(n instanceof CanvasGroupNode));
+		if (inFront(groups) && inFront(others)) return;
+		for (const node of raise) {
+			this.nodes.delete(node.id);
+			this.nodes.set(node.id, node);
+			const before = node instanceof CanvasGroupNode ? this.edgesEl : ([...this.edges.values()][0]?.labelElement ?? this.selectionEl);
+			this.canvasEl.insertBefore(node.nodeEl, before);
+		}
+	}
+
 	// Moving a group moves what lies inside it.
 	#withContents(nodes: CanvasNode[]) {
 		const out = new Set(nodes);
@@ -600,6 +622,7 @@ export class Canvas {
 				this.select(node);
 			} else if (!this.selection.has(node)) this.selectOnly(node);
 			else reselect = node;
+			this.bringToFront([...this.selection].filter((i): i is CanvasNode => !(i instanceof CanvasEdge)));
 			// Text inside a card is not selected by dragging it.
 			if (!target.closest("input, textarea, video, audio")) evt.preventDefault();
 			const nodes = this.#withContents([...this.selection].filter((i): i is CanvasNode => !(i instanceof CanvasEdge)));
