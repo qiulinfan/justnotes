@@ -111,19 +111,22 @@ export class LinkSuggest extends EditorSuggest<LinkSuggestion> {
 	selectSuggestion(value: LinkSuggestion) {
 		const context = this.context;
 		if (!context) return;
+		// Closed first, so moving the cursor does not trigger it again.
+		this.close();
 		const editor: Editor = context.editor;
 		const sourcePath = context.file?.path ?? "";
+		// The rest of a link being retargeted, through its closing brackets
+		// (auto-paired or already there); display text it has stays.
+		const rest = editor.getLine(context.end.line).slice(context.end.ch);
+		const tail = /^[^[\]|\n]*(?:\|([^[\]\n]*))?\]\]/.exec(rest);
+		const alias = tail?.[1] || value.alias;
 		const sameNote = value.heading !== undefined && context.query.startsWith("#");
 		let link = sameNote
-			? `[[#${value.heading}]]`
-			: this.app.fileManager.generateMarkdownLink(value.file, sourcePath, value.heading !== undefined ? `#${value.heading}` : "", value.alias);
+			? `[[#${value.heading}${alias ? `|${alias}` : ""}]]`
+			: this.app.fileManager.generateMarkdownLink(value.file, sourcePath, value.heading !== undefined ? `#${value.heading}` : "", alias);
 		if (this.#embed) link = `!${link}`;
-		// Replace through closing brackets that are already there (auto-paired).
-		const rest = editor.getLine(context.end.line).slice(context.end.ch);
-		const close = /^[^[\]\n]*\]\]/.exec(rest)?.[0].length ?? 0;
-		editor.replaceRange(link, context.start, { line: context.end.line, ch: context.end.ch + close });
+		editor.replaceRange(link, context.start, { line: context.end.line, ch: context.end.ch + (tail?.[0].length ?? 0) });
 		editor.setCursor({ line: context.start.line, ch: context.start.ch + link.length });
-		this.close();
 	}
 }
 
@@ -174,13 +177,15 @@ export class TagSuggest extends EditorSuggest<TagSuggestion> {
 	selectSuggestion(value: TagSuggestion) {
 		const context = this.context;
 		if (!context) return;
+		// Closed first: moving the cursor while open would trigger it again
+		// on the tag just inserted.
+		this.close();
 		const editor: Editor = context.editor;
 		// Replace the whole tag under the cursor, including its tail.
 		const rest = editor.getLine(context.end.line).slice(context.end.ch);
 		const tail = /^[^\s#!@$%^&*(),.?":{}|<>[\]\\`'~;=+]*/.exec(rest)?.[0].length ?? 0;
 		editor.replaceRange(value.tag, context.start, { line: context.end.line, ch: context.end.ch + tail });
 		editor.setCursor({ line: context.start.line, ch: context.start.ch + value.tag.length });
-		this.close();
 	}
 }
 
