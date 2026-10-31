@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import type { App } from "./app";
 import { Component, Events } from "./events";
@@ -357,11 +358,25 @@ interface TextDoc {
 	// The file's text as the document last took it in (loaded, written or
 	// merged): the base when changes made elsewhere meet unsaved edits.
 	base: string;
+	// Digests of every base the document has had: the versions of the file it
+	// has seen.
+	seen: Set<string>;
 	// The text on disk the document's last write replaced, and when that write
 	// was, until the document takes in a change.
 	prior?: { text: string; at: number };
 	// The views showing it, once they have loaded.
 	views: Set<TextFileView>;
+}
+
+const digest = (text: string) => createHash("sha1").update(text).digest("base64");
+
+function textDoc(file: TFile, base: string): TextDoc {
+	return { file, base, seen: new Set([digest(base)]), views: new Set() };
+}
+
+function setBase(doc: TextDoc, text: string) {
+	doc.base = text;
+	doc.seen.add(digest(text));
 }
 
 const docOf = new WeakMap<TextFileView, TextDoc>();
@@ -413,13 +428,17 @@ function addsLines(from: string, text: string) {
 // took in, unless the change was made from the text its last write replaced
 // (a capture that read the note just before a save and wrote it right after).
 // Merged against the write, such a change would undo it. Within a second of
-// the write, a change that only adds lines to the replaced text and keeps the
-// write's edits without a conflict when merged with them is taken for one.
-// Reverts (to that text or an older one) and rewrites remove or change lines;
-// a change built on the write already has its edits.
+// the write, a change is taken for one when it only adds lines to the
+// replaced text, keeps the write's edits without a conflict when merged with
+// them, and is no version of the file the document has had. Rewrites remove
+// or change lines, a change built on the write already has its edits, and a
+// revert (git discarding changes, a plugin restoring a version) brings back a
+// version the document has had. A revert to a version from before the
+// document was opened passes for a capture when the edits since only removed
+// lines.
 function mergeBase(doc: TextDoc, text: string) {
 	const prior = doc.prior;
-	if (!prior || text === prior.text || Date.now() - prior.at > 1000 || !addsLines(prior.text, text)) return doc.base;
+	if (!prior || Date.now() - prior.at > 1000 || !addsLines(prior.text, text) || doc.seen.has(digest(text))) return doc.base;
 	const kept = mergeText(prior.text, doc.base, text);
 	return !kept.conflicts && kept.text !== text ? prior.text : doc.base;
 }
@@ -505,7 +524,7 @@ export abstract class TextFileView extends EditableFileView {
 			} else {
 				text = await this.app.vault.read(file);
 				if (this.file !== file) return;
-				doc = { file, base: text, views: new Set() };
+				doc = textDoc(file, text);
 				if (mirroring.has(this)) mirrorDocs.set(file, doc);
 				this.data = text;
 			}
@@ -590,7 +609,7 @@ export abstract class TextFileView extends EditableFileView {
 		}
 		if (data === null) return;
 		if (doc) {
-			doc.base = data;
+			setBase(doc, data);
 			doc.prior = prior === null ? undefined : { text: prior, at: Date.now() };
 		} else this.#adopt(file, data);
 	}
@@ -612,7 +631,7 @@ export abstract class TextFileView extends EditableFileView {
 	#takeIn(doc: TextDoc, text: string) {
 		const ours = this.getViewData();
 		const merge = mergeText(mergeBase(doc, text), ours, text);
-		doc.base = text;
+		setBase(doc, text);
 		doc.prior = undefined;
 		for (const view of doc.views) view.data = merge.text;
 		this.data = merge.text;
@@ -654,7 +673,7 @@ export abstract class TextFileView extends EditableFileView {
 		this.data = data;
 		fs.writeFileSync(path, data, "utf8");
 		if (doc) {
-			doc.base = data;
+			setBase(doc, data);
 			written.add(doc);
 		}
 	}
@@ -670,7 +689,8 @@ export abstract class TextFileView extends EditableFileView {
 
 	#adopt(file: TFile, base: string) {
 		this.#leave();
-		const doc: TextDoc = { file, base, views: new Set([this]) };
+		const doc = textDoc(file, base);
+		doc.views.add(this);
 		docOf.set(this, doc);
 		return doc;
 	}

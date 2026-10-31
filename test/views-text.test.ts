@@ -215,18 +215,29 @@ describe("TextFileView saves", () => {
 		});
 	}
 
-	// git discarding the note's changes right after the second of two saves.
-	test("an outside revert to the text from before two saves is taken as written", async () => {
-		const { vault, view, file, full } = await editedNote("line1\nline2\nline3\n");
-		await view.save();
-		view.text = "line1 edit\nline2\nline3 edit\n";
-		view.requestSave();
-		await view.save();
-		await vault.modify(file, "line1\nline2\nline3\n");
-		await view.save();
-		expect(fs.readFileSync(full, "utf8")).toBe("line1\nline2\nline3\n");
-		expect(view.text).toBe("line1\nline2\nline3\n");
-	});
+	// git discarding the note's changes, or a plugin restoring a version, right
+	// after the last of several saves. When the saves since that version only
+	// removed lines, it is the text the last save replaced with lines added, as
+	// a capture is.
+	const reverts: [string, string[], string][] = [
+		["the opened text, after two saves", ["line1 edit\nline2\nline3\n", "line1 edit\nline2\nline3 edit\n"], "line1\nline2\nline3\n"],
+		["the opened text, after a save that removed a line", ["line1\nline3\n", "line1\nline3 edit\n"], "line1\nline2\nline3\n"],
+		["a saved version, after a save that removed a line", ["line1\nline2\nline3\nline4\n", "line1\nline3\nline4\n", "line1\nline3\nline4 edit\n"], "line1\nline2\nline3\nline4\n"],
+	];
+	for (const [name, saves, restored] of reverts) {
+		test(`an outside revert to ${name} is taken as written`, async () => {
+			const { vault, view, file, full } = await editedNote("line1\nline2\nline3\n");
+			for (const text of saves) {
+				view.text = text;
+				view.requestSave();
+				await view.save();
+			}
+			await vault.modify(file, restored);
+			await view.save();
+			expect(fs.readFileSync(full, "utf8")).toBe(restored);
+			expect(view.text).toBe(restored);
+		});
+	}
 
 	test("a save racing an outside delete keeps the edits unsaved and does not re-create the file", async () => {
 		const { view, full } = await editedNote("line1\nline2\n");
