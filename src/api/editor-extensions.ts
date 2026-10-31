@@ -8,20 +8,21 @@ import { bracketMatching, codeFolding, foldGutter, foldNodeProp, foldService, Hi
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range, type StateCommand } from "@codemirror/state";
-import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import { type Command, Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { IterMode, NodeProp, type NodePropSource, type Parser, type SyntaxNode } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import { type BlockContext, type Element, type LeafBlock, type LeafBlockParser, type Line, type MarkdownConfig, parseCode, parser as commonmark } from "@lezer/markdown";
 import type { App } from "./app";
 import { importFile } from "./attachments";
 import { DragManager } from "./drag-manager";
+import { editorOptionExtensions, editorOptions } from "./editor-options";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
 import { setIcon } from "./icons";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
 import { inlineMathEnd, mathBlockClose } from "./markdown";
 import { parseLinktext } from "./metadata-utils";
 import type { MarkdownView } from "./markdown-view";
-import { debounce } from "./util";
+import { debounce, htmlToMarkdown } from "./util";
 import { TFile } from "./vault";
 
 // Obsidian syntax that lezer-markdown does not know. Nodes for Obsidian-only
@@ -578,7 +579,9 @@ const markdownFence = new Language(
 );
 
 // The Markdown language with Obsidian's syntax and folds.
-export function markdownSupport(fold: FoldSettings): Extension {
+// `addKeymap` false leaves out lang-markdown's Enter and Backspace keys
+// (the Smart lists setting adds them back, editor-options.ts).
+export function markdownSupport(fold: FoldSettings, addKeymap = true): Extension {
 	const blockFolds: MarkdownConfig = {
 		props: [
 			foldNodeProp.add((type) => {
@@ -587,7 +590,7 @@ export function markdownSupport(fold: FoldSettings): Extension {
 			}),
 		],
 	};
-	const md = markdown({ base: markdownLanguage, codeLanguages: codeLanguage, htmlTagLanguage: htmlTags, extensions: [...obsidianMarkdown, blockFolds] });
+	const md = markdown({ base: markdownLanguage, codeLanguages: codeLanguage, htmlTagLanguage: htmlTags, extensions: [...obsidianMarkdown, blockFolds], addKeymap });
 	if (fold.heading) return md;
 	// lang-markdown folds heading sections with a fold service among its support extensions.
 	const support = Array.isArray(md.support) ? md.support : [md.support];
@@ -661,12 +664,26 @@ function followVault(view: MarkdownView) {
 	following.add(view);
 	const { app } = view;
 	const editor = () => view.editor?.cm;
-	// "Properties in document" decides how the frontmatter shows.
+	// The Editor settings apply at once; "Properties in document" decides how
+	// the frontmatter shows.
+	let options = JSON.stringify(editorOptions(app));
+	let fold = JSON.stringify(foldSettings(app));
 	view.registerEvent(
 		app.vault.on("config-changed", () => {
 			const cm = editor();
 			if (!cm) return;
-			cm.dispatch({ effects: indentation.reconfigure(indentConfig(app)) });
+			const effects = [indentation.reconfigure(indentConfig(app))];
+			const nextOptions = editorOptions(app);
+			if (JSON.stringify(nextOptions) !== options) {
+				options = JSON.stringify(nextOptions);
+				effects.push(optionsConf.reconfigure(editorOptionExtensions(nextOptions)));
+			}
+			const nextFold = foldSettings(app);
+			if (JSON.stringify(nextFold) !== fold) {
+				fold = JSON.stringify(nextFold);
+				effects.push(languageConf.reconfigure(languageConfig(nextFold)));
+			}
+			cm.dispatch({ effects });
 			refreshLivePreview(cm);
 		}),
 	);
@@ -707,6 +724,11 @@ function pasteDefault(view: MarkdownView, evt: ClipboardEvent) {
 	if (!data) return false;
 	if (data.files.length) {
 		attach(view, [...data.files], true).catch((err) => console.error(err));
+		return true;
+	}
+	const markdown = convertedHtml(view, data);
+	if (markdown !== null) {
+		view.editor.replaceSelection(markdown, "input.paste");
 		return true;
 	}
 	const url = data.getData("text/plain").trim();
@@ -772,12 +794,35 @@ function linkDraggedFiles(view: MarkdownView) {
 
 function dropDefault(view: MarkdownView, evt: DragEvent) {
 	const files = [...(evt.dataTransfer?.files ?? [])];
-	if (!files.length) return false;
+	const markdown = !files.length && evt.dataTransfer ? convertedHtml(view, evt.dataTransfer) : null;
+	if (!files.length && markdown === null) return false;
 	const pos = view.editor.cm.posAtCoords({ x: evt.clientX, y: evt.clientY });
 	if (pos !== null) view.editor.cm.dispatch({ selection: { anchor: pos } });
-	attach(view, files, false).catch((err) => console.error(err));
+	if (markdown !== null) view.editor.replaceSelection(markdown, "input.drop");
+	else attach(view, files, false).catch((err) => console.error(err));
 	return true;
 }
+
+// "Convert pasted HTML to Markdown": HTML pasted or dropped (from a web page,
+// the reading view, a word processor) goes in as Markdown; null when the
+// setting is off or the data holds no HTML. Mod+Shift+V pastes plain text.
+function convertedHtml(view: MarkdownView, data: DataTransfer): string | null {
+	if (view.app.vault.getConfig("autoConvertHtml") === false) return null;
+	const html = data.getData("text/html");
+	if (!html.trim()) return null;
+	const markdown = htmlToMarkdown(html).trim();
+	return markdown || null;
+}
+
+const pastePlainText: Command = (cm) => {
+	navigator.clipboard.readText().then(
+		(text) => {
+			if (text) cm.dispatch(cm.state.replaceSelection(text), { userEvent: "input.paste", scrollIntoView: true });
+		},
+		(err) => console.error(err),
+	);
+	return true;
+};
 
 // A Markdown editor that belongs to no MarkdownView (a canvas card being
 // edited): the language, Live Preview, highlighting and the editing keymaps,
@@ -810,7 +855,6 @@ export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
 export function markdownEditorExtensions(view: MarkdownView, plugins: Compartment): Extension[] {
 	const app = view.app;
 	followVault(view);
-	const fold: FoldSettings = { heading: app.vault.getConfig("foldHeading") ?? true, indent: app.vault.getConfig("foldIndent") ?? true };
 	const host: LivePreviewHost = {
 		app,
 		sourcePath: () => view.file?.path ?? "",
@@ -831,19 +875,19 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		dropCursor(),
 		indentOnInput(),
 		bracketMatching(),
-		closeBrackets(),
 		highlightSelectionMatches(),
 		search({ top: true }),
 		autocompletion({ override: [], activateOnTyping: false }),
 		EditorView.lineWrapping,
-		markdownSupport(fold),
+		languageConf.of(languageConfig(foldSettings(app))),
+		optionsConf.of(editorOptionExtensions(editorOptions(app))),
 		livePreview(host),
 		livePreviewState,
 		activeLine,
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),
 		highlightedCode,
-		keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, { key: "Tab", run: indentOrInsertTab, shift: indentLess }]),
+		keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, { key: "Tab", run: indentOrInsertTab, shift: indentLess }, { key: "Mod-Shift-v", run: pastePlainText }]),
 		EditorView.updateListener.of((u) => {
 			const suggest = app.workspace.editorSuggest;
 			// Suggests re-check after the update finishes: a suggest that is
@@ -911,8 +955,20 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		}),
 		linkDraggedFiles(view),
 	];
-	if (app.vault.getConfig("showLineNumber")) ext.push(lineNumbers());
-	ext.push(folding(fold));
 	return ext;
+}
+
+// The settings a Markdown editor reconfigures live: the language with the
+// folds "Fold heading" and "Fold indent" allow (with the fold gutter), and
+// the options of editor-options.ts.
+const languageConf = new Compartment();
+const optionsConf = new Compartment();
+
+function foldSettings(app: App): FoldSettings {
+	return { heading: app.vault.getConfig("foldHeading") !== false, indent: app.vault.getConfig("foldIndent") !== false };
+}
+
+function languageConfig(fold: FoldSettings): Extension {
+	return [markdownSupport(fold, false), folding(fold)];
 }
 

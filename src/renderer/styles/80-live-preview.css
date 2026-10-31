@@ -342,3 +342,19 @@
 	color: var(--text-muted);
 	cursor: pointer;
 }
+
+/* "Show indentation guides" in the editor: each indent of a list line
+   (`cm-indent`, editor-options.ts) draws a line at its start, tall enough to
+   meet the next line's. */
+.markdown-source-view.mod-cm6 .cm-indent {
+	position: relative;
+}
+
+.markdown-source-view.mod-cm6 .cm-indent::before {
+	content: "";
+	position: absolute;
+	top: -0.3em;
+	bottom: -0.3em;
+	inset-inline-start: 0.3em;
+	border-inline-start: var(--indentation-guide-width) solid var(--indentation-guide-color);
+}

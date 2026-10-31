@@ -102,7 +102,7 @@ export class MarkdownEditView implements MarkdownSubView {
 	constructor(view: MarkdownView) {
 		this.view = view;
 		this.app = view.app;
-		this.containerEl = view.contentEl.createDiv("markdown-source-view cm-s-obsidian mod-cm6 is-live-preview is-readable-line-width");
+		this.containerEl = view.contentEl.createDiv("markdown-source-view cm-s-obsidian mod-cm6 is-live-preview");
 		this.editor = new Editor(new EditorView({ state: this.#createState(""), parent: this.containerEl }));
 		bindEditorFields(this.editor.cm, view);
 		// CodeMirror reads the selection and listens to the window of its root;
@@ -281,7 +281,7 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		this.view = view;
 		this.containerEl.hide();
 		this.previewEl = this.containerEl.createDiv({
-			cls: "markdown-preview-view markdown-rendered node-insert-event is-readable-line-width allow-fold-headings allow-fold-lists show-indentation-guide show-properties",
+			cls: "markdown-preview-view markdown-rendered node-insert-event allow-fold-headings allow-fold-lists show-properties",
 			attr: { tabindex: -1 },
 		});
 		// It hands clicks, hovers and context menus in the sections to this view.
@@ -294,7 +294,30 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		host.showSource = () => void this.view.setMode(this.view.editMode).then(() => showSource?.());
 		this.metadataEditor = this.addChild(new MetadataEditor(host));
 		this.renderer.headerEl.appendChild(this.metadataEditor.containerEl);
-		this.registerEvent(this.app.vault.on("config-changed", () => this.#syncProperties()));
+		this.#strictBreaks = this.app.vault.getConfig("strictLineBreaks") === true;
+		this.#syncOptions();
+		this.registerEvent(
+			this.app.vault.on("config-changed", () => {
+				this.#syncProperties();
+				this.#syncOptions();
+			}),
+		);
+	}
+
+	#strictBreaks: boolean;
+
+	// "Readable line length", "Show indentation guides" and "Right-to-left"
+	// set the view's classes; "Strict line breaks" renders it again.
+	#syncOptions() {
+		const vault = this.app.vault;
+		this.previewEl.toggleClass("is-readable-line-width", vault.getConfig("readableLineLength") !== false);
+		this.previewEl.toggleClass("show-indentation-guide", vault.getConfig("showIndentGuide") !== false);
+		this.previewEl.setAttr("dir", vault.getConfig("rightToLeft") === true ? "rtl" : null);
+		const strict = vault.getConfig("strictLineBreaks") === true;
+		if (strict !== this.#strictBreaks) {
+			this.#strictBreaks = strict;
+			this.rerender(true);
+		}
 	}
 
 	// "Properties in document": visible shows the editor, source the YAML.

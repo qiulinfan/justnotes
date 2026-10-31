@@ -63,6 +63,9 @@ export class MarkdownView extends TextFileView {
 		this.#modeButton = this.addAction("book-open", "", () => this.toggleMode());
 		if (this.app.vault.getConfig("defaultViewMode") === "preview") this.#showMode(this.previewMode);
 		this.#syncModeUi();
+		const readable = () => this.sourceEl.toggleClass("is-readable-line-width", this.app.vault.getConfig("readableLineLength") !== false);
+		readable();
+		this.registerEvent(this.app.vault.on("config-changed", readable));
 	}
 
 	getViewType() {

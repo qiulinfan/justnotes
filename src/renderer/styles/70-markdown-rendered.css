@@ -352,3 +352,18 @@ section.footnotes {
 .markdown-rendered .token.italic {
 	font-style: italic;
 }
+
+/* "Show indentation guides": a line beside the items nested in a list item,
+   under the item's bullet. */
+.markdown-rendered.show-indentation-guide li > :is(ul, ol) {
+	position: relative;
+}
+
+.markdown-rendered.show-indentation-guide li > :is(ul, ol)::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	inset-inline-start: -0.85em;
+	border-inline-start: var(--indentation-guide-width) solid var(--indentation-guide-color);
+}
