@@ -292,6 +292,9 @@ plain style. Development notes belong in this file.
   passes an origin; untagged edits must not look like typing.
 - `Plugin.load()` awaits an async `onload` before children load and before the
   next plugin, as Obsidian does. `Component.load()` stays synchronous.
+- A plugin's enables and disables (`Plugins`, the toggles, the CLI) run one
+  at a time in call order; a call from the plugin's own code while one runs
+  (disabling itself in onload) runs at once, or it would wait for itself.
 - `registerCodeMirror` is a no-op: it only ran in Obsidian's legacy editor.
 - `app.metadataTypeManager` has Obsidian's private members: `properties`
   and `getAllProperties()` (lowercased name to `{name, type, widget, count,
