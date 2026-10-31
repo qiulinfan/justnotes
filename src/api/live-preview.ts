@@ -628,6 +628,14 @@ interface BuildContext {
 	resolveImage(link: string): string | null;
 }
 
+// A rendered link: the editor's underline, dimmed with is-unresolved when no
+// file has the name, and the attributes of the renderer's link element, its
+// class (internal-link, external-link) and the data-href that the click and
+// hover handlers read.
+function linkMark(kind: "internal-link" | "external-link", href: string, resolved = true) {
+	return Decoration.mark({ class: resolved ? "cm-underline" : "cm-underline is-unresolved", attributes: { class: kind, "data-href": href } });
+}
+
 // Syntax stays visible wherever the selection touches; elsewhere it is hidden
 // or rendered, as in Obsidian's Live Preview. Line classes follow Obsidian's
 // HyperMD names, which themes and plugin CSS target. In source mode every
@@ -810,10 +818,10 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (!url || marks.length < 2) return;
 					const textEnd = marks[1].from;
 					const href = state.sliceDoc(url.from, url.to);
-					const unresolved = !SCHEME.test(href) && !cx.linkDest(getLinkpath(safeDecode(href)));
 					decos.push(hide.range(from, marks[0].to));
 					if (textEnd > marks[0].to) {
-						decos.push(Decoration.mark({ class: unresolved ? "cm-underline is-unresolved" : "cm-underline", attributes: { "data-href": href } }).range(marks[0].to, textEnd));
+						const mark = SCHEME.test(href) ? linkMark("external-link", href) : linkMark("internal-link", href, !!cx.linkDest(getLinkpath(safeDecode(href))));
+						decos.push(mark.range(marks[0].to, textEnd));
 					}
 					decos.push(hide.range(textEnd, to));
 					return false;
@@ -823,14 +831,14 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const url = node.getChild("URL");
 					if (!url) return false;
 					decos.push(hide.range(from, url.from));
-					decos.push(Decoration.mark({ class: "cm-underline", attributes: { "data-href": state.sliceDoc(url.from, url.to) } }).range(url.from, url.to));
+					decos.push(linkMark("external-link", state.sliceDoc(url.from, url.to)).range(url.from, url.to));
 					decos.push(hide.range(url.to, to));
 					return false;
 				}
 				case "URL": {
 					const parent = node.parent?.name;
 					if (parent === "Link" || parent === "Image" || touches(from, to)) return;
-					decos.push(Decoration.mark({ class: "cm-underline", attributes: { "data-href": state.sliceDoc(from, to) } }).range(from, to));
+					decos.push(linkMark("external-link", state.sliceDoc(from, to)).range(from, to));
 					return;
 				}
 				case "Image": {
@@ -878,11 +886,8 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 						return false;
 					}
 					const shown = alias ?? targetNode;
-					const unresolved = !cx.linkDest(getLinkpath(target));
 					decos.push(hide.range(from, shown.from));
-					decos.push(
-						Decoration.mark({ class: unresolved ? "cm-underline is-unresolved" : "cm-underline", attributes: { "data-href": target } }).range(shown.from, shown.to),
-					);
+					decos.push(linkMark("internal-link", target, !!cx.linkDest(getLinkpath(target))).range(shown.from, shown.to));
 					decos.push(hide.range(shown.to, to));
 					return false;
 				}

@@ -87,6 +87,19 @@ describe("source mode", () => {
 	});
 });
 
+// Themes and plugins select the reading view's link classes.
+describe("links", () => {
+	test("rendered links carry internal-link, is-unresolved and external-link", () => {
+		const doc = "[[Note]], [[Gone]], [md](Note) and https://example.com\n\nend";
+		expect(shown(doc).filter((s) => s.cls?.includes("cm-underline"))).toEqual([
+			{ text: "Note", cls: "cm-underline internal-link" },
+			{ text: "Gone", cls: "cm-underline is-unresolved internal-link" },
+			{ text: "md", cls: "cm-underline internal-link" },
+			{ text: "https://example.com", cls: "cm-underline external-link" },
+		]);
+	});
+});
+
 // Raw HTML images in notes written in Typora: the reading view and Live
 // Preview both find them in the vault this way.
 describe("resolveHtmlSrc", () => {
