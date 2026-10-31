@@ -258,11 +258,12 @@ export class Plugin extends Component {
 		return postProcessor;
 	}
 
+	// Unloading removes this plugin's handler only; another plugin's handler for
+	// the same language stays.
 	registerMarkdownCodeBlockProcessor(language: string, handler: any, sortOrder?: number) {
-		MarkdownPreviewRenderer.registerCodeBlockPostProcessor(language, handler);
-		this.register(() => MarkdownPreviewRenderer.unregisterCodeBlockPostProcessor(language));
-		const processor = MarkdownPreviewRenderer.createCodeBlockPostProcessor(language, handler);
-		return sortOrder === undefined ? processor : Object.assign(processor, { sortOrder });
+		const processor = MarkdownPreviewRenderer.registerCodeBlockPostProcessor(language, handler, sortOrder);
+		this.register(() => MarkdownPreviewRenderer.unregisterCodeBlockPostProcessor(language, handler));
+		return processor;
 	}
 
 	// A Bases view type for the view picker, removed when the plugin unloads.
