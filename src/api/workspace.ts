@@ -45,6 +45,13 @@ function fileOf(view: View) {
 	return view instanceof FileView ? view.file : null;
 }
 
+// A file view with nothing to show: it needs a file and has none, or its file
+// was deleted. What is typed into one is never saved.
+function showsNoFile(view: View) {
+	if (!(view instanceof FileView)) return false;
+	return view.file ? view.app.vault.getAbstractFileByPath(view.file.path) !== view.file : !view.allowNoFile;
+}
+
 // Leaves showing a recorded state again (going back or forward, a restored
 // layout, a reopened tab); such a load adds no history entry.
 const replaying = new WeakSet<WorkspaceLeaf>();
@@ -271,7 +278,7 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 		const workspace = this.app.workspace;
 		const before = this.view;
 		const beforeFile = fileOf(before);
-		const entry = before.navigation && !replaying.has(this) ? this.#historyState() : null;
+		const entry = before.navigation && !replaying.has(this) && !showsNoFile(before) ? this.#historyState() : null;
 		if (viewState.pinned !== undefined) this.setPinned(viewState.pinned);
 		if (viewState.group) this.setGroupMember(viewState.group);
 		const needsView = () =>
@@ -1150,7 +1157,7 @@ export class Workspace extends Events {
 	}
 
 	onLeafClosing(leaf: WorkspaceLeaf) {
-		if (!this.isRootLeaf(leaf) || leaf.view.getViewType() === "empty") return;
+		if (!this.isRootLeaf(leaf) || leaf.view.getViewType() === "empty" || showsNoFile(leaf.view)) return;
 		try {
 			this.#closed.push({ state: leaf.getViewState(), eState: leaf.getEphemeralState() });
 		} catch (err) {
@@ -1400,15 +1407,35 @@ export class Workspace extends Events {
 	}
 
 	#onRename(file: TAbstractFile, oldPath: string) {
-		this.#lastOpenFiles = this.#lastOpenFiles.map((p) => (p === oldPath ? file.path : p.startsWith(`${oldPath}/`) ? file.path + p.slice(oldPath.length) : p));
+		this.#retarget((p) => (p === oldPath ? file.path : p.startsWith(`${oldPath}/`) ? file.path + p.slice(oldPath.length) : p));
 		this.requestUpdateLayout();
 		this.requestSaveLayout();
 	}
 
 	#onDelete(file: TAbstractFile) {
-		this.#lastOpenFiles = this.#lastOpenFiles.filter((p) => p !== file.path && !p.startsWith(`${file.path}/`));
+		this.#retarget((p) => (p === file.path || p.startsWith(`${file.path}/`) ? null : p));
 		this.#updateActiveFile();
 		this.requestSaveLayout();
+	}
+
+	// The paths kept for later (recent files, closed tabs, leaf history)
+	// follow a rename, and a deleted file's entries go, so reopening a tab or
+	// going back never brings a file view back without its file.
+	#retarget(map: (path: string) => string | null) {
+		const follow = <T extends { state: ViewState }>(entries: T[]) =>
+			entries.flatMap((entry) => {
+				const path = entry.state.state?.file;
+				if (typeof path !== "string") return [entry];
+				const next = map(path);
+				if (next === null) return [];
+				return [next === path ? entry : { ...entry, state: { ...entry.state, state: { ...entry.state.state, file: next } } }];
+			});
+		this.#lastOpenFiles = this.#lastOpenFiles.map(map).filter((p): p is string => p !== null);
+		this.#closed = follow(this.#closed);
+		this.iterateAllLeaves((leaf) => {
+			leaf.history.backHistory = follow(leaf.history.backHistory);
+			leaf.history.forwardHistory = follow(leaf.history.forwardHistory);
+		});
 	}
 
 	async openLinkText(linktext: string, sourcePath: string, newLeaf?: PaneType | boolean, openViewState?: OpenViewState) {
@@ -1492,11 +1519,22 @@ export class Workspace extends Events {
 		if (!tabGroups(this.rootSplit).some((t) => t.children.length)) this.getLeaf("tab");
 		for (const dock of [this.leftSplit, this.rightSplit]) if (!dock.children.length) dock.insertChild(0, new WorkspaceTabs(this.app));
 		this.leftRibbon.load(layout?.["left-ribbon"]);
-		this.#lastOpenFiles = Array.isArray(layout?.lastOpenFiles) ? layout.lastOpenFiles.filter((p: unknown) => typeof p === "string").slice(0, 10) : [];
+		const recent: unknown[] = Array.isArray(layout?.lastOpenFiles) ? layout.lastOpenFiles : [];
+		this.#lastOpenFiles = recent.filter((p): p is string => typeof p === "string" && !!this.app.vault.getAbstractFileByPath(p)).slice(0, 10);
 		// A slow view (one that waits for a server) must not hold up startup;
 		// it keeps loading after the wait.
-		const loads = restore.map(([leaf, state]) => replay(leaf, state).catch((err) => console.error(err)));
+		const loads = restore.map(([leaf, state]) => this.#reopen(leaf, state));
 		await Promise.all(loads.map((load) => withTimeout(load, 3000)));
+	}
+
+	// Shows a saved view state again: a restored layout, a reopened tab, a
+	// placeholder whose plugin came back. A file view whose file was deleted
+	// or moved meanwhile (while justnotes was closed, or its plugin was off)
+	// is dropped, as an open tab is when its file goes.
+	async #reopen(leaf: WorkspaceLeaf, state: LeafViewState, eState?: any) {
+		await replay(leaf, state, eState).catch((err) => console.error(err));
+		const path = state.state?.file;
+		if (showsNoFile(leaf.view) && !(typeof path === "string" && this.app.vault.getFileByPath(path))) leaf.detach();
 	}
 
 	#load(split: WorkspaceSplit, data: any, restore: [WorkspaceLeaf, LeafViewState][]) {
@@ -1549,7 +1587,9 @@ export class Workspace extends Events {
 	async undoCloseLeaf() {
 		const closed = this.#closed.pop();
 		if (!closed) return false;
-		await replay(this.getLeaf("tab"), { ...closed.state, active: true }, closed.eState);
+		const leaf = this.getLeaf("tab");
+		await this.#reopen(leaf, closed.state, closed.eState);
+		if (leaf.parent) this.setActiveLeaf(leaf, { focus: true });
 		return true;
 	}
 
@@ -1639,7 +1679,7 @@ export class Workspace extends Events {
 
 	#onViewRegistered(type: string) {
 		for (const leaf of this.getLeavesOfType(type)) {
-			if (leaf.view instanceof PlaceholderView) leaf.setViewState(leaf.view.viewState).catch((err) => console.error(err));
+			if (leaf.view instanceof PlaceholderView) this.#reopen(leaf, leaf.view.viewState);
 		}
 	}
 
