@@ -14,6 +14,7 @@ import { installDevCapture } from "./dev-capture";
 import { defaultRightSidebar, installCorePlugins, registerCorePluginViews } from "./core-plugins";
 import { registerMediaViews } from "./media-view";
 import { SearchView } from "./search";
+import { installVaultSwitcher } from "./vault-switcher";
 import { registerViewCommands } from "./view-commands";
 import { EmptyView, FileExplorerView } from "./views";
 import { registerWorkspaceCommands } from "./workspace-commands";
@@ -136,6 +137,7 @@ async function boot() {
 	registerEditorSuggests(app);
 	registerViewCommands(app);
 	registerWorkspaceCommands(app);
+	installVaultSwitcher(app);
 
 	await indexed;
 	await app.metadataTypeManager.load();
