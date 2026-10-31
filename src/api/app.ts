@@ -85,7 +85,7 @@ export class RenderContext {
 // appearance.json (cssTheme, enabledCssSnippets) is read as the default and
 // never written: choices made in justnotes persist in localStorage. The styles
 // stay last in <head>, after plugin styles, so they override them.
-export class CustomCss {
+class CustomCss {
 	app: App;
 	snippets: string[] = [];
 	enabledSnippets = new Set<string>();
@@ -96,6 +96,7 @@ export class CustomCss {
 	extraStyleEls: HTMLStyleElement[] = [];
 	requestLoadSnippets = debounce(() => this.readSnippets(), 100, true);
 	requestLoadTheme = debounce(() => this.readThemes(), 100, true);
+	#watchers = new Map<string, fs.FSWatcher>();
 
 	constructor(app: App) {
 		this.app = app;
@@ -126,15 +127,41 @@ export class CustomCss {
 		this.enabledSnippets = new Set(saved?.enabledSnippets ?? appearance.enabledCssSnippets ?? []);
 		this.theme = saved?.theme ?? appearance.cssTheme ?? "";
 		await Promise.all([this.readSnippets(), this.readThemes()]);
-		for (const [folder, reload] of [
-			[this.getSnippetsFolder(), this.requestLoadSnippets],
-			[this.getThemeFolder(), this.requestLoadTheme],
-		] as const) {
+		this.#watchFolders();
+	}
+
+	// Each folder is watched while it exists. The config folder's own watcher
+	// sees snippets/ or themes/ appear, disappear or be replaced, which a
+	// watcher on the folder itself cannot (the first snippet or theme of a vault
+	// creates its folder).
+	#watchFolders() {
+		const folders = {
+			snippets: [this.getSnippetsFolder(), () => this.requestLoadSnippets()],
+			themes: [this.getThemeFolder(), () => this.requestLoadTheme()],
+		} as const;
+		const watch = (folder: string, reload: () => void) => {
 			try {
-				const watcher = fs.watch(this.app.vault.adapter.getFullPath(folder), { recursive: true }, () => reload());
-				watcher.on("error", () => watcher.close());
+				const watcher = fs.watch(this.app.vault.adapter.getFullPath(folder), { recursive: true }, reload);
+				watcher.on("error", () => {
+					watcher.close();
+					if (this.#watchers.get(folder) === watcher) this.#watchers.delete(folder);
+				});
+				this.#watchers.set(folder, watcher);
 			} catch {}
-		}
+		};
+		for (const [folder, reload] of Object.values(folders)) watch(folder, reload);
+		try {
+			const configWatcher = fs.watch(this.app.vault.adapter.getFullPath(this.app.vault.configDir), (_type, name) => {
+				const entry = name === "snippets" || name === "themes" ? folders[name] : null;
+				if (!entry) return;
+				const [folder, reload] = entry;
+				this.#watchers.get(folder)?.close();
+				this.#watchers.delete(folder);
+				watch(folder, reload);
+				reload();
+			});
+			configWatcher.on("error", () => configWatcher.close());
+		} catch {}
 	}
 
 	async readSnippets() {
