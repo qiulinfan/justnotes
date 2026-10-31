@@ -52,6 +52,23 @@ body {
 	--icon-color-hover: var(--text-normal);
 	--cursor: default;
 	--cursor-link: pointer;
+	/* Obsidian documents its link variables but not their values; the colours
+	   follow the accent. */
+	--link-color: var(--text-accent);
+	--link-color-hover: var(--text-accent-hover);
+	--link-decoration: underline;
+	--link-decoration-hover: underline;
+	--link-decoration-thickness: auto;
+	--link-weight: var(--font-normal);
+	--link-unresolved-color: var(--text-accent);
+	--link-unresolved-opacity: 0.7;
+	--link-unresolved-filter: none;
+	--link-unresolved-decoration-style: solid;
+	--link-unresolved-decoration-color: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.3);
+	--link-external-color: var(--text-accent);
+	--link-external-color-hover: var(--text-accent-hover);
+	--link-external-decoration: underline;
+	--link-external-decoration-hover: underline;
 	/* Obsidian leaves these undocumented; the values are this app's look. */
 	--input-height: 30px;
 	--search-clear-button-color: var(--text-faint);
@@ -185,6 +202,17 @@ body {
 	color: var(--text-normal);
 	font-family: var(--font-interface);
 	font-size: var(--font-ui-medium);
+}
+
+/* Plain links, such as the ones plugin views build, take the link colour
+   instead of the browser's blue. A bare element selector, so any class rule
+   restyles them; an a:hover rule would outweigh .internal-link and
+   .external-link. */
+a {
+	color: var(--link-color);
+	text-decoration-line: var(--link-decoration);
+	text-decoration-thickness: var(--link-decoration-thickness);
+	cursor: var(--cursor-link);
 }
 
 .svg-icon {
