@@ -190,7 +190,13 @@
 	cursor: pointer;
 }
 
-/* Rendered blocks: tables, callouts, code-block processors. */
+/* Rendered blocks: tables, callouts, embeds, code-block processors. Their
+   HTML keeps the line breaks between its tags, which the editor's pre-wrap
+   would show as blank lines. */
+.markdown-source-view.mod-cm6 .markdown-rendered {
+	white-space: normal;
+}
+
 .markdown-source-view.mod-cm6 .cm-embed-block {
 	position: relative;
 }
@@ -202,12 +208,17 @@
 	padding: 0 6px;
 }
 
-.markdown-source-view.mod-cm6 .cm-embed-block > div > :first-child {
+.markdown-source-view.mod-cm6 .cm-preview-code-block > div > :first-child {
 	margin-top: 0;
 }
 
-.markdown-source-view.mod-cm6 .cm-embed-block > div > :last-child {
+.markdown-source-view.mod-cm6 .cm-preview-code-block > div > :last-child {
 	margin-bottom: 0;
+}
+
+.markdown-source-view.mod-cm6 .cm-callout > .callout,
+.markdown-source-view.mod-cm6 .table-wrapper > table {
+	margin: 0;
 }
 
 .markdown-source-view.mod-cm6 .edit-block-button {
@@ -254,21 +265,6 @@
 .markdown-source-view.mod-cm6 .cm-table-widget th {
 	font-weight: var(--table-header-weight, 600);
 	background: var(--table-header-background, transparent);
-}
-
-/* A callout before the renderer knows callouts shows as a quote. */
-.markdown-source-view.mod-cm6 .cm-callout blockquote {
-	margin: 0;
-	padding-left: 12px;
-	border-left: var(--blockquote-border-thickness, 3px) solid var(--blockquote-border-color, var(--interactive-accent));
-}
-
-.markdown-source-view.mod-cm6 .cm-callout blockquote > :first-child {
-	margin-top: 0;
-}
-
-.markdown-source-view.mod-cm6 .cm-callout blockquote > :last-child {
-	margin-bottom: 0;
 }
 
 /* Properties above the note. */

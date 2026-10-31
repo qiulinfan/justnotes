@@ -5,7 +5,6 @@ import type { SyntaxNode } from "@lezer/common";
 import type { App } from "./app";
 import type { Component } from "./events";
 import { setIcon } from "./icons";
-import { Keymap } from "./keymap";
 import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, renderMath, resolveHtmlSrc } from "./markdown";
 import { getLinkpath } from "./metadata-utils";
 import { parseYaml } from "./util";
@@ -375,6 +374,20 @@ class PropertiesWidget extends WidgetType {
 
 const renderChildren = new WeakMap<HTMLElement, Component>();
 
+// The component of a rendered widget: what its render adds belongs to it,
+// and it unloads when CodeMirror destroys the widget's DOM. CodeMirror
+// measures block heights once; content that loads later (images, embeds,
+// processors) changes the size, so each change asks for a new measure.
+function widgetComponent(view: EditorView, el: HTMLElement) {
+	const child = new MarkdownRenderChild(el);
+	child.load();
+	renderChildren.set(el, child);
+	const observer = new ResizeObserver(() => view.requestMeasure());
+	observer.observe(el);
+	child.register(() => observer.disconnect());
+	return child;
+}
+
 // The offset in a table's source of the text of cell `col` in rendered row
 // `row` (the header is row 0; the delimiter line is skipped).
 export function tableCellOffset(source: string, row: number, col: number) {
@@ -394,7 +407,12 @@ export function tableCellOffset(source: string, row: number, col: number) {
 	return offset + Math.min(at, line.length);
 }
 
-// A block rendered with MarkdownRenderer: tables and callouts.
+// The title of a foldable callout, which folds it on a click.
+const FOLD_TITLE = ".callout.is-collapsible > .callout-title";
+
+// A block rendered with MarkdownRenderer, as the reading view renders it:
+// tables (in .table-wrapper) and callouts (.cm-callout > .callout). The
+// renderer's own handlers follow links and fold callouts.
 class RenderedBlockWidget extends WidgetType {
 	constructor(
 		readonly source: string,
@@ -410,19 +428,18 @@ class RenderedBlockWidget extends WidgetType {
 
 	toDOM(view: EditorView) {
 		const el = createDiv(`cm-embed-block markdown-rendered ${this.kind === "table" ? "cm-table-widget" : "cm-callout"}`);
-		const body = el.createDiv();
-		const child = new MarkdownRenderChild(el);
-		child.load();
-		renderChildren.set(el, child);
-		MarkdownRenderer.render(this.host.app, this.source, body, this.host.sourcePath(), child)
-			.then(() => {
-				for (const table of body.findAll("table")) table.addClass("table-editor");
-				view.requestMeasure();
-			})
-			.catch((err) => console.error(err));
-		el.addEventListener("click", (evt) => this.#followLink(evt));
-		if (this.kind === "callout") editButton(view, el, (v) => v.posAtDOM(el));
-		else el.addEventListener("mousedown", (evt) => this.#editCell(view, el, evt));
+		const body = this.kind === "table" ? el.createDiv("table-wrapper") : el;
+		const child = widgetComponent(view, el);
+		MarkdownRenderer.render(this.host.app, this.source, body, this.host.sourcePath(), child).catch((err) => console.error(err));
+		for (const table of body.findAll("table")) table.addClass("table-editor");
+		if (this.kind === "callout") {
+			editButton(view, el, (v) => v.posAtDOM(el));
+			// A press on a fold title must not put the caret beside the block,
+			// which would reveal its source; the click then folds it.
+			el.addEventListener("mousedown", (evt) => {
+				if ((evt.target as HTMLElement).closest(FOLD_TITLE)) evt.preventDefault();
+			});
+		} else el.addEventListener("mousedown", (evt) => this.#editCell(view, el, evt));
 		return el;
 	}
 
@@ -442,27 +459,15 @@ class RenderedBlockWidget extends WidgetType {
 		reveal(view, view.posAtDOM(el) + offset);
 	}
 
-	// Rendered links must not navigate the window.
-	#followLink(evt: MouseEvent) {
-		const a = (evt.target as HTMLElement).closest("a");
-		if (!a || evt.defaultPrevented) return;
-		evt.preventDefault();
-		const { app } = this.host;
-		if (a.hasClass("tag")) return searchTag(app, a.textContent ?? "");
-		const href = a.getAttribute("data-href") ?? a.getAttribute("href");
-		if (!href) return;
-		if (SCHEME.test(href)) require("electron").shell.openExternal(href);
-		else app.workspace.openLinkText(safeDecode(href), this.host.sourcePath(), Keymap.isModEvent(evt));
-	}
-
 	destroy(dom: HTMLElement) {
 		renderChildren.get(dom)?.unload();
 	}
 
 	ignoreEvent(evt: Event) {
-		// Links inside follow; other clicks reveal the source (tables handle
-		// their own clicks).
-		return evt.type === "mousedown" && (this.kind === "table" || !!(evt.target as HTMLElement).closest?.("a, [data-href]"));
+		// Links inside follow and a foldable callout's title folds it; other
+		// clicks reveal the source (tables handle their own clicks).
+		const target = evt.target as HTMLElement;
+		return evt.type === "mousedown" && (this.kind === "table" || !!target.closest?.(`a, [data-href], ${FOLD_TITLE}`));
 	}
 }
 
