@@ -39,6 +39,9 @@ const mousedownField = StateField.define<boolean>({
 	},
 });
 
+// A text drag ends without a mouseup, so drag end and drop also release.
+const RELEASE_EVENTS = ["mouseup", "dragend", "drop", "blur"];
+
 class LivePreviewState {
 	mousedown = false;
 	#view: EditorView;
@@ -51,21 +54,20 @@ class LivePreviewState {
 	press(down: boolean) {
 		if (down === this.mousedown) return;
 		this.mousedown = down;
-		const win = this.#view.dom.ownerDocument.defaultView ?? window;
-		if (down) {
-			win.addEventListener("mouseup", this.#release, true);
-			win.addEventListener("blur", this.#release);
-		} else {
-			win.removeEventListener("mouseup", this.#release, true);
-			win.removeEventListener("blur", this.#release);
-		}
+		this.#listen(down);
 		this.#view.dispatch({ effects: setMousedown.of(down) });
 	}
 
-	destroy() {
+	#listen(on: boolean) {
 		const win = this.#view.dom.ownerDocument.defaultView ?? window;
-		win.removeEventListener("mouseup", this.#release, true);
-		win.removeEventListener("blur", this.#release);
+		for (const type of RELEASE_EVENTS) {
+			if (on) win.addEventListener(type, this.#release, true);
+			else win.removeEventListener(type, this.#release, true);
+		}
+	}
+
+	destroy() {
+		this.#listen(false);
 	}
 }
 

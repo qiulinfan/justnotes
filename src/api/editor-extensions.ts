@@ -6,6 +6,7 @@ import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, type Extension, Prec } from "@codemirror/state";
 import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import type { SyntaxNode } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import type { BlockContext, LeafBlock, LeafBlockParser, MarkdownConfig } from "@lezer/markdown";
 import type { App } from "./app";
@@ -26,7 +27,7 @@ function token(cls: string) {
 	return tag;
 }
 
-export const mathTag = token("cm-math");
+const mathTag = token("cm-math");
 const DOLLAR = 36;
 const BACKSLASH = 92;
 const isSpace = (c: number) => c === 32 || c === 9 || c === 10 || c === 13;
@@ -265,8 +266,8 @@ const wikilinkSyntax: MarkdownConfig = {
 };
 
 // A footnote definition is a paragraph, not a link reference definition.
-// This parser runs before the link reference one and drops it, which
-// would otherwise claim `[^1]: word`.
+// This parser runs first and drops the ones after it: the link reference
+// parser would otherwise claim `[^1]: word`.
 class FootnoteDefinitionParser implements LeafBlockParser {
 	nextLine(_cx: BlockContext, _line: unknown, leaf: LeafBlock) {
 		leaf.parsers.splice(leaf.parsers.indexOf(this) + 1);
@@ -392,7 +393,7 @@ const obsidianHighlight = HighlightStyle.define([
 // style as `.cm-s-obsidian span.cm-keyword` and so on.
 const codeHighlight = HighlightStyle.define([
 	{ tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword, t.modifier], class: "cm-keyword" },
-	{ tag: [t.string, t.special(t.string), t.character], class: "cm-string" },
+	{ tag: [t.string, t.special(t.string)], class: "cm-string" },
 	{ tag: t.regexp, class: "cm-string-2" },
 	{ tag: [t.number, t.integer, t.float], class: "cm-number" },
 	{ tag: [t.bool, t.null, t.atom, t.unit], class: "cm-atom" },
@@ -430,7 +431,7 @@ function exitEmptyQuote(view: EditorView) {
 function indentOrInsertTab(view: EditorView) {
 	const { state } = view;
 	const onList = (pos: number) => {
-		for (let n: any = syntaxTree(state).resolveInner(state.doc.lineAt(pos).to, -1); n; n = n.parent) if (n.name === "ListItem") return true;
+		for (let n: SyntaxNode | null = syntaxTree(state).resolveInner(state.doc.lineAt(pos).to, -1); n; n = n.parent) if (n.name === "ListItem") return true;
 		return false;
 	};
 	if (state.selection.ranges.some((r) => !r.empty || onList(r.head))) return indentMore(view);

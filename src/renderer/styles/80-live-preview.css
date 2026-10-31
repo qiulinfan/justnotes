@@ -263,6 +263,14 @@
 	border-left: var(--blockquote-border-thickness, 3px) solid var(--blockquote-border-color, var(--interactive-accent));
 }
 
+.markdown-source-view.mod-cm6 .cm-callout blockquote > :first-child {
+	margin-top: 0;
+}
+
+.markdown-source-view.mod-cm6 .cm-callout blockquote > :last-child {
+	margin-bottom: 0;
+}
+
 /* Properties above the note. */
 .markdown-source-view.mod-cm6 .metadata-container {
 	margin-bottom: 12px;
