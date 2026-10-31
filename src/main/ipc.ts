@@ -23,6 +23,50 @@ export function registerIpc() {
 	ipcMain.on("justnotes:secret-set", async (evt, vaultId: string, id: string, secret: string) => {
 		evt.returnValue = await setSecret(vaultId, id, secret);
 	});
+	// So is the clipboard plugins get from require("electron") (dom.ts).
+	ipcMain.on("justnotes:clipboard", async (evt, method: string, ...args: unknown[]) => {
+		evt.returnValue = await clipboardCall(electron.clipboard, electron.ClipboardItem, method, args);
+	});
+}
+
+type AsyncClipboard = Pick<electron.Clipboard, "clear" | "has" | "read" | "readText" | "write" | "writeText">;
+export type ClipboardReply = { value: unknown } | { error: string };
+
+// Obsidian's renderer has Electron's old synchronous clipboard, and plugins
+// call it as such (latex-live reads the text and the HTML of a copied table).
+// Electron 45 has only the main process's clipboard, asynchronous, with read()
+// and write() of items by MIME type; the old calls are made of those here.
+// Images cross as PNG bytes, null when the clipboard holds none. The renderer
+// waits for the reply, so this resolves with the value or the error and never
+// rejects.
+export async function clipboardCall(clipboard: AsyncClipboard, Item: typeof electron.ClipboardItem, method: string, args: unknown[]): Promise<ClipboardReply> {
+	const payload = async (type: string) => {
+		for (const item of await clipboard.read()) if (item.types.includes(type)) return (await item.getType(type)) as Blob;
+		return null;
+	};
+	const calls: Record<string, (...args: any[]) => unknown> = {
+		readText: () => clipboard.readText(),
+		writeText: (text: string) => clipboard.writeText(String(text)),
+		readHTML: async () => {
+			const html = await payload("text/html");
+			return html ? html.text() : "";
+		},
+		writeHTML: (markup: string) => clipboard.write([new Item({ "text/html": String(markup) })]),
+		readImage: async () => {
+			const png = await payload("image/png");
+			return png ? new Uint8Array(await png.arrayBuffer()) : null;
+		},
+		writeImage: (png: Uint8Array<ArrayBuffer>) => clipboard.write([new Item({ "image/png": new Blob([png], { type: "image/png" }) })]),
+		availableFormats: async () => [...new Set((await clipboard.read()).flatMap((item) => item.types))],
+		has: (format: string) => clipboard.has(format),
+		clear: () => clipboard.clear(),
+	};
+	try {
+		if (!Object.hasOwn(calls, method)) throw new Error(`clipboard.${method} is not available`);
+		return { value: await calls[method](...args) };
+	} catch (err) {
+		return { error: err instanceof Error ? err.message : String(err) };
+	}
 }
 
 // One requestUrl call, as the renderer sends it.
