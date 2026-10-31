@@ -141,4 +141,30 @@ describe("Vault write order", () => {
 		expect((await Promise.all(reads)).filter((n) => n !== null)).toEqual([]);
 		expect(await vault.read(file)).toBe(texts[2]);
 	});
+
+	// A read can hang (a FIFO, a stalled network mount). Every save in the
+	// vault queues behind a write that waits for it, so that write waits only
+	// a while, and later writes not at all.
+	test("a read that never finishes holds up writes once and only for a while", async () => {
+		const { vault, full } = await makeVault({ "a.md": "a", "b.md": "b" });
+		const [a, b] = [vault.getFileByPath("a.md")!, vault.getFileByPath("b.md")!];
+		const readFile = fs.promises.readFile;
+		const spy = spyOn(fs.promises, "readFile").mockImplementation(((p: fs.PathLike, ...rest: []) =>
+			String(p) === full("a.md") ? new Promise(() => {}) : readFile(p, ...rest)) as typeof fs.promises.readFile);
+		let first = 0;
+		let second = 0;
+		try {
+			void vault.read(a);
+			const start = performance.now();
+			await Promise.all([vault.modify(a, "a2"), vault.modify(b, "b2")]);
+			first = performance.now() - start;
+			await vault.modify(a, "a3");
+			second = performance.now() - start - first;
+		} finally {
+			spy.mockRestore();
+		}
+		expect(first).toBeLessThan(3000);
+		expect(second).toBeLessThan(500);
+		expect([fs.readFileSync(full("a.md"), "utf8"), fs.readFileSync(full("b.md"), "utf8")]).toEqual(["a3", "b2"]);
+	});
 });

@@ -124,6 +124,11 @@ function respell(path: string, find: (lower: string) => string | undefined, keep
 // replaces by delete-then-create reads as one modification.
 const DELETE_GRACE = 100;
 
+// A write waits this long at most for the reads of its file begun before it:
+// a read that hangs (a FIFO, a stalled network mount) must not hold up every
+// write in the vault. A read given up on may see the write half done.
+const READ_WAIT = 1000;
+
 // Writes through a handle and takes the stat from it before closing: the stat
 // is that of these bytes, even when another program writes the file right after.
 async function put(full: string, flag: "w" | "a", data: string | Uint8Array, mtime?: number) {
@@ -150,12 +155,12 @@ export class FileSystemAdapter {
 	#handler: AdapterChange | null = null;
 	#queue: Promise<unknown> = Promise.resolve();
 	// Per file, the write putting its bytes on disk and the reads under way:
-	// a read waits for that write and a write for the reads begun before it,
-	// so no read sees a file half written. A read never waits for writes
-	// still queued, as code running inside the queue may read. Writes go in
-	// place: a temporary file renamed over a note would give it a new birth
-	// time (its stat.ctime) and drop its mode and extended attributes such
-	// as Finder tags.
+	// a read waits for that write and a write for the reads begun before it
+	// (up to READ_WAIT), so no read sees a file half written. A read never
+	// waits for writes still queued, as code running inside the queue may
+	// read. Writes go in place: a temporary file renamed over a note would
+	// give it a new birth time (its stat.ctime) and drop its mode and
+	// extended attributes such as Finder tags.
 	#writing = new Map<string, Promise<void>>();
 	#reading = new Map<string, Set<Promise<unknown>>>();
 	// Lowercased path to its key in `files`, for case-insensitive volumes.
@@ -361,17 +366,31 @@ export class FileSystemAdapter {
 	// one file never overlap.
 	async #writeTurn<T>(norm: string, write: () => Promise<T>): Promise<T> {
 		const turn = this.#turnKey(norm);
-		const reads = [...(this.#reading.get(turn) ?? [])];
+		const begun = [...(this.#reading.get(turn) ?? [])];
 		let finish = () => {};
 		const writing = new Promise<void>((resolve) => (finish = resolve));
 		this.#writing.set(turn, writing);
 		try {
-			if (reads.length) await Promise.allSettled(reads);
+			if (begun.length) await this.#awaitReads(turn, begun);
 			return await write();
 		} finally {
 			if (this.#writing.get(turn) === writing) this.#writing.delete(turn);
 			finish();
 		}
+	}
+
+	// Reads still under way after READ_WAIT are given up on, so later writes
+	// no longer wait for them. Those reads are still in the file's set, as a
+	// set leaves the map only once empty.
+	async #awaitReads(turn: string, begun: Promise<unknown>[]) {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const late = new Promise<void>((resolve) => (timer = setTimeout(resolve, READ_WAIT)));
+		await Promise.race([Promise.allSettled(begun), late]);
+		clearTimeout(timer);
+		const reads = this.#reading.get(turn);
+		if (!reads) return;
+		for (const read of begun) reads.delete(read);
+		if (!reads.size) this.#reading.delete(turn);
 	}
 
 	// Whether a write is putting the file's bytes on disk at the moment.
