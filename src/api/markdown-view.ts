@@ -2,6 +2,7 @@ import { openSearchPanel } from "@codemirror/search";
 import { EditorSelection, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { Editor, EditorPosition } from "./editor";
+import type { Component } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import { Keymap, Scope } from "./keymap";
 import { MarkdownEditView, MarkdownPreviewView, type MarkdownSubView, subpathLine } from "./markdown-preview";
@@ -20,6 +21,14 @@ function safeDecode(href: string) {
 	}
 }
 
+// The backlinks shown under a note, made by the backlink core plugin's
+// instance (`createEmbeddedBacklinks`) while it is enabled.
+export interface EmbeddedBacklinks extends Component {
+	containerEl: HTMLElement;
+	// The view's file changed.
+	update(): void;
+}
+
 export class MarkdownView extends TextFileView {
 	editor: Editor;
 	editMode: MarkdownEditView;
@@ -31,7 +40,10 @@ export class MarkdownView extends TextFileView {
 	scope: Scope;
 	// Source mode: editing with Live Preview off.
 	#source: boolean;
-	#backlinks = false;
+	// Backlinks under the note: backlink.json's backlinkInDocument for a new
+	// view, then the leaf's own state.
+	#backlinks: boolean;
+	backlinks: EmbeddedBacklinks | null = null;
 	#crlf = false;
 	// The exact text the editor's document stands for while unedited, so an
 	// untouched file saves back byte for byte (line endings included).
@@ -50,6 +62,7 @@ export class MarkdownView extends TextFileView {
 		this.previewMode = this.addChild(new MarkdownPreviewView(this));
 		this.modes = { source: this.editMode, preview: this.previewMode };
 		this.currentMode = this.editMode;
+		this.#backlinks = !!this.app.internalPlugins?.getEnabledPluginById("backlink")?.options.backlinkInDocument;
 		this.#source = this.app.vault.getConfig("livePreview") === false;
 		if (this.#source) this.editMode.setLivePreview(false);
 		this.#modeButton = this.addAction("book-open", "", () => this.toggleMode());
@@ -81,7 +94,7 @@ export class MarkdownView extends TextFileView {
 	async setState(state: any, result: ViewStateResult) {
 		await super.setState(state, result);
 		if (typeof state?.source === "boolean") this.setSource(state.source);
-		if (typeof state?.backlinks === "boolean") this.#backlinks = state.backlinks;
+		if (typeof state?.backlinks === "boolean") this.setBacklinks(state.backlinks);
 		if (state?.mode === "preview") await this.setMode(this.previewMode);
 		else if (state?.mode === "source") await this.setMode(this.editMode);
 	}
@@ -96,6 +109,41 @@ export class MarkdownView extends TextFileView {
 		if (focused) this.#focusMode();
 		this.app.workspace.trigger("layout-change");
 		this.app.workspace.requestSaveLayout();
+	}
+
+	setBacklinks(on: boolean) {
+		if (on === this.#backlinks) return;
+		this.#backlinks = on;
+		this.#syncBacklinks();
+		this.app.workspace.requestSaveLayout();
+	}
+
+	toggleBacklinks() {
+		this.setBacklinks(!this.#backlinks);
+	}
+
+	// Creates or drops the backlinks under the note and puts them in the
+	// current mode: under the editor's last line or in the reading view's
+	// footer.
+	#syncBacklinks() {
+		const factory = this.app.internalPlugins?.getEnabledPluginById("backlink")?.createEmbeddedBacklinks as ((view: MarkdownView) => EmbeddedBacklinks) | undefined;
+		const want = this.#backlinks && !!this.file && !!factory;
+		if (!want) {
+			if (this.backlinks) {
+				this.editMode.setFooter(null);
+				this.backlinks.containerEl.remove();
+				this.removeChild(this.backlinks);
+				this.backlinks = null;
+			}
+			return;
+		}
+		if (!this.backlinks) this.backlinks = this.addChild(factory!(this));
+		else this.backlinks.update();
+		const el = this.backlinks.containerEl;
+		if (this.getMode() === "preview") {
+			this.editMode.setFooter(null);
+			this.previewMode.renderer.footerEl.append(el);
+		} else this.editMode.setFooter(el);
 	}
 
 	toggleMode() {
@@ -118,6 +166,7 @@ export class MarkdownView extends TextFileView {
 		const preview = mode === this.previewMode;
 		this.editMode.containerEl.toggle(!preview);
 		this.#syncModeUi();
+		if (this.backlinks) this.#syncBacklinks();
 		if (preview) return this.previewMode.show();
 		this.previewMode.hide();
 	}
@@ -274,6 +323,7 @@ export class MarkdownView extends TextFileView {
 		this.editMode.set(text, clear);
 		if (clear) this.previewMode.set(text, true);
 		this.#pristine = { doc: this.editor.cm.state.doc, text: data };
+		if (clear) this.#syncBacklinks();
 	}
 
 	clear() {

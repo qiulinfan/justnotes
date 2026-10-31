@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { parseMetadata } from "../src/api/metadata";
 import { moment } from "../src/api/util";
 import { dailyNoteDate, dailyNotePath } from "../src/renderer/daily-notes";
-import { findMentions, headingTree, mentionSkips } from "../src/renderer/link-panes";
+import { lineDiff, snapshotDue } from "../src/renderer/file-recovery";
+import { findMentions, headingAt, headingTree, mentionSkips, outlineMatches } from "../src/renderer/link-panes";
+import { addText, composeText, headingSection, mergeText, noteName, sectionReplacement } from "../src/renderer/note-composer";
+import { sortTags, type TagNode, tagTree } from "../src/renderer/tag-pane";
 import { fillTemplate, templateEdits } from "../src/renderer/templates";
 import { countWords } from "../src/renderer/word-count";
 
@@ -43,6 +46,101 @@ describe("outline", () => {
 		const cache = parseMetadata(["# A", "### A.1", "## A.2", "#### A.2.1", "# B"].join("\n"));
 		const shape = (nodes: ReturnType<typeof headingTree>): unknown[] => nodes.map((n) => (n.children.length ? [n.heading.heading, shape(n.children)] : n.heading.heading));
 		expect(shape(headingTree(cache.headings ?? []))).toEqual([["A", ["A.1", ["A.2", ["A.2.1"]]]], "B"]);
+	});
+
+	test("the cursor is under the last heading at or above its line; above the first, under none", () => {
+		const headings = parseMetadata(["intro", "# A", "text", "## B", "# C"].join("\n")).headings ?? [];
+		expect([0, 1, 2, 3, 4].map((line) => headingAt(headings, line))).toEqual([-1, 0, 0, 1, 2]);
+	});
+
+	test("a search keeps matching headings and the headings above them, ignoring case", () => {
+		const roots = headingTree(parseMetadata(["# Limits", "## Squeeze", "## Uniqueness", "# Series", "## Limit tests"].join("\n")).headings ?? []);
+		const shown = outlineMatches(roots, "LIMIT");
+		const names = (nodes: typeof roots): string[] => nodes.flatMap((n) => [...(shown?.has(n) ? [n.heading.heading] : []), ...names(n.children)]);
+		expect(names(roots)).toEqual(["Limits", "Series", "Limit tests"]);
+		expect(outlineMatches(roots, "  ")).toBeNull();
+	});
+});
+
+describe("tags view", () => {
+	const shape = (nodes: TagNode[]): unknown[] => nodes.map((n) => (n.children.length ? [`${n.name} ${n.count}`, shape(n.children)] : `${n.name} ${n.count}`));
+
+	test("nested tags form a tree whose counts are the notes under each tag, a tag repeated in one note counted once, under its first spelling", () => {
+		const notes = [["#proj/alpha", "#proj/alpha", "#Proj"], ["#proj/beta/x"], ["#idea"]];
+		expect(shape(sortTags(tagTree(notes, true), "alphabetical"))).toEqual(["idea 1", ["proj 2", ["alpha 1", ["beta 1", ["x 1"]]]]]);
+	});
+
+	test("the flat list keeps each full tag; spellings differing in case are one tag", () => {
+		expect(shape(sortTags(tagTree([["#a/b", "#A/B"], ["#a/B"]], false), "alphabetical"))).toEqual(["#a/b 2"]);
+	});
+
+	test("frequency sorts by count, ties by name; the reverse orders flip", () => {
+		const roots = tagTree([["#b", "#c"], ["#c"], ["#a"]], true);
+		expect(shape(sortTags(roots, "frequency"))).toEqual(["c 2", "a 1", "b 1"]);
+		expect(shape(sortTags(roots, "frequencyReverse"))).toEqual(["a 1", "b 1", "c 2"]);
+		expect(shape(sortTags(roots, "alphabeticalReverse"))).toEqual(["c 2", "b 1", "a 1"]);
+	});
+});
+
+describe("note composer", () => {
+	const vars = { content: "Body {{date}}", fromTitle: "Old", newTitle: "New", date: moment("2026-10-31", "YYYY-MM-DD") };
+
+	test("a template fills its variables; the content goes where {{content}} is and is left as written", () => {
+		expect(composeText("# {{newTitle}}\nfrom [[{{fromTitle}}]] on {{date:MMM D}}\n{{content}}\n", vars)).toBe("# New\nfrom [[Old]] on Oct 31\nBody {{date}}\n");
+	});
+
+	test("without {{content}} the content goes under the template; without a template it goes alone", () => {
+		expect(composeText("## From {{fromTitle}}\n\n", vars)).toBe("## From Old\n\nBody {{date}}");
+		expect(composeText(null, vars)).toBe("Body {{date}}");
+	});
+
+	test("text goes at the end after a blank line, or at the start below the frontmatter", () => {
+		expect(addText("A\n\n\n", "B\n", "end")).toBe("A\n\nB\n");
+		expect(addText("---\ntags: x\n---\nA\n", "B", "start")).toBe("---\ntags: x\n---\nB\n\nA\n");
+		expect(addText("", "B", "start")).toBe("B\n");
+	});
+
+	test("a merged note's frontmatter joins the destination's, adding only the properties it lacks", () => {
+		expect(mergeText("---\ntags: b\n---\nB\n", "---\ntags: a\nsource: x\n---\nA\n", "end")).toBe("---\ntags: b\nsource: x\n---\nB\n\nA\n");
+		expect(mergeText("B\n", "---\ntags: a\n---\nA\n", "end")).toBe("---\ntags: a\n---\nB\n\nA\n");
+	});
+
+	test("a heading's section runs to the next heading of the same or a higher level", () => {
+		const text = ["# Top", "intro", "## Part", "", "body", "### Sub", "deep", "## Next", "tail"].join("\n");
+		const section = headingSection(text, 4)!;
+		expect(section.heading.heading).toBe("Part");
+		expect(text.slice(section.from, section.to)).toBe("## Part\n\nbody\n### Sub\ndeep\n");
+		expect(section.body).toBe("body\n### Sub\ndeep");
+		expect(headingSection("text\n# A", 0)).toBeNull();
+	});
+
+	test("the link keeps the blank line before the next heading; with nothing left behind the section just goes", () => {
+		const text = "## A\nx\n## B\n";
+		const section = headingSection(text, 0)!;
+		const replace = (link: string) => text.slice(0, section.from) + sectionReplacement(text, section, link) + text.slice(section.to);
+		expect(replace("[[A]]")).toBe("[[A]]\n\n## B\n");
+		expect(replace("")).toBe("## B\n");
+	});
+
+	test("a note name drops what links and file systems reject", () => {
+		expect(noteName(" Limits: [part] #1 / x ")).toBe("Limits part 1 x");
+	});
+});
+
+describe("file recovery", () => {
+	const minute = 60_000;
+
+	test("a note is snapshotted at once without a recent snapshot, else when the interval ends, never unchanged", () => {
+		expect(snapshotDue(null, "a", 0, 5 * minute)).toBe("now");
+		expect(snapshotDue({ ts: 0, data: "a" }, "b", 6 * minute, 5 * minute)).toBe("now");
+		expect(snapshotDue({ ts: 0, data: "a" }, "b", 2 * minute, 5 * minute)).toBe(5 * minute);
+		expect(snapshotDue({ ts: 0, data: "a" }, "a", 60 * minute, 5 * minute)).toBe("skip");
+	});
+
+	test("changes list kept, removed and added lines in order, a changed line as removed then added", () => {
+		const shape = (a: string, b: string) => lineDiff(a, b).map((l) => `${l.type === "same" ? " " : l.type === "added" ? "+" : "-"}${l.text}`);
+		expect(shape("a\nb\nc", "a\nB\nc\nd")).toEqual([" a", "-b", "+B", " c", "+d"]);
+		expect(shape("x\ny", "y")).toEqual(["-x", " y"]);
 	});
 });
 

@@ -114,6 +114,17 @@ export class FileManager {
 		await this.#cacheClean();
 	}
 
+	// Points every link to `file` at `target` instead, each keeping its style,
+	// subpath and alias (Note composer's merge, before `file` goes).
+	async redirectLinks(file: TFile, target: TFile) {
+		await this.#cacheClean();
+		for (const [path, refs] of this.app.metadataCache.getBacklinksForFile(file).data) {
+			const source = this.app.vault.getFileByPath(path);
+			if (source) await this.#rewrite(source, new Map(refs.map((ref) => [ref, target])));
+		}
+		await this.#cacheClean();
+	}
+
 	// Before its first index the cache has nothing to catch up with.
 	#cacheClean() {
 		const cache = this.app.metadataCache;

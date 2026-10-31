@@ -1,0 +1,119 @@
+/* File recovery */
+.modal.mod-file-recovery {
+	width: 1000px;
+	height: 75vh;
+}
+
+.file-recovery-body {
+	display: flex;
+	gap: 12px;
+	height: 100%;
+	min-height: 0;
+	font-size: var(--font-ui-small);
+}
+
+.mod-file-recovery .modal-content {
+	flex: 1;
+	min-height: 0;
+}
+
+.file-recovery-files {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	width: 260px;
+	flex-shrink: 0;
+}
+
+.file-recovery-files .search-input-container,
+.file-recovery-files input {
+	width: 100%;
+}
+
+.file-recovery-list {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+}
+
+.file-recovery-snapshots {
+	flex: 0 0 180px;
+	border-left: 1px solid var(--background-modifier-border);
+	padding-left: 8px;
+}
+
+.file-recovery-item {
+	padding: 3px 6px;
+	border-radius: var(--radius-s);
+	color: var(--text-muted);
+	cursor: pointer;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.file-recovery-item:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.file-recovery-item.is-selected {
+	background: var(--background-modifier-active-hover);
+	color: var(--text-normal);
+}
+
+.file-recovery-item.is-deleted {
+	text-decoration: line-through;
+}
+
+.file-recovery-preview {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	border-left: 1px solid var(--background-modifier-border);
+	padding-left: 12px;
+}
+
+.file-recovery-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding-bottom: 8px;
+}
+
+.file-recovery-toggle {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-right: auto;
+}
+
+.file-recovery-text {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+}
+
+.file-recovery-text pre {
+	margin: 0;
+	font-family: var(--font-monospace);
+	font-size: var(--font-smaller);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.file-recovery-line.mod-added {
+	background: rgba(var(--color-green-rgb), 0.15);
+}
+
+.file-recovery-line.mod-removed {
+	background: rgba(var(--color-red-rgb), 0.15);
+	text-decoration: line-through;
+	color: var(--text-muted);
+}
+
+.file-recovery-empty {
+	padding: 6px;
+	color: var(--text-faint);
+}

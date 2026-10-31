@@ -40,8 +40,37 @@
 }
 
 .link-pane-section.is-collapsed > .link-pane-section-body,
-.outline-item.is-collapsed > .outline-item-children {
+.outline-item.is-collapsed > .outline-item-self.is-active {
+	background: var(--background-modifier-active-hover, var(--background-modifier-hover));
+	color: var(--text-normal);
+}
+
+.outline-item-children {
 	display: none;
+}
+
+/* A search shows the headings it finds even under folded ones. */
+.link-pane-body.is-filtering .outline-item.is-collapsed > .outline-item-self.is-active {
+	background: var(--background-modifier-active-hover, var(--background-modifier-hover));
+	color: var(--text-normal);
+}
+
+.outline-item-children {
+	display: block;
+}
+
+.link-pane > .nav-header {
+	padding: 2px 0 4px;
+}
+
+.outline-search {
+	display: flex;
+	width: 100%;
+	margin-bottom: 6px;
+}
+
+.outline-search input {
+	width: 100%;
 }
 
 .link-pane-group {
@@ -104,8 +133,40 @@
 	color: var(--text-normal);
 }
 
+.outline-item-self.is-active {
+	background: var(--background-modifier-active-hover, var(--background-modifier-hover));
+	color: var(--text-normal);
+}
+
 .outline-item-children {
 	margin-left: 10px;
 	padding-left: 6px;
 	border-left: 1px solid var(--background-modifier-border);
+}
+
+/* Backlinks under a note, in the editor and the reading view */
+.embedded-backlinks {
+	margin-top: 48px;
+	padding-top: 8px;
+	border-top: 1px solid var(--background-modifier-border);
+	font-family: var(--font-interface);
+	white-space: normal;
+	cursor: default;
+	user-select: text;
+}
+
+.embedded-backlinks .link-pane {
+	padding: 0;
+	overflow: visible;
+}
+
+.embedded-backlinks-title {
+	padding: 4px 2px;
+	font-size: var(--font-ui-medium);
+	font-weight: 600;
+	color: var(--text-normal);
+}
+
+.link-pane .nav-action-button.is-active {
+	color: var(--text-accent);
 }

@@ -1,6 +1,10 @@
 import type { App } from "../api/app";
+import { installBacklinksInDocument } from "./backlinks-in-document";
 import { installDailyNotes } from "./daily-notes";
+import { installFileRecovery } from "./file-recovery";
 import { registerLinkPanes } from "./link-panes";
+import { installNoteComposer } from "./note-composer";
+import { TagView } from "./tag-pane";
 import { registerTemplateCommands } from "./templates";
 import { installWordCount } from "./word-count";
 
@@ -9,6 +13,7 @@ import { installWordCount } from "./word-count";
 const PANES = [
 	{ plugin: "backlink", type: "backlink", command: "backlink:open", name: "Backlinks: Show backlinks" },
 	{ plugin: "outgoing-link", type: "outgoing-link", command: "outgoing-links:open", name: "Outgoing links: Show outgoing links" },
+	{ plugin: "tag-pane", type: "tag", command: "tag-pane:open", name: "Tags view: Show tags" },
 	{ plugin: "outline", type: "outline", command: "outline:open", name: "Outline: Show outline" },
 ];
 
@@ -16,6 +21,7 @@ const PANES = [
 // panes back whatever the vault enables.
 export function registerCorePluginViews(app: App) {
 	registerLinkPanes(app);
+	app.viewRegistry.registerView("tag", (leaf) => new TagView(leaf));
 }
 
 // The rest follows core-plugins.json, as in Obsidian: a disabled core plugin
@@ -30,8 +36,11 @@ export function installCorePlugins(app: App) {
 			callback: async () => app.workspace.revealLeaf(await app.workspace.ensureSideLeaf(pane.type, "right", { reveal: true })),
 		});
 	}
+	if (enabled("backlink")) installBacklinksInDocument(app);
 	if (enabled("daily-notes")) installDailyNotes(app);
 	if (enabled("templates")) registerTemplateCommands(app);
+	if (enabled("note-composer")) installNoteComposer(app);
+	if (enabled("file-recovery")) installFileRecovery(app);
 	if (enabled("word-count")) installWordCount(app);
 }
 

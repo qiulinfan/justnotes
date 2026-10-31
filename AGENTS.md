@@ -75,18 +75,39 @@ plain style. Development notes belong in this file.
   Obsidian. Enabled instances exist only for those `IMPLEMENTED` in
   `internal-plugins.ts`; a disabled one adds no commands, ribbon button or
   pane. Their commands keep Obsidian's ids (`backlink:open`,
-  `outgoing-links:open`, `outline:open`, `daily-notes`,
-  `daily-notes:goto-prev`/`-next`, `insert-template`,
-  `insert-current-date`/`-time`), so `hotkeys.json` binds them. The panes'
-  views (`backlink`, `outgoing-link`, `outline`) register always, so a saved
-  layout keeps them; they follow the active file. Unlinked mentions are
-  computed only while their section is open, by reading every note
+  `backlink:toggle-backlinks`, `outgoing-links:open`, `outline:open`,
+  `tag-pane:open`, `daily-notes`, `daily-notes:goto-prev`/`-next`,
+  `insert-template`, `insert-current-date`/`-time`,
+  `note-composer:merge-file`/`split-file`/`extract-heading`,
+  `file-recovery:open`), so `hotkeys.json` binds them. The panes' views
+  (`backlink`, `outgoing-link`, `outline`, `tag`) register always, so a saved
+  layout keeps them; the first three follow the active file. Unlinked mentions
+  are computed only while their section is open, by reading every note
   (`findMentions`: whole words ignoring case, a name next to a Chinese or
   Japanese character counts, links, frontmatter and code blocks skipped).
-  Templates insert a template's frontmatter at the top, adding only the
-  properties the note lacks. Not there yet: backlinks at the bottom of a note,
-  the outline's search and cursor following, the other core plugins (graph,
-  canvas, note composer, tag pane, file recovery, ...).
+  Backlinks under a note (`BacklinkList`, shared with the pane) start from
+  backlink.json's `backlinkInDocument` and then follow the leaf's `backlinks`
+  state; the backlink instance's `createEmbeddedBacklinks` makes them, and
+  `MarkdownView` puts them in a CodeMirror block widget after the last line
+  (`MarkdownEditView.setFooter`) or in the reading view's `.mod-footer`. The
+  outline marks the heading the editor's cursor (the reading view's top line)
+  is under and filters by its search box. The Tags view counts notes per tag
+  (case-insensitive, nested tags count the notes of their subtree) and
+  searches `tag:#x` on click. Note composer reads note-composer.json
+  (`askBeforeMerging`, `replacementText` link/embed/none, `template` with
+  `{{content}}`, `{{fromTitle}}`, `{{newTitle}}`, `{{date:...}}`): Enter adds
+  at the end, Shift+Enter at the start (after the frontmatter), Mod+Enter (or
+  Enter with no match) creates a note named as typed; a merged note's
+  frontmatter adds only missing properties, links to it are redirected
+  (`FileManager.redirectLinks`) and it goes to the trash. File recovery keeps
+  whole-text snapshots of `.md` and `.canvas` files in the profile's IndexedDB
+  (`<appId>-file-recovery`), one when a file is opened and then at most one
+  per `intervalMinutes` (default 5) after edits, pruned after `keepDays`
+  (default 7); a restore snapshots the current text first. Templates insert a
+  template's frontmatter at the top, adding only the properties the note
+  lacks. Not there yet: the other core plugins (graph, canvas, bookmarks,
+  ...), the Tags view's Mod-click to add a tag to the search, links to an
+  extracted heading (`[[Note#Heading]]`) are not redirected to the new note.
 - Keyboard: a capture-phase `keydown` listener walks the keymap scope stack
   before CodeMirror sees the key; the active scope follows keyboard focus. The
   root scope has one catch-all handler that runs command hotkeys; plugins may
