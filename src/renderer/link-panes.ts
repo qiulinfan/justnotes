@@ -188,47 +188,42 @@ abstract class ActiveFilePane extends ItemView {
 	}
 }
 
-export class BacklinkView extends ActiveFilePane {
-	readonly title = "Backlinks";
-	#sources = new Set<string>();
-	#linkedCollapsed = false;
-	#unlinkedCollapsed = true;
+// A note's linked and unlinked mentions, as the backlinks pane shows them and
+// the backlinks under a note do. `refresh` asks the owner to render again.
+export class BacklinkList {
+	app: App;
+	sources = new Set<string>();
+	linkedCollapsed = false;
+	unlinkedCollapsed = true;
+	#refresh: () => void;
 
-	constructor(leaf: WorkspaceLeaf) {
-		super(leaf);
-		this.icon = "links-coming-in";
+	constructor(app: App, refresh: () => void) {
+		this.app = app;
+		this.#refresh = refresh;
 	}
 
-	getViewType() {
-		return "backlink";
-	}
-
-	async onOpen() {
-		// A note's own edits change only its self-links; other notes' edits
-		// change its mentions.
-		this.registerEvent(
-			this.app.metadataCache.on("resolve", (file: TFile) => {
-				if (file !== this.file || this.#sources.has(file.path)) this.refresh();
-			}),
-		);
-		await super.onOpen();
+	// Whether a 'resolve' of `file` can change the list of `shown`: a note's
+	// own edits change only its self-links; other notes' edits change its
+	// mentions.
+	affectedBy(file: TFile, shown: TFile | null) {
+		return file !== shown || this.sources.has(file.path);
 	}
 
 	getState() {
-		return { file: this.file?.path ?? null, collapseAll: this.#linkedCollapsed, unlinkedCollapsed: this.#unlinkedCollapsed };
+		return { collapseAll: this.linkedCollapsed, unlinkedCollapsed: this.unlinkedCollapsed };
 	}
 
-	async setState(state: any) {
-		if (typeof state?.unlinkedCollapsed === "boolean") this.#unlinkedCollapsed = state.unlinkedCollapsed;
-		if (typeof state?.collapseAll === "boolean") this.#linkedCollapsed = state.collapseAll;
+	setState(state: any) {
+		if (typeof state?.unlinkedCollapsed === "boolean") this.unlinkedCollapsed = state.unlinkedCollapsed;
+		if (typeof state?.collapseAll === "boolean") this.linkedCollapsed = state.collapseAll;
 	}
 
 	async fill(file: TFile, el: HTMLElement, current: () => boolean) {
 		const { vault, metadataCache } = this.app;
 		const backlinks = metadataCache.getBacklinksForFile(file);
-		this.#sources = new Set(backlinks.keys());
-		const linked = section(el, "Linked mentions", this.#linkedCollapsed, (c) => {
-			this.#linkedCollapsed = c;
+		this.sources = new Set(backlinks.keys());
+		const linked = section(el, "Linked mentions", this.linkedCollapsed, (c) => {
+			this.linkedCollapsed = c;
 		});
 		const sources = backlinks
 			.keys()
@@ -244,11 +239,11 @@ export class BacklinkView extends ActiveFilePane {
 			const lines = text.split("\n");
 			for (const ref of backlinks.get(source.path) ?? []) this.#reference(group, source, lines, ref);
 		}
-		const unlinked = section(el, "Unlinked mentions", this.#unlinkedCollapsed, (c) => {
-			this.#unlinkedCollapsed = c;
-			if (!c) this.refresh();
+		const unlinked = section(el, "Unlinked mentions", this.unlinkedCollapsed, (c) => {
+			this.unlinkedCollapsed = c;
+			if (!c) this.#refresh();
 		});
-		if (this.#unlinkedCollapsed || file.extension !== "md") return;
+		if (this.unlinkedCollapsed || file.extension !== "md") return;
 		const names = namesOf(file, metadataCache.getFileCache(file));
 		let count = 0;
 		for (const source of vault.getMarkdownFiles().sort(byName)) {
@@ -314,7 +309,38 @@ export class BacklinkView extends ActiveFilePane {
 			return data.slice(0, offset + match.from) + link + data.slice(offset + match.to);
 		});
 		if (!done) new Notice(`${source.basename} changed; the mention is no longer there.`);
-		this.refresh();
+		this.#refresh();
+	}
+}
+
+export class BacklinkView extends ActiveFilePane {
+	readonly title = "Backlinks";
+	list = new BacklinkList(this.app, () => this.refresh());
+
+	constructor(leaf: WorkspaceLeaf) {
+		super(leaf);
+		this.icon = "links-coming-in";
+	}
+
+	getViewType() {
+		return "backlink";
+	}
+
+	async onOpen() {
+		this.registerEvent(this.app.metadataCache.on("resolve", (file: TFile) => this.list.affectedBy(file, this.file) && this.refresh()));
+		await super.onOpen();
+	}
+
+	getState() {
+		return { file: this.file?.path ?? null, ...this.list.getState() };
+	}
+
+	async setState(state: any) {
+		this.list.setState(state);
+	}
+
+	fill(file: TFile, el: HTMLElement, current: () => boolean) {
+		return this.list.fill(file, el, current);
 	}
 }
 

@@ -1,5 +1,5 @@
-import { Annotation, Compartment, EditorState, type Text, Transaction } from "@codemirror/state";
-import { EditorView, type ViewUpdate } from "@codemirror/view";
+import { Annotation, Compartment, EditorState, type Extension, StateField, type Text, Transaction } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, type ViewUpdate, WidgetType } from "@codemirror/view";
 import type { App } from "./app";
 import { bindEditorFields, Editor, editorLivePreviewField } from "./editor";
 import { markdownEditorExtensions } from "./editor-extensions";
@@ -32,6 +32,43 @@ const mirrored = Annotation.define<boolean>();
 // The reading view whose find results own the document's search highlights.
 let searching: MarkdownPreviewView | null = null;
 
+// An element shown under the last line of the editor, scrolling with the
+// text (the backlinks under a note). CodeMirror leaves events inside it alone.
+class FooterWidget extends WidgetType {
+	constructor(readonly el: HTMLElement) {
+		super();
+	}
+
+	eq(other: FooterWidget) {
+		return other.el === this.el;
+	}
+
+	toDOM() {
+		return this.el;
+	}
+
+	get estimatedHeight() {
+		return this.el.offsetHeight || 100;
+	}
+
+	ignoreEvent() {
+		return true;
+	}
+
+	destroy() {}
+}
+
+function footerField(el: HTMLElement | null): Extension {
+	if (!el) return [];
+	const deco = Decoration.widget({ widget: new FooterWidget(el), block: true, side: 1 });
+	const at = (state: EditorState) => Decoration.set(deco.range(state.doc.length));
+	return StateField.define<DecorationSet>({
+		create: at,
+		update: (value, tr) => (tr.docChanged ? at(tr.state) : value),
+		provide: (field) => EditorView.decorations.from(field),
+	});
+}
+
 // The editing mode: the CodeMirror editor, in Live Preview or source mode.
 export class MarkdownEditView implements MarkdownSubView {
 	app: App;
@@ -43,6 +80,11 @@ export class MarkdownEditView implements MarkdownSubView {
 	#plugins = new Compartment();
 	#livePreview = new Compartment();
 	#isLivePreview = true;
+	#footer = new Compartment();
+	#footerEl: HTMLElement | null = null;
+	#footerObserver = new ResizeObserver(() => {
+		if (!this.#destroyed) this.editor.cm.requestMeasure();
+	});
 	#scroll = 0;
 	#destroyed = false;
 	// Plugins follow the active note's unsaved text through 'quick-preview'.
@@ -74,6 +116,7 @@ export class MarkdownEditView implements MarkdownSubView {
 			extensions: [
 				this.#livePreview.of(editorLivePreviewField.init(() => this.#isLivePreview)),
 				markdownEditorExtensions(this.view, this.#plugins),
+				this.#footer.of(footerField(this.#footerEl)),
 				EditorView.updateListener.of((u) => this.#onUpdate(u)),
 			],
 		});
@@ -138,9 +181,19 @@ export class MarkdownEditView implements MarkdownSubView {
 		if (!this.#destroyed) this.editor.cm.dispatch({ effects: this.#plugins.reconfigure(this.app.workspace.editorExtensions) });
 	}
 
+	// Shows `el` under the last line, or nothing.
+	setFooter(el: HTMLElement | null) {
+		if (el === this.#footerEl || this.#destroyed) return;
+		if (this.#footerEl) this.#footerObserver.unobserve(this.#footerEl);
+		this.#footerEl = el;
+		if (el) this.#footerObserver.observe(el);
+		this.editor.cm.dispatch({ effects: this.#footer.reconfigure(footerField(el)) });
+	}
+
 	destroy() {
 		if (this.#destroyed) return;
 		this.#destroyed = true;
+		this.#footerObserver.disconnect();
 		this.#quickPreview.cancel();
 		this.editor.cm.destroy();
 	}

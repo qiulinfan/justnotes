@@ -109,3 +109,26 @@
 	padding-left: 6px;
 	border-left: 1px solid var(--background-modifier-border);
 }
+
+/* Backlinks under a note, in the editor and the reading view */
+.embedded-backlinks {
+	margin-top: 48px;
+	padding-top: 8px;
+	border-top: 1px solid var(--background-modifier-border);
+	font-family: var(--font-interface);
+	white-space: normal;
+	cursor: default;
+	user-select: text;
+}
+
+.embedded-backlinks .link-pane {
+	padding: 0;
+	overflow: visible;
+}
+
+.embedded-backlinks-title {
+	padding: 4px 2px;
+	font-size: var(--font-ui-medium);
+	font-weight: 600;
+	color: var(--text-normal);
+}
