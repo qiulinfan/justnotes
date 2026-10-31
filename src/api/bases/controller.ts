@@ -7,10 +7,10 @@ import { BaseDocument, type BasesConfigFileView, BasesViewConfig, type ViewConfi
 import { type BasesEntry, QueryRun } from "./entry";
 import { invalidateLinkIndex } from "./file-fields";
 import { loadPropertyTypes } from "./frontmatter";
+import { impliedByFilters, type NewNote } from "./new-note";
 import type { BasesPropertyId } from "./property";
 import { BasesQueryResult, executeQuery } from "./query";
 import { BasesToolbar } from "./toolbar";
-import { impliedByFilters, type NewNote } from "./new-note";
 import type { Value } from "./values";
 import { type BasesView, basesViewTypes, getBasesViewType } from "./view";
 

@@ -17,7 +17,7 @@ export abstract class Value {
 	static type = "value";
 
 	static equals(a: Value | null, b: Value | null): boolean {
-		return (a ?? NullValue.value).equals((b ?? NullValue.value) as any);
+		return (a ?? NullValue.value).equals(b ?? NullValue.value);
 	}
 
 	// Loose equality is symmetric: a link equals the string that names its file
@@ -31,12 +31,12 @@ export abstract class Value {
 	abstract toString(): string;
 	abstract isTruthy(): boolean;
 
-	equals(other: this): boolean {
+	equals(other: Value): boolean {
 		return other === this;
 	}
 
 	looseEquals(other: Value): boolean {
-		return this.equals(other as this);
+		return this.equals(other);
 	}
 
 	renderTo(el: HTMLElement, _ctx?: HoverParentLike | null) {

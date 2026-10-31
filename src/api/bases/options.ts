@@ -184,19 +184,17 @@ class FilterModal extends Modal {
 		this.setTitle("Filters");
 		const config = controller.configs[controller.viewIndex];
 		const yaml = (value: unknown) => (value === undefined || value === null ? "" : stringifyYaml(value).trimEnd());
-		const fields: [string, string, HTMLTextAreaElement | null][] = [
-			["All views", yaml(controller.document.config.filters), null],
-			["This view", yaml(viewData(config).filters), null],
-		];
-		const errorEl = createDiv();
-		for (const field of fields) {
-			new Setting(this.contentEl).setName(field[0]).setHeading();
-			field[2] = this.contentEl.createEl("textarea", { cls: "bases-filter-input", attr: { rows: 6, spellcheck: "false" } });
-			field[2].value = field[1];
-			field[2].placeholder = 'and:\n  - file.inFolder("Projects")\n  - status != "done"';
-		}
-		this.contentEl.appendChild(errorEl);
-		errorEl.addClass("bases-message-item", "mod-warning");
+		const fields = [
+			{ name: "All views", value: yaml(controller.document.config.filters) },
+			{ name: "This view", value: yaml(viewData(config).filters) },
+		].map(({ name, value }) => {
+			new Setting(this.contentEl).setName(name).setHeading();
+			const input = this.contentEl.createEl("textarea", { cls: "bases-filter-input", attr: { rows: 6, spellcheck: "false" } });
+			input.value = value;
+			input.placeholder = 'and:\n  - file.inFolder("Projects")\n  - status != "done"';
+			return { name, input };
+		});
+		const errorEl = this.contentEl.createDiv("bases-message-item mod-warning");
 		errorEl.hide();
 		new Setting(this.contentEl).addButton((b) =>
 			b
@@ -204,12 +202,12 @@ class FilterModal extends Modal {
 				.setCta()
 				.onClick(() => {
 					const parsed: unknown[] = [];
-					for (const [name, , input] of fields) {
+					for (const { name, input } of fields) {
 						try {
-							const value = input!.value.trim() ? parseYaml(input!.value) : undefined;
+							const value = input.value.trim() ? parseYaml(input.value) : undefined;
 							const problem = firstFormulaError(value);
 							if (problem) throw new Error(problem);
-							parsed.push(value ?? undefined);
+							parsed.push(value);
 						} catch (err) {
 							errorEl.setText(`${name}: ${(err as Error).message}`);
 							errorEl.show();
@@ -278,7 +276,12 @@ class FormulaModal extends Modal {
 				.setButtonText("Add")
 				.setCta()
 				.onClick(() => {
-					if (!/^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(name) || !formula.trim() || parseExpression(formula).error) return;
+					if (!/^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(name)) {
+						preview.empty();
+						preview.createSpan({ cls: "bases-error-value", text: "A formula name is letters, digits and _, and starts with a letter." });
+						return;
+					}
+					if (!formula.trim() || parseExpression(formula).error) return;
 					controller.setBaseKey(["formulas", name], formula);
 					const config = controller.configs[controller.viewIndex];
 					const id: BasesPropertyId = `formula.${name}`;

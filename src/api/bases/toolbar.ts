@@ -5,8 +5,8 @@ import { Menu } from "../ui/menu";
 import { debounce } from "../util";
 import { type BasesViewConfig, groupByOf, limitOf, viewData } from "./config";
 import type { QueryController } from "./controller";
-import { openFilterEditor, openFormulaEditor, openViewOptions } from "./options";
 import { exportRows } from "./export";
+import { openFilterEditor, openFormulaEditor, openViewOptions } from "./options";
 import type { BasesPropertyId } from "./property";
 import { getBasesViewType, listBasesViewTypes } from "./view";
 

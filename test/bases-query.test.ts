@@ -190,6 +190,16 @@ views:
 		expect(query("filters: due < date(\"2025-01-07\")\nviews:\n  - type: table\n    name: T\n").paths).toEqual(["tasks/b.md"]);
 	});
 
+	test("link, file and type functions resolve against the vault", () => {
+		const one = (formula: string) => query(`filters: file.path == "tasks/a.md" && (${formula})\nviews:\n  - type: table\n    name: T\n`).paths.length === 1;
+		expect(one('link("Alpha").asFile().name == "Alpha.md"')).toBe(true);
+		expect(one('file("tasks/b.md").hasTag("work")')).toBe(true);
+		expect(one('project.isType("link") && project.isType("string") && !status.isType("link")')).toBe(true);
+		expect(one("link(\"Alpha\").linksTo(file.file)")).toBe(true);
+		expect(one("file.backlinks.contains(link(\"Alpha\"))")).toBe(true);
+		expect(one('file.hasLink("Alpha") && !file.hasLink("tasks/c.md")')).toBe(true);
+	});
+
 	test("the toolbar search keeps entries whose name or visible properties contain the text", () => {
 		const yaml = 'filters: file.inFolder("tasks")\nviews:\n  - type: table\n    name: T\n    order: [status]\n';
 		expect(query(yaml, 0, null, "DON").paths).toEqual(["tasks/b.md"]);

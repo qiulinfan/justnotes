@@ -238,7 +238,7 @@ const STRING: Record<string, Method<StringValue>> = {
 		const n = limit ? toNumber(limit) : null;
 		return new ListValue((n === null ? parts : parts.slice(0, n)).map(str));
 	}),
-	title: method((_env, v, args) => needs("title", args, 0) ?? str(v.value.replace(/(^|[\s\-_])(\p{L})/gu, (_m, pre, ch) => pre + ch.toUpperCase()))),
+	title: method((_env, v, args) => needs("title", args, 0) ?? str(v.value.replace(/(^|\s)(\p{L})/gu, (_m, pre, ch) => pre + ch.toUpperCase()))),
 	trim: method((_env, v, args) => needs("trim", args, 0) ?? str(v.value.trim())),
 };
 
