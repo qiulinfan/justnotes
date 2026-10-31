@@ -88,6 +88,10 @@ export class Presentation {
 	#onFullscreenChange = () => {
 		if (!this.containerEl.doc.fullscreenElement) this.close();
 	};
+	// The window the presentation shows in; closing it (a popout) closes the
+	// presentation, whose parentless scope would otherwise keep app hotkeys off.
+	#win: Window | null = null;
+	#onWindowGone = () => this.close();
 
 	constructor(app: App, file: TFile, sources: string[], leaf: WorkspaceLeaf | null = null) {
 		this.app = app;
@@ -139,6 +143,8 @@ export class Presentation {
 		const doc = this.containerEl.doc;
 		this.#restoreFocus = doc.activeElement;
 		(doc.activeElement as HTMLElement | null)?.blur?.();
+		this.#win = doc.defaultView;
+		this.#win?.addEventListener("pagehide", this.#onWindowGone);
 		this.#component.load();
 		this.app.keymap.pushScope(this.#scope);
 		this.go(0);
@@ -155,6 +161,8 @@ export class Presentation {
 		if (current !== this) return;
 		current = null;
 		const doc = this.containerEl.doc;
+		this.#win?.removeEventListener("pagehide", this.#onWindowGone);
+		this.#win = null;
 		doc.removeEventListener("fullscreenchange", this.#onFullscreenChange);
 		if (doc.fullscreenElement === this.containerEl) doc.exitFullscreen().catch(() => {});
 		this.app.keymap.popScope(this.#scope);
