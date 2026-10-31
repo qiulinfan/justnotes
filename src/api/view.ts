@@ -434,8 +434,10 @@ function addsLines(from: string, text: string) {
 // or change lines, a change made from the write holds every line of it, and
 // a revert (git discarding changes, a plugin restoring a version) brings back
 // a version the document has had. A revert to a version from before the
-// document was opened passes for a capture when the edits since only removed
-// lines.
+// document was opened (an earlier session, or the note closed in every pane
+// and opened again) passes for a capture when the text the write replaced is
+// that version with lines removed or emptied; the write's own edits, changed
+// and added lines included, then survive it.
 function mergeBase(doc: TextDoc, text: string) {
 	const prior = doc.prior;
 	if (!prior || Date.now() - prior.at > 1000 || !addsLines(prior.text, text) || doc.seen.has(digest(text))) return doc.base;

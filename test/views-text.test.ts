@@ -250,9 +250,9 @@ describe("TextFileView saves", () => {
 	}
 
 	// git discarding the note's changes, or a plugin restoring a version, right
-	// after the last of several saves. When the saves since that version only
-	// removed lines, it is the text the last save replaced with lines added, as
-	// a capture is.
+	// after the last of several saves. When the saves before the last one only
+	// removed lines, that version is the text the last save replaced with lines
+	// added, as a capture is.
 	const reverts: [string, string[], string][] = [
 		["the opened text, after two saves", ["line1 edit\nline2\nline3\n", "line1 edit\nline2\nline3 edit\n"], "line1\nline2\nline3\n"],
 		["the opened text, after a save that removed a line", ["line1\nline3\n", "line1\nline3 edit\n"], "line1\nline2\nline3\n"],
