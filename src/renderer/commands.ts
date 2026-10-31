@@ -8,6 +8,8 @@ import {
 	cycleListChecklist,
 	insertCallout,
 	insertCodeBlock,
+	insertFootnote,
+	insertHorizontalRule,
 	insertMarkdownLink,
 	insertMathBlock,
 	insertTable,
@@ -146,6 +148,8 @@ function registerEditorCommands(app: App) {
 	edit("insert-codeblock", "Insert code block", insertCodeBlock);
 	edit("insert-mathblock", "Insert math block", insertMathBlock);
 	edit("insert-table", "Insert table", insertTable);
+	edit("insert-horizontal-rule", "Insert horizontal rule", insertHorizontalRule);
+	edit("insert-footnote", "Insert footnote", insertFootnote);
 
 	cm("swap-line-up", "Swap line up", moveLineUp);
 	cm("swap-line-down", "Swap line down", moveLineDown);

@@ -417,3 +417,34 @@ export const insertCallout: StateEdit = (state) =>
 	});
 
 export const insertTable = insertBlock("|     |     |\n| --- | --- |\n|     |     |", 2);
+
+// A rule on a line of its own, with a blank line after a paragraph: right
+// under one, `---` would turn it into a heading.
+export const insertHorizontalRule: StateEdit = (state) =>
+	state.changeByRange((range) => {
+		const line = state.doc.lineAt(range.head);
+		const insert = line.text.trim() ? "\n\n---\n" : "---\n";
+		const from = line.text.trim() ? line.to : line.from;
+		return { changes: { from, to: line.to, insert }, range: EditorSelection.cursor(from + insert.length) };
+	});
+
+// A footnote reference at the cursor, numbered after the note's highest
+// numbered footnote, and its definition at the end of the note, where the
+// cursor goes to write it.
+export const insertFootnote: StateEdit = (state) => {
+	const text = state.doc.toString();
+	let highest = 0;
+	for (const m of text.matchAll(/\[\^(\d+)\]/g)) highest = Math.max(highest, Number(m[1]));
+	const label = `[^${highest + 1}]`;
+	const { from, to } = state.selection.main;
+	const end = state.doc.length;
+	const tail = text.endsWith("\n\n") || !text ? "" : text.endsWith("\n") ? "\n" : "\n\n";
+	const definition = `${tail}${label}: `;
+	return {
+		changes: [
+			{ from, to, insert: label },
+			{ from: end, insert: definition },
+		],
+		selection: EditorSelection.cursor(end - (to - from) + label.length + definition.length),
+	};
+};

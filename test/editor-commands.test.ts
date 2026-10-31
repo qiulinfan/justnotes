@@ -5,6 +5,8 @@ import { EditorSelection, EditorState } from "@codemirror/state";
 import {
 	clearFormatting,
 	cycleListChecklist,
+	insertFootnote,
+	insertHorizontalRule,
 	insertMarkdownLink,
 	MARKUP,
 	type StateEdit,
@@ -115,5 +117,19 @@ describe("line commands", () => {
 	test("set heading replaces existing heading marks", () => {
 		expect(run(setHeading(2), "### Title|")).toBe("## Title|");
 		expect(run(setHeading(0), "# Title|")).toBe("Title|");
+	});
+});
+
+// The editor menu's Insert submenu (as Obsidian's) adds these two.
+describe("Insert footnote and horizontal rule", () => {
+	test("a footnote takes the next number and its definition goes to the end, where the cursor writes it", () => {
+		expect(run(insertFootnote, "Text| here.\n\n[^1]: one\n[^3]: three\n")).toBe("Text[^4] here.\n\n[^1]: one\n[^3]: three\n\n[^4]: |");
+		expect(run(insertFootnote, "A note|")).toBe("A note[^1]\n\n[^1]: |");
+		expect(run(insertFootnote, "«word»")).toBe("[^1]\n\n[^1]: |");
+	});
+
+	test("a rule after a paragraph keeps a blank line, so the paragraph does not become a heading", () => {
+		expect(run(insertHorizontalRule, "Para|graph\nnext")).toBe("Paragraph\n\n---\n|\nnext");
+		expect(run(insertHorizontalRule, "|")).toBe("---\n|");
 	});
 });

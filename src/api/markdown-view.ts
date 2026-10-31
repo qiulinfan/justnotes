@@ -219,6 +219,42 @@ export class MarkdownView extends TextFileView {
 		const href = (evt.target as Element | null)?.closest?.("[data-href]")?.getAttribute("data-href");
 		if (href && SCHEME.test(href)) addUrlMenuItems(this.app, menu, href);
 		else if (href) this.app.workspace.handleLinkContextMenu(menu, href, this.file?.path ?? "", this.leaf);
+		// Obsidian's Format, Paragraph and Insert submenus, running the editor
+		// commands so hotkeys.json and plugins see the same actions.
+		const submenu = (title: string, icon: string, items: [string, string, string][]) =>
+			menu.addItem((i) => {
+				i.setTitle(title).setIcon(icon).setSection("selection.format");
+				const sub = i.setSubmenu();
+				for (const [label, itemIcon, id] of items) sub.addItem((s) => s.setTitle(label).setIcon(itemIcon).onClick(() => this.app.commands.executeCommandById(`editor:${id}`)));
+			});
+		if (this.getMode() === "source") {
+			submenu("Format", "type", [
+				["Bold", "bold", "toggle-bold"],
+				["Italic", "italic", "toggle-italics"],
+				["Strikethrough", "strikethrough", "toggle-strikethrough"],
+				["Highlight", "highlighter", "toggle-highlight"],
+				["Code", "code", "toggle-code"],
+				["Math", "sigma", "toggle-inline-math"],
+				["Comment", "percent", "toggle-comments"],
+				["Clear formatting", "eraser", "clear-formatting"],
+			]);
+			submenu("Paragraph", "pilcrow", [
+				["Bullet list", "list", "toggle-bullet-list"],
+				["Numbered list", "list-ordered", "toggle-numbered-list"],
+				["Task list", "list-checks", "toggle-checklist-status"],
+				...[1, 2, 3, 4, 5, 6].map((n): [string, string, string] => [`Heading ${n}`, `heading-${n}`, `set-heading-${n}`]),
+				["Body", "pilcrow", "set-heading-0"],
+				["Quote", "quote", "toggle-blockquote"],
+			]);
+			submenu("Insert", "plus", [
+				["Footnote", "footprints", "insert-footnote"],
+				["Table", "table", "insert-table"],
+				["Callout", "message-square-quote", "insert-callout"],
+				["Code block", "square-code", "insert-codeblock"],
+				["Math block", "square-sigma", "insert-mathblock"],
+				["Horizontal rule", "separator-horizontal", "insert-horizontal-rule"],
+			]);
+		}
 		menu.addItem((i) =>
 			i
 				.setTitle("Cut")

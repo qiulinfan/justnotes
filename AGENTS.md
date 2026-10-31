@@ -343,6 +343,12 @@ plain style. Development notes belong in this file.
   its own keys run; popover suggests and views fall through to the app scope.
   Editor commands never run in reading view or for a key typed in another text
   field (reading `window.event` when a plugin such as Completr passes none).
+- The editor's context menu has Obsidian's Format, Paragraph and Insert
+  submenus (`MarkdownView.showContextMenu`, editing view only); each item runs
+  the `editor:` command of the same action, so hotkeys and plugins see one
+  path. Insert footnote numbers after the note's highest `[^n]` and puts the
+  definition at the end; Insert horizontal rule leaves a blank line after a
+  paragraph, which `---` right under it would turn into a heading.
 - The vault's `.obsidian/hotkeys.json` overrides plugin defaults. Check it
   before deciding a key "does not work": the owner binds Completr's insert to
   Tab, so Enter correctly inserts a newline there.
