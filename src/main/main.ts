@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, type Session, session, shell, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell, type WebContents } from "electron";
 import { registerIpc } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
 import { handleSchemes, registerSchemes } from "./protocol";
@@ -108,6 +108,38 @@ app.on("web-contents-created", (_evt, contents) => {
 	});
 });
 
+// The application menu, like Obsidian's. Electron's default menu had Close
+// Window on Cmd+W and Reload on Cmd+R, so those keys could close the window or
+// reload the page instead of running the close-tab and reload commands; no
+// item here takes a key the renderer's hotkeys use. The Edit roles stay
+// because text fields and <webview> guests undo, copy and paste through them.
+// Quit closes each window through its before-close flush (lifecycle.ts).
+// Windows and Linux get no menu bar.
+function setApplicationMenu() {
+	if (process.platform !== "darwin") return Menu.setApplicationMenu(null);
+	Menu.setApplicationMenu(
+		Menu.buildFromTemplate([
+			{ role: "appMenu", submenu: [{ role: "about" }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, { role: "quit" }] },
+			{
+				label: "Edit",
+				submenu: [
+					{ role: "undo" },
+					{ role: "redo" },
+					{ type: "separator" },
+					{ role: "cut" },
+					{ role: "copy" },
+					{ role: "paste" },
+					{ role: "pasteAndMatchStyle" },
+					{ role: "delete" },
+					{ role: "selectAll" },
+				],
+			},
+			{ label: "View", submenu: [{ role: "toggleDevTools" }] },
+			{ role: "window", submenu: [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "front" }] },
+		]),
+	);
+}
+
 function samePage(target: string, current: string) {
 	try {
 		const a = new URL(target);
@@ -165,6 +197,7 @@ registerIpc();
 app.whenReady().then(() => {
 	handleSchemes();
 	routeExternalLinks(session.defaultSession);
+	setApplicationMenu();
 	return createWindow();
 });
 app.on("window-all-closed", () => app.quit());
