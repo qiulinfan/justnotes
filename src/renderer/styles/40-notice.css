@@ -1,4 +1,4 @@
-/* Notices */
+/* Notices: .notice-container > .notice > .notice-message */
 .notice-container {
 	position: fixed;
 	top: 40px;
@@ -19,5 +19,6 @@
 	max-width: 380px;
 	font-size: var(--font-ui-small);
 	white-space: pre-wrap;
+	overflow-wrap: anywhere;
 	cursor: pointer;
 }

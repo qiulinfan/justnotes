@@ -32,26 +32,21 @@
 .modal-close-button {
 	position: absolute;
 	top: 12px;
-	right: 14px;
-	width: 22px;
-	height: 22px;
-	cursor: pointer;
-	border-radius: var(--radius-s);
+	right: 12px;
+	padding: 3px;
+	z-index: 1;
 }
 
-.modal-close-button::before {
-	content: "×";
-	font-size: 20px;
-	line-height: 20px;
-	color: var(--text-muted);
-	display: block;
-	text-align: center;
+.modal-close-button .svg-icon {
+	width: var(--icon-s);
+	height: var(--icon-s);
 }
 
 .modal-title {
 	font-size: 18px;
 	font-weight: 600;
 	margin-bottom: 12px;
+	padding-right: 28px;
 }
 
 .modal-title:empty {
@@ -66,6 +61,8 @@
 .modal-button-container {
 	display: flex;
 	justify-content: flex-end;
+	align-items: center;
+	flex-wrap: wrap;
 	gap: 8px;
 	margin-top: 16px;
 }

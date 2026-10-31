@@ -1,5 +1,7 @@
 let container: HTMLElement | null = null;
 
+// Obsidian's DOM: .notice-container > .notice (containerEl) > .notice-message
+// (messageEl; noticeEl is its deprecated name).
 export class Notice {
 	noticeEl: HTMLElement;
 	containerEl: HTMLElement;
@@ -8,11 +10,11 @@ export class Notice {
 
 	constructor(message: string | DocumentFragment, duration?: number) {
 		if (!container || !container.isConnected) container = document.body.createDiv("notice-container");
-		this.containerEl = container.createDiv("notice-container-item");
-		this.noticeEl = this.containerEl.createDiv("notice");
-		this.messageEl = this.noticeEl.createDiv("notice-message");
+		this.containerEl = container.createDiv("notice");
+		this.messageEl = this.containerEl.createDiv("notice-message");
+		this.noticeEl = this.messageEl;
 		this.setMessage(message);
-		this.noticeEl.addEventListener("click", () => this.hide());
+		this.containerEl.addEventListener("click", () => this.hide());
 		const ms = duration ?? 4500;
 		if (ms > 0) this.#timer = setTimeout(() => this.hide(), ms);
 	}
