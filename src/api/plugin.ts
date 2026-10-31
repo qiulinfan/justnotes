@@ -1,5 +1,6 @@
 import type { Extension } from "@codemirror/state";
 import type { App } from "./app";
+import { type BasesViewRegistration, registerBasesViewType, unregisterBasesViewType } from "./bases/view";
 import { Component } from "./events";
 import type { Command } from "./keymap";
 import { MarkdownPreviewRenderer } from "./markdown";
@@ -137,10 +138,12 @@ export class Plugin extends Component {
 		this.register(() => MarkdownPreviewRenderer.unregisterCodeBlockPostProcessor(language));
 	}
 
-	// Obsidian returns false when Bases is not enabled in the vault; Bases views
-	// already handle that.
-	registerBasesView(_viewId: string, _registration: unknown) {
-		return false;
+	// A Bases view type for the view picker, removed when the plugin unloads.
+	// False when the id is taken.
+	registerBasesView(viewId: string, registration: BasesViewRegistration) {
+		if (!registerBasesViewType(viewId, registration)) return false;
+		this.register(() => unregisterBasesViewType(viewId));
+		return true;
 	}
 
 	registerEditorExtension(extension: Extension) {

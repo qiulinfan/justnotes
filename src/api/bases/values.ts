@@ -311,6 +311,11 @@ export class DurationValue extends NotNullValue {
 	}
 }
 
+// app.renderContext (Obsidian 1.10), when this App has one.
+export function renderContextOf(app: App): HoverParentLike | null {
+	return (app as { renderContext?: HoverParentLike }).renderContext ?? null;
+}
+
 // An <a class="internal-link"> that opens like a link in a note: Mod opens a
 // new tab, and hovering asks for a page preview.
 export function renderInternalLink(app: App, el: HTMLElement, linktext: string, sourcePath: string, text: string, resolved: boolean, hoverParent?: HoverParentLike | null) {

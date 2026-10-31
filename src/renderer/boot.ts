@@ -4,6 +4,7 @@ import { setIcon } from "../api/icons";
 import { loadMathJax, setMarkdownApp } from "../api/markdown";
 import { MarkdownView } from "../api/markdown-view";
 import { Notice } from "../api/ui/notice";
+import { installBases } from "./bases-view";
 import { registerCoreCommands } from "./commands";
 import { SearchView } from "./search";
 import { EmptyView, FileExplorerView } from "./views";
@@ -57,6 +58,7 @@ async function boot() {
 	app.viewRegistry.registerView("file-explorer", (leaf) => new FileExplorerView(leaf));
 	app.viewRegistry.registerView("search", (leaf) => new SearchView(leaf));
 	app.viewRegistry.registerExtensions(["md"], "markdown");
+	installBases(app);
 
 	buildShell(app);
 	await app.vault.load();

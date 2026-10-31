@@ -88,6 +88,22 @@ export class BaseDocument {
 		return this.#commit();
 	}
 
+	// Write a key outside `views`, such as ["formulas", "total"], in both the
+	// YAML and the parsed config; undefined deletes it.
+	setIn(path: string[], value: unknown) {
+		if (value === undefined) this.#doc.deleteIn(path);
+		else this.#doc.setIn(path, this.#doc.createNode(value));
+		let target: Record<string, any> = this.config;
+		for (const key of path.slice(0, -1)) {
+			if (!target[key] || typeof target[key] !== "object") target[key] = {};
+			target = target[key];
+		}
+		const last = path[path.length - 1];
+		if (value === undefined) delete target[last];
+		else target[last] = value;
+		return this.#commit();
+	}
+
 	addView(view: BasesConfigFileView) {
 		this.views.push(view);
 		this.#indexes.push(null);
@@ -121,8 +137,9 @@ export class BaseDocument {
 		return items.length - 1;
 	}
 
+	// Long formulas stay on one line, and flow lists keep their compact form.
 	#commit() {
-		this.text = this.#doc.toString();
+		this.text = this.#doc.toString({ lineWidth: 0, flowCollectionPadding: false });
 		return this.text;
 	}
 }
