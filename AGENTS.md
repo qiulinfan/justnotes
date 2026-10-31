@@ -677,7 +677,10 @@ plain style. Development notes belong in this file.
   the changed property's lines: the others keep their bytes (order, quotes,
   comments), and the changed one keeps its flow or block list style, item
   indentation, quotes and a trailing comment. A flow-style map is rewritten
-  whole. Removing the last property removes the block. YAML that does not
+  whole, and so is a map whose line-wise edit would leave an alias (`b: *x`)
+  without its anchor or change another property's value (aliases resolved
+  to their values, as Obsidian's own rewrite does); every edit's result
+  parses. Removing the last property removes the block. YAML that does not
   parse to a map shows "Invalid properties", which opens the YAML.
   `fileManager.processFrontMatter` (QuickAdd, Bases cells) applies what its
   callback changed the same way, property by property, and throws on YAML
