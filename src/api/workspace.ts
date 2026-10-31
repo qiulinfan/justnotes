@@ -246,7 +246,8 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 
 	async open(view: View) {
 		const old = this.view;
-		if (old) await old.close();
+		// A plugin view failing to close must not leave the leaf without a view.
+		if (old) await old.close().catch((err) => console.error(err));
 		this.containerEl.empty();
 		this.view = view;
 		this.containerEl.appendChild(view.containerEl);
@@ -262,9 +263,11 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 		const entry = before.navigation && !this.#replaying ? this.#historyState() : null;
 		if (viewState.pinned !== undefined) this.setPinned(viewState.pinned);
 		if (viewState.group) this.setGroupMember(viewState.group);
-		if (before.getViewType() !== viewState.type || before instanceof PlaceholderView) {
-			await this.open(workspace.createView(this, viewState.type, viewState));
-		}
+		const needsView = () =>
+			this.view.getViewType() !== viewState.type || (this.view instanceof PlaceholderView && !!this.app.viewRegistry.getViewCreatorByType(viewState.type));
+		if (needsView()) await this.open(workspace.createView(this, viewState.type, viewState));
+		// The type may have been registered while its placeholder was opening.
+		if (needsView()) await this.open(workspace.createView(this, viewState.type, viewState));
 		const result = { history: false };
 		await this.view.setState(viewState.state ?? {}, result);
 		if (eState) this.view.setEphemeralState(eState);
@@ -329,6 +332,11 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 
 	togglePinned() {
 		this.setPinned(!this.pinned);
+	}
+
+	// Whether following a link may replace what this leaf shows.
+	canNavigate() {
+		return !this.pinned && this.view.navigation;
 	}
 
 	setGroup(group: string | null) {
@@ -844,9 +852,15 @@ export class WorkspaceRibbon {
 	}
 
 	serialize() {
+		this.#prune();
 		const hiddenItems = { ...this.hiddenItems };
 		for (const item of this.items) hiddenItems[item.id] = !!this.hiddenItems[item.id];
 		return { hiddenItems };
+	}
+
+	// A button its owner removed directly, without removeRibbonAction.
+	#prune() {
+		this.items = this.items.filter((i) => i.buttonEl.parentElement === this.actionsEl);
 	}
 
 	load(data: any) {
@@ -855,6 +869,7 @@ export class WorkspaceRibbon {
 	}
 
 	#showMenu(evt: MouseEvent) {
+		this.#prune();
 		if (!this.items.length) return;
 		const menu = new Menu();
 		for (const item of this.items) {
@@ -1176,7 +1191,7 @@ export class Workspace extends Events {
 		if (newLeaf === "window") return this.openPopoutLeaf();
 		if (!newLeaf) {
 			const recent = this.getMostRecentLeaf();
-			if (recent && !recent.pinned && recent.view.navigation) return recent;
+			if (recent?.canNavigate()) return recent;
 		}
 		const tabs = this.#rootTabs();
 		const leaf = new WorkspaceLeaf(this.app);
