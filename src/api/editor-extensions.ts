@@ -434,7 +434,7 @@ const obsidianHighlight = HighlightStyle.define([
 
 // CodeMirror 5's token classes for code inside fenced blocks, which themes
 // style as `.cm-s-obsidian span.cm-keyword` and so on.
-const codeHighlight = HighlightStyle.define([
+export const codeHighlight = HighlightStyle.define([
 	{ tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword, t.modifier], class: "cm-keyword" },
 	{ tag: [t.string, t.special(t.string)], class: "cm-string" },
 	{ tag: t.regexp, class: "cm-string-2" },

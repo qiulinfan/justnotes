@@ -2,6 +2,7 @@
 // ("Detect all file extensions", `showUnsupportedFiles`), and which ones the
 // excluded files (`userIgnoreFilters`) push down or leave out.
 import type { App } from "./app";
+import { isCodeFile } from "./code-files";
 import { AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from "./markdown";
 import type { TFile } from "./vault";
 
@@ -13,7 +14,7 @@ const ALWAYS_SHOWN = new Set(["md", "tex", "txt", "pdf", "canvas", "base", ...IM
 // What justnotes opens itself, and what a plugin registered a view for.
 export function isSupportedExtension(app: App, extension: string) {
 	const ext = extension.toLowerCase();
-	return ALWAYS_SHOWN.has(ext) || app.viewRegistry.isExtensionRegistered(ext);
+	return ALWAYS_SHOWN.has(ext) || isCodeFile({ name: "", extension: ext }) || app.viewRegistry.isExtensionRegistered(ext);
 }
 
 export function isFileShown(app: App, file: TFile) {

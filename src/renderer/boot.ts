@@ -12,6 +12,7 @@ import { installTooltips } from "../api/ui/tooltip";
 import { installAppearance } from "./appearance";
 import { installBases } from "./bases-view";
 import { installCli } from "./cli";
+import { registerCodeView } from "./code-view";
 import { registerCoreCommands } from "./commands";
 import { installDevCapture } from "./dev-capture";
 import { defaultRightSidebar, installCorePlugins, registerCorePluginViews } from "./core-plugins";
@@ -104,6 +105,7 @@ async function boot() {
 	registerMediaViews(app);
 	installBases(app);
 	registerCorePluginViews(app);
+	registerCodeView(app);
 
 	buildShell(app);
 	await app.vault.load();

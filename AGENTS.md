@@ -695,6 +695,18 @@ plain style. Development notes belong in this file.
   bash)` (bash 3.2 and later). The scripts call `justnotes` on PATH, so they
   need no regenerating when commands change.
 
+## Code files
+
+- Source and data files (`api/code-files.ts`: json, yaml, toml, C/C++, Python,
+  Rust, Go, Java, TS/JS, CSS, HTML, shell, SQL... and Makefile-like names) that
+  no view claims open in the code view (`renderer/code-view.ts`, view type
+  `code`): a plain CodeMirror editor with line numbers, folding, search and the
+  language from `@codemirror/language-data` (by file name, with a few aliases),
+  saving through TextFileView. Workspace `openFile` falls back to it only after
+  registered extensions and Markdown, so a plugin's view for an extension
+  wins. Its tab shows the full file name. Code files count as openable for
+  Show all file types.
+
 ## Packaging and releases
 
 - Run from the repo (`bun run start`, scripts/start.ts, and the `justnotes`

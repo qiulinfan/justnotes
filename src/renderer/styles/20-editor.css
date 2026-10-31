@@ -298,3 +298,23 @@ body.theme-dark .cm-editor .cm-panels {
 .workspace-leaf-content:focus {
 	outline: none;
 }
+
+/* Source and data files (code-view.ts): monospace, with gutters */
+.code-file-view .cm-editor,
+.code-file-view .cm-scroller,
+.code-file-view .cm-content,
+.code-file-view .cm-line {
+	font-family: var(--font-monospace);
+	font-size: var(--code-size, var(--font-text-size));
+}
+
+.code-file-view .cm-gutters {
+	background: var(--background-primary);
+	border-right: 1px solid var(--background-modifier-border);
+	color: var(--text-faint);
+}
+
+.code-file-view .cm-activeLine,
+.code-file-view .cm-activeLineGutter {
+	background: var(--background-primary-alt);
+}
