@@ -135,6 +135,7 @@ export class FileExplorerView extends ItemView {
 					this.#render();
 				});
 				self.addEventListener("contextmenu", (evt) => this.#showMenu(evt, child));
+				this.#makeDraggable(self, child);
 			} else if (child instanceof TFile) {
 				const item = el.createDiv("tree-item nav-file");
 				const self = item.createDiv({ cls: "tree-item-self nav-file-title is-clickable", attr: { "data-path": child.path } });
@@ -148,8 +149,26 @@ export class FileExplorerView extends ItemView {
 					if (evt.button === 1) this.app.workspace.getLeaf("tab").openFile(child);
 				});
 				self.addEventListener("contextmenu", (evt) => this.#showMenu(evt, child));
+				this.#makeDraggable(self, child);
 			}
 		}
+	}
+
+	// Items drag through app.dragManager, as Obsidian's explorer does: into a
+	// note as links, or into a plugin view that reads the drag (terminal types
+	// the paths). Dragging a selected item takes the whole selection.
+	#makeDraggable(el: HTMLElement, file: TAbstractFile) {
+		el.draggable = true;
+		el.addEventListener("dragstart", (evt) => {
+			const drag = this.app.dragManager;
+			const data =
+				this.#selected.size > 1 && this.#selected.has(file)
+					? drag.dragFiles(evt, [...this.#selected], "file-explorer")
+					: file instanceof TFile
+						? drag.dragFile(evt, file, "file-explorer")
+						: drag.dragFolder(evt, file as TFolder, "file-explorer");
+			drag.onDragStart(evt, data);
+		});
 	}
 
 	#markActive() {

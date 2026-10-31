@@ -135,6 +135,40 @@ body.is-resizing :is(webview, iframe) {
 	pointer-events: none;
 }
 
+/* What an explorer drag carries follows the pointer (app.dragManager), with
+   the action a drop target would take below it. */
+.drag-ghost {
+	position: fixed;
+	z-index: var(--layer-dragged-item);
+	pointer-events: none;
+	max-width: 300px;
+	padding: 4px 8px;
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
+	box-shadow: var(--shadow-s);
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+}
+
+.drag-ghost-self {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.drag-ghost-self .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.drag-ghost-action {
+	padding-top: 2px;
+	color: var(--text-muted);
+}
+
 .workspace-split.mod-sidedock {
 	position: relative;
 	flex-shrink: 0;

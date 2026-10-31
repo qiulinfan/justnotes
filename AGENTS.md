@@ -145,6 +145,13 @@ plain style. Development notes belong in this file.
   Declarative tabs are emptied by their own renderer.
 - The desktop adapter exposes `fs`, `fsPromises`, `path` and `url`, as
   Obsidian's does (terminal reads `adapter.fs`).
+- Explorer items drag through `app.dragManager` (`drag-manager.ts`), Obsidian's
+  private drag API: `draggable` holds `{ type: "file" | "folder" | "files",
+  file | files, title, icon, source }` until `dragend`, and drop targets name
+  their action with `setAction` on the ghost that follows the pointer.
+  Terminal 3.29 reads it to type the dragged paths; the editor accepts the drag
+  in `dragover` on its whole DOM (the drag carries no data, so the browser would
+  not drop it) and inserts links where it lands.
 - Never write Obsidian's own config files (`workspace.json`,
   `community-plugins.json`, `app.json`, `appearance.json`, `hotkeys.json`,
   `core-plugins.json`). justnotes state lives in localStorage through
