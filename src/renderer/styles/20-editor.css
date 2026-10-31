@@ -65,6 +65,16 @@
 	border-color: var(--background-modifier-border) !important;
 }
 
+/* Find: matches take Obsidian's highlight colours, the current one its
+   active colour. */
+.markdown-source-view.mod-cm6 .cm-searchMatch {
+	background: var(--text-highlight-bg);
+}
+
+.markdown-source-view.mod-cm6 .cm-searchMatch-selected {
+	background: var(--text-highlight-bg-active);
+}
+
 /* Markdown tokens, scoped to Obsidian's editor classes as in Obsidian, so a
    plugin's own CodeMirror editor stays unstyled unless it opts in. */
 .markdown-source-view.mod-cm6 .cm-header {
