@@ -1592,10 +1592,14 @@ export class MarkdownPreviewRenderer {
 	}
 
 	// Replaces each fenced block of `language` with div.block-language-<language>
-	// and hands it to `handler`; the handler's promise joins the render's.
+	// and hands it to `handler`; the handler's promise joins the render's. A
+	// language has one handler, the latest registered, as in Live Preview: the
+	// post processor of an earlier registration leaves the blocks to it.
 	static createCodeBlockPostProcessor(language: string, handler: CodeBlockHandler) {
 		const cls = `language-${language}`;
 		return (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
+			const current = MarkdownPreviewRenderer.codeBlockPostProcessors;
+			if (Object.hasOwn(current, language) && current[language] !== handler) return;
 			const results: Promise<unknown>[] = [];
 			for (const code of el.findAll("pre > code")) {
 				if (!code.classList.contains(cls)) continue;
