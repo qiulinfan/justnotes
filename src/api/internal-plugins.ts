@@ -46,6 +46,7 @@ const CORE_PLUGINS = [
 const IMPLEMENTED = new Set([
 	"file-explorer",
 	"global-search",
+	"graph",
 	"backlink",
 	"outgoing-link",
 	"tag-pane",

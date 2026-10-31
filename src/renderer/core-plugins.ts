@@ -2,6 +2,7 @@ import type { App } from "../api/app";
 import { installBacklinksInDocument } from "./backlinks-in-document";
 import { installDailyNotes } from "./daily-notes";
 import { installFileRecovery } from "./file-recovery";
+import { installGraph, registerGraphViews } from "./graph-view";
 import { registerLinkPanes } from "./link-panes";
 import { installNoteComposer } from "./note-composer";
 import { TagView } from "./tag-pane";
@@ -22,6 +23,7 @@ const PANES = [
 export function registerCorePluginViews(app: App) {
 	registerLinkPanes(app);
 	app.viewRegistry.registerView("tag", (leaf) => new TagView(leaf));
+	registerGraphViews(app);
 }
 
 // The rest follows core-plugins.json, as in Obsidian: a disabled core plugin
@@ -37,6 +39,7 @@ export function installCorePlugins(app: App) {
 		});
 	}
 	if (enabled("backlink")) installBacklinksInDocument(app);
+	if (enabled("graph")) installGraph(app);
 	if (enabled("daily-notes")) installDailyNotes(app);
 	if (enabled("templates")) registerTemplateCommands(app);
 	if (enabled("note-composer")) installNoteComposer(app);
