@@ -57,10 +57,6 @@ interface RenderEnv extends Env {
 	docId: string;
 	// Whether a link path names an existing file; is-unresolved otherwise.
 	resolve(linkpath: string): boolean;
-	// Prism, once loaded, highlights fenced code; languages a code-block
-	// processor replaces are left alone.
-	prism?: any;
-	skipHighlight?(language: string): boolean;
 	frontmatter?: string;
 	footnotes?: FootnoteState;
 	inFootnote?: boolean;
@@ -700,16 +696,13 @@ md.renderer.rules.list_item_open = (tokens, idx, options, env, self) => {
 	return self.renderToken(tokens, idx, options);
 };
 
-function codeBlockHTML(text: string, lang: string, env: RenderEnv) {
-	let code = esc(text);
-	const grammar = lang && env.prism && !env.skipHighlight?.(lang) ? env.prism.languages[lang] : undefined;
-	if (grammar) code = env.prism.highlight(text, grammar, lang);
+// Prism highlights the code once it is on the page (highlightCode).
+function codeBlockHTML(text: string, lang: string) {
 	const cls = lang ? `language-${esc(lang)}` : "";
-	return `<pre${cls ? ` class="${cls}"` : ""} tabindex="0"><code${cls ? ` class="${cls} is-loaded"` : ""}>${code}</code><button class="copy-code-button">Copy</button></pre>\n`;
+	return `<pre${cls ? ` class="${cls}"` : ""} tabindex="0"><code${cls ? ` class="${cls} is-loaded"` : ""}>${esc(text)}</code><button class="copy-code-button">Copy</button></pre>\n`;
 }
-md.renderer.rules.fence = (tokens, idx, _options, env) =>
-	codeBlockHTML(tokens[idx].content.replace(/\n$/, ""), tokens[idx].info.trim().split(/\s+/)[0] ?? "", envOf(env));
-md.renderer.rules.code_block = (tokens, idx, _options, env) => codeBlockHTML(tokens[idx].content.replace(/\n$/, ""), "", envOf(env));
+md.renderer.rules.fence = (tokens, idx) => codeBlockHTML(tokens[idx].content.replace(/\n$/, ""), tokens[idx].info.trim().split(/\s+/)[0] ?? "");
+md.renderer.rules.code_block = (tokens, idx) => codeBlockHTML(tokens[idx].content.replace(/\n$/, ""), "");
 
 // ---------------------------------------------------------------------------
 // Sections: the top-level blocks of a note with their line ranges.
@@ -748,7 +741,6 @@ interface SectionOptions {
 	docId?: string;
 	resolve?(linkpath: string): boolean;
 	strictLineBreaks?: boolean;
-	prism?: any;
 }
 
 // justnotes: Markdown as Obsidian's top-level sections, each with its line
@@ -759,7 +751,6 @@ export function renderMarkdownSections(markdown: string, options: SectionOptions
 		sourcePath: options.sourcePath ?? "",
 		docId: options.docId ?? randomId(),
 		resolve: options.resolve ?? (() => true),
-		prism: options.prism,
 	};
 	const sections = toSections(markdown, md.parse(markdown, env), env, !options.strictLineBreaks);
 	return { sections, frontmatter: parseFrontmatter(env) };
@@ -798,6 +789,7 @@ function loadScript(src: string) {
 // filters \href protocols and styles. latex-live passes config.options to its
 // own MathDocument, so it may only hold options the build knows.
 let mathJax: Promise<void> | null = null;
+let mathJaxLoaded = false;
 
 export function loadMathJax() {
 	mathJax ??= new Promise<void>((resolve, reject) => {
@@ -816,6 +808,7 @@ export function loadMathJax() {
 					// In the head from the start, so plugin stylesheets added later
 					// keep their precedence over MathJax's rules.
 					document.head.appendChild(w.MathJax.chtmlStylesheet());
+					mathJaxLoaded = true;
 					resolve();
 				}, reject),
 			reject,
@@ -858,9 +851,10 @@ export async function finishRenderMath() {
 }
 
 let prism: Promise<any> | null = null;
+let prismLib: any = null;
 
 export function loadPrism() {
-	prism ??= loadScript(libUrl("prism/prism.js")).then(() => (window as any).Prism);
+	prism ??= loadScript(libUrl("prism/prism.js")).then(() => (prismLib = (window as any).Prism));
 	return prism;
 }
 
@@ -939,15 +933,26 @@ function createEnv(app: App, sourcePath: string, docId: string): RenderEnv {
 		sourcePath,
 		docId,
 		resolve: (linkpath) => !!app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath),
-		skipHighlight: (lang) => lang === "mermaid" || lang in MarkdownPreviewRenderer.codeBlockPostProcessors,
 	};
 }
 
-async function loadLibrariesFor(tokens: Token[], markdown: string, env: RenderEnv) {
+// What the output needs from libraries that have not loaded yet: MathJax for
+// math, Prism for fenced code. Null when nothing has to wait.
+function pendingLibraries(tokens: Token[], markdown: string) {
 	const loads: Promise<unknown>[] = [];
-	if (markdown.includes("$")) loads.push(loadMathJax().catch((err) => console.error(err)));
-	if (tokens.some((t) => t.type === "fence" && t.info.trim())) loads.push(loadPrism().then((p) => (env.prism = p), (err) => console.error(err)));
-	await Promise.all(loads);
+	if (!mathJaxLoaded && markdown.includes("$")) loads.push(loadMathJax().catch((err) => console.error(err)));
+	if (!prismLib && tokens.some((t) => t.type === "fence" && t.info.trim())) loads.push(loadPrism().catch((err) => console.error(err)));
+	return loads.length ? Promise.all(loads) : null;
+}
+
+// Prism colours fenced code in place, except the fences a code-block
+// processor (mermaid's included) replaces.
+function highlightCode(root: HTMLElement, prism: any) {
+	for (const code of root.findAllSelf("pre:not(.frontmatter) > code[class*='language-']")) {
+		const lang = /(?:^|\s)language-(\S+)/.exec(code.className)?.[1];
+		const grammar = lang && !(lang in MarkdownPreviewRenderer.codeBlockPostProcessors) ? prism.languages[lang] : undefined;
+		if (grammar) code.innerHTML = prism.highlight(code.textContent ?? "", grammar, lang);
+	}
 }
 
 const breaksFor = (app: App) => !app.vault.getConfig("strictLineBreaks");
@@ -1002,9 +1007,10 @@ function toDom(html: string, app: App, sourcePath: string) {
 	});
 }
 
-// Fills what the sanitized HTML leaves as placeholders in `root`: math,
-// callout icons and embeds (whose loading joins job.promises).
+// Fills in what the sanitized HTML in `root` leaves to the page: code
+// highlighting, math, callout icons and embeds.
 function enhance(root: HTMLElement, job: RenderJob) {
+	if (prismLib) highlightCode(root, prismLib);
 	for (const el of root.findAllSelf(".math[data-tex]")) {
 		const tex = el.getAttribute("data-tex") ?? "";
 		el.removeAttribute("data-tex");
@@ -1428,9 +1434,11 @@ class StaticRenderer extends MarkdownRenderer {
 	}
 }
 
-// MarkdownRenderer.render: the blocks go straight into `el` (plugins rely on
-// that: `:scope > p`, `> :first-child`), and the post processors run once on
-// `el`. getSectionInfo maps each block to its lines in `markdown`.
+// MarkdownRenderer.render: the blocks go straight into `el` before it returns
+// (plugins rely on that: `:scope > p`, `> :first-child`, reading el without
+// awaiting), and the post processors run once on `el`, after the math and
+// highlighting are in; that waits only for a library that has not loaded yet.
+// getSectionInfo maps each block to its lines in `markdown`.
 async function renderStatic(app: App, markdown: string, el: HTMLElement, sourcePath: string, component: Component, embedStack: string[]) {
 	// Some plugins pass no component; the output then has no owner to unload it.
 	const owner = new StaticRenderer(app, el, sourcePath);
@@ -1438,8 +1446,6 @@ async function renderStatic(app: App, markdown: string, el: HTMLElement, sourceP
 	attachHandlers(owner, el, () => sourcePath, false);
 	const env = createEnv(app, sourcePath, randomId());
 	const tokens = md.parse(markdown, env);
-	await loadLibrariesFor(tokens, markdown, env);
-	const job: RenderJob = { app, owner, parent: owner, sourcePath, embedStack, promises: [] };
 	const added: HTMLElement[] = [];
 	for (const section of toSections(markdown, tokens, env, breaksFor(app))) {
 		if (!section.html) continue;
@@ -1451,6 +1457,9 @@ async function renderStatic(app: App, markdown: string, el: HTMLElement, sourceP
 		}
 		el.appendChild(frag);
 	}
+	const pending = pendingLibraries(tokens, markdown);
+	if (pending) await pending;
+	const job: RenderJob = { app, owner, parent: owner, sourcePath, embedStack, promises: [] };
 	for (const node of added) enhance(node, job);
 	runPostProcessors(el, postProcessorContext(job, env.docId, parseFrontmatter(env), el, el), job.promises);
 	await Promise.all(job.promises);
@@ -1563,7 +1572,7 @@ export class MarkdownPreviewRenderer {
 		const sourcePath = this.sourcePath;
 		const env = createEnv(app, sourcePath, this.docId);
 		const tokens = md.parse(text, env);
-		await loadLibrariesFor(tokens, text, env);
+		await pendingLibraries(tokens, text);
 		if (version !== this.#version) return;
 		this.text = text;
 		const next = toSections(text, tokens, env, breaksFor(app));
