@@ -5,6 +5,7 @@
 
 .search-input-row input {
 	width: 100%;
+	height: var(--input-height);
 }
 
 .search-summary {
@@ -14,30 +15,35 @@
 }
 
 .search-results {
-	padding: 0 8px 32px;
-	font-size: var(--font-ui-small);
+	padding: 0 var(--size-4-2) var(--size-4-8);
+	font-size: var(--nav-item-size);
+	line-height: var(--line-height-tight);
 	overflow-y: auto;
 	height: calc(100% - 80px);
 }
 
+/* A long path wraps anywhere rather than running past the pane. */
 .search-result-file-title {
-	padding: 4px 6px;
-	font-weight: 600;
+	padding: var(--size-4-1) var(--size-2-3);
+	margin-bottom: var(--nav-item-margin-bottom);
+	font-weight: var(--font-semibold);
 	color: var(--text-normal);
 	cursor: pointer;
-	border-radius: var(--radius-s);
+	border-radius: var(--nav-item-radius);
+	overflow-wrap: anywhere;
 }
 
 .search-result-file-title:hover,
 .search-result-match:hover {
-	background: var(--background-modifier-hover);
+	background: var(--nav-item-background-hover);
 }
 
 .search-result-match {
-	padding: 3px 6px 3px 16px;
-	color: var(--text-muted);
+	padding: var(--size-4-1) var(--size-2-3) var(--size-4-1) var(--size-4-4);
+	margin-bottom: var(--nav-item-margin-bottom);
+	color: var(--nav-item-color);
 	cursor: pointer;
-	border-radius: var(--radius-s);
+	border-radius: var(--nav-item-radius);
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;

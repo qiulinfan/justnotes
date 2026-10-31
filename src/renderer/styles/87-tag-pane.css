@@ -2,12 +2,12 @@
 .tag-pane {
 	display: flex;
 	flex-direction: column;
-	font-size: var(--font-ui-small);
+	font-size: var(--nav-item-size);
 }
 
 .tag-container {
 	flex: 1;
-	padding: 4px 8px 32px;
+	padding: var(--size-4-1) var(--size-4-2) var(--size-4-8);
 	overflow-y: auto;
 	user-select: none;
 }
@@ -16,35 +16,11 @@
 	cursor: pointer;
 }
 
-.tag-pane-tag .collapse-icon {
-	display: flex;
-	width: 16px;
-	flex-shrink: 0;
-	color: var(--text-faint);
-}
-
-.tag-pane-tag .collapse-icon svg {
-	width: 14px;
-	height: 14px;
-}
-
 .tag-pane-tag-text {
 	flex: 1;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
-}
-
-.tag-pane-tag-count {
-	padding: 0 6px;
-	font-size: var(--font-ui-smaller);
-	color: var(--text-faint);
-}
-
-.tag-pane-tag-item > .tree-item-children {
-	margin-left: 10px;
-	padding-left: 6px;
-	border-left: 1px solid var(--background-modifier-border);
 }
 
 .tag-pane .nav-action-button.is-active {

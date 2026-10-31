@@ -1,19 +1,21 @@
 /* Status bar */
 .status-bar {
-	position: fixed;
+	position: var(--status-bar-position);
 	right: 0;
 	bottom: 0;
 	height: var(--status-bar-height);
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: var(--size-4-2);
 	padding: 0 10px;
-	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
-	background: var(--background-secondary);
-	border-top: 1px solid var(--background-modifier-border);
-	border-left: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-m) 0 0 0;
+	font-size: var(--status-bar-font-size);
+	line-height: var(--line-height-tight);
+	color: var(--status-bar-text-color);
+	background: var(--status-bar-background);
+	border-style: solid;
+	border-color: var(--status-bar-border-color);
+	border-width: var(--status-bar-border-width);
+	border-radius: var(--status-bar-radius);
 	z-index: var(--layer-status-bar);
 }
 
@@ -24,12 +26,12 @@
 .status-bar-item {
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	gap: var(--size-2-2);
 }
 
 /* Plugins mark items with a click handler (obsidian-git's branch switcher). */
 .status-bar-item.mod-clickable {
-	padding: 0 4px;
+	padding: 0 var(--size-2-2);
 	border-radius: var(--radius-s);
 	cursor: pointer;
 }

@@ -659,6 +659,17 @@ plain style. Development notes belong in this file.
   computed-value time, which silently drops backgrounds and z-indexes.
   `00-base.css` defines the documented set (values from docs.obsidian.md); a
   few undocumented ones are mapped to justnotes' look.
+- Sidebar sizes come from Obsidian's component variables, never fixed
+  numbers: tree rows (`.tree-item-self`, explorer, bookmarks, tags, outline,
+  search and link panes) take `--nav-item-size`, `--nav-item-padding`,
+  `--nav-item-margin-bottom` and `--line-height-tight`, children
+  `--nav-item-children-*` and the indentation guide, tabs `--tab-*`, the
+  ribbon `--ribbon-*`, the status bar `--status-bar-*`, icons `--icon-size`
+  and `--icon-stroke` set on their container. docs.obsidian.md names the
+  component variables without values; `00-base.css` holds the default
+  theme's, as themes restate them. A row's collapse chevron sits in its left
+  padding, over the children's indentation guide, so file and folder names
+  line up.
 - Links take their colours from the `--link-*` variables, and a base `a` rule
   gives plain anchors in plugin views the link colour. Live Preview's link
   marks carry `.internal-link` and `.external-link`, so the reading view's link
