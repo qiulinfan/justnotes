@@ -14,6 +14,10 @@ export class Modal {
 	#onCloseCallback: (() => any) | null = null;
 	#restoreFocus: Element | null = null;
 	#ranges: Range[] = [];
+	// The window the modal shows in; closing it closes the modal, whose
+	// scope would otherwise stay on the keymap and keep app hotkeys off.
+	#win: Window | null = null;
+	#gone = () => this.close();
 
 	constructor(app: App) {
 		this.app = app;
@@ -51,6 +55,8 @@ export class Modal {
 			for (let i = 0; i < selection.rangeCount; i++) this.#ranges.push(selection.getRangeAt(i).cloneRange());
 		}
 		doc.body.appendChild(this.containerEl);
+		this.#win = doc.defaultView;
+		this.#win?.addEventListener("pagehide", this.#gone);
 		this.containerEl.addClass("mod-dim");
 		this.app.keymap.pushScope(this.scope);
 		this.onOpen();
@@ -62,6 +68,8 @@ export class Modal {
 	close() {
 		if (!this.isOpen) return;
 		this.isOpen = false;
+		this.#win?.removeEventListener("pagehide", this.#gone);
+		this.#win = null;
 		this.app.keymap.popScope(this.scope);
 		this.containerEl.detach();
 		this.containerEl.removeClass("mod-dim");
