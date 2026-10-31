@@ -317,14 +317,27 @@ export function renderContextOf(app: App): HoverParentLike | null {
 }
 
 // An <a class="internal-link"> that opens like a link in a note: Mod opens a
-// new tab, and hovering asks for a page preview.
-export function renderInternalLink(app: App, el: HTMLElement, linktext: string, sourcePath: string, text: string, resolved: boolean, hoverParent?: HoverParentLike | null) {
+// new tab, and hovering asks for a page preview. A link that stands for a known
+// file opens that file, since a "#" or "^" in its name would read as a heading
+// or block in link text.
+export function renderInternalLink(
+	app: App,
+	el: HTMLElement,
+	linktext: string,
+	sourcePath: string,
+	text: string,
+	resolved: boolean,
+	hoverParent?: HoverParentLike | null,
+	file?: TFile,
+) {
 	const a = el.createEl("a", { cls: "internal-link", text, href: linktext, attr: { "data-href": linktext } });
 	if (!resolved) a.addClass("is-unresolved");
 	const open = (evt: MouseEvent) => {
 		evt.preventDefault();
 		evt.stopPropagation();
-		app.workspace.openLinkText(linktext, sourcePath, Keymap.isModEvent(evt));
+		const newLeaf = Keymap.isModEvent(evt);
+		if (file) app.workspace.getLeaf(newLeaf).openFile(file);
+		else app.workspace.openLinkText(linktext, sourcePath, newLeaf);
 	};
 	a.addEventListener("click", open);
 	a.addEventListener("auxclick", (evt) => evt.button === 1 && open(evt));
@@ -367,7 +380,7 @@ export class FileValue extends NotNullValue {
 	renderTo(el: HTMLElement, ctx?: HoverParentLike | null) {
 		const linktext = this.app.metadataCache.fileToLinktext(this.file, "", true);
 		const text = this.file.extension === "md" ? this.file.basename : this.file.name;
-		renderInternalLink(this.app, el, linktext, "", text, true, ctx);
+		renderInternalLink(this.app, el, linktext, "", text, true, ctx, this.file);
 	}
 }
 

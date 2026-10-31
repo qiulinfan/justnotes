@@ -28,7 +28,7 @@ export function frontmatterKey(fm: Record<string, unknown>, name: string) {
 
 export function renderFileLink(view: BasesView, el: HTMLElement, entry: BasesEntry) {
 	const file = entry.file;
-	renderInternalLink(view.app, el, file.path, "", file.extension === "md" ? file.basename : file.name, true, renderContextOf(view.app));
+	renderInternalLink(view.app, el, file.path, "", file.extension === "md" ? file.basename : file.name, true, renderContextOf(view.app), file);
 }
 
 // Summary numbers are rounded for display only.
