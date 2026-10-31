@@ -364,31 +364,15 @@ class CommunityPluginsTab extends SettingTab {
 		const enabled = plugins.enabledPlugins.has(manifest.id);
 		const tab = this.app.setting.pluginTabs.find((t) => t.id === manifest.id);
 		if (enabled && tab) setting.addExtraButton((b) => b.setIcon("settings").setTooltip("Options").onClick(() => this.app.setting.openTab(tab)));
+		// The choice persists in justnotes' own list, never in community-plugins.json.
 		setting.addToggle((toggle) =>
 			toggle.setValue(enabled).onChange(async (on) => {
 				toggle.setDisabled(true);
-				await (on ? enablePlugin(this.app, manifest.id) : disablePlugin(this.app, manifest.id));
+				await (on ? plugins.enablePluginAndSave(manifest.id) : plugins.disablePluginAndSave(manifest.id));
 				if (this.containerEl.isConnected) this.display();
 			}),
 		);
 	}
-}
-
-// Persisting the enabled list belongs to app.plugins: the *AndSave variants
-// write justnotes' own list when the plugin loader provides them.
-type SavingPlugins = App["plugins"] & {
-	enablePluginAndSave?: (id: string) => Promise<unknown>;
-	disablePluginAndSave?: (id: string) => Promise<unknown>;
-};
-
-function enablePlugin(app: App, id: string) {
-	const plugins = app.plugins as SavingPlugins;
-	return plugins.enablePluginAndSave ? plugins.enablePluginAndSave(id) : plugins.enablePlugin(id);
-}
-
-function disablePlugin(app: App, id: string) {
-	const plugins = app.plugins as SavingPlugins;
-	return plugins.disablePluginAndSave ? plugins.disablePluginAndSave(id) : plugins.disablePlugin(id);
 }
 
 // Read-only for now: bindings come from hotkeys.json and plugin defaults.
