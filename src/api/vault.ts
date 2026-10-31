@@ -152,6 +152,11 @@ export class FileSystemAdapter {
 	files: Record<string, FileEntry> = {};
 	watchers: Record<string, Watcher> = {};
 	insensitive = false;
+	// The Node modules Obsidian's desktop adapter exposes; plugins read them
+	// (terminal's Save as HTML checks adapter.fs before saving).
+	fs = fs;
+	fsPromises = fs.promises;
+	path = nodePath;
 	#handler: AdapterChange | null = null;
 	#queue: Promise<unknown> = Promise.resolve();
 	// Per file, the write putting its bytes on disk and the reads under way:
