@@ -1,11 +1,13 @@
 import type { Extension } from "@codemirror/state";
 import type { App } from "./app";
+import { addWindow, appWindows, removeWindow, setActiveWindow } from "./dom";
 import { Editor } from "./editor";
 import { Events } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import { Keymap } from "./keymap";
 import { MarkdownRenderer } from "./markdown";
 import { parseLinktext } from "./metadata-utils";
+import { mirrorDocument, openPopoutWindow, type PopoutBounds } from "./popout-window";
 import { Menu } from "./ui/menu";
 import { type HoverParent, HoverPopover, PopoverState } from "./ui/popover";
 import type { EditorSuggest } from "./ui/suggest";
@@ -22,6 +24,12 @@ export interface OpenViewState {
 	eState?: Record<string, unknown>;
 	active?: boolean;
 	group?: WorkspaceLeaf;
+}
+
+export interface WorkspaceWindowInitData {
+	x?: number;
+	y?: number;
+	size?: { width: number; height: number };
 }
 
 // What getViewState() returns and the layout stores: icon and title let a
@@ -65,19 +73,20 @@ function safeDecode(text: string) {
 // the drag would stop following and stay attached to the handle.
 function dragHandle(evt: PointerEvent, move: (e: PointerEvent) => void, end: () => void) {
 	const handle = evt.currentTarget as HTMLElement;
+	const doc = handle.doc;
 	handle.setPointerCapture(evt.pointerId);
-	document.body.addClass("is-resizing");
+	doc.body.addClass("is-resizing");
 	// The capture ends at the handle, or at the document when the handle went
 	// away mid-drag (a plugin closed its split).
 	const done = (e: PointerEvent) => {
 		if (e.target !== handle && handle.isConnected) return;
 		handle.removeEventListener("pointermove", move);
-		document.removeEventListener("lostpointercapture", done);
-		document.body.removeClass("is-resizing");
+		doc.removeEventListener("lostpointercapture", done);
+		doc.body.removeClass("is-resizing");
 		end();
 	};
 	handle.addEventListener("pointermove", move);
-	document.addEventListener("lostpointercapture", done);
+	doc.addEventListener("lostpointercapture", done);
 }
 
 // Leaves showing a recorded state again (going back or forward, a restored
@@ -269,6 +278,11 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 		});
 		this.tabHeaderEl.addEventListener("click", () => this.app.workspace.setActiveLeaf(this, { focus: true }));
 		this.tabHeaderEl.addEventListener("contextmenu", (evt) => this.#showTabMenu(evt));
+		// Tabs move by drag and drop: within their group, to another group, to a
+		// pane's edge (a split), into a sidebar, or out of every window (a popout).
+		this.tabHeaderEl.draggable = true;
+		this.tabHeaderEl.addEventListener("dragstart", (evt) => this.app.workspace.onTabDragStart(evt, this));
+		this.tabHeaderEl.addEventListener("dragend", (evt) => this.app.workspace.onTabDragEnd(evt, this));
 		// Clicking into a leaf, or focus moving into it (a view focusing its
 		// own input, as terminal does), makes it the active leaf.
 		this.containerEl.addEventListener("mousedown", () => this.app.workspace.setActiveLeaf(this), true);
@@ -515,7 +529,7 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 				.setIcon(this.pinned ? "pin-off" : "pin")
 				.onClick(() => this.togglePinned()),
 		);
-		if (workspace.isRootLeaf(this)) {
+		if (workspace.inMainArea(this)) {
 			menu.addItem((i) =>
 				i
 					.setSection("pane")
@@ -530,12 +544,32 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 					.setIcon("separator-horizontal")
 					.onClick(() => workspace.duplicateLeaf(this, "split", "horizontal")),
 			);
+			menu.addItem((i) =>
+				i
+					.setSection("pane")
+					.setTitle("Open in new window")
+					.setIcon("picture-in-picture-2")
+					.onClick(() => workspace.duplicateLeaf(this, "window")),
+			);
+			// The only tab of a popout is already in a window of its own.
+			if (!workspace.isOnlyLeafOfWindow(this)) {
+				menu.addItem((i) =>
+					i
+						.setSection("pane")
+						.setTitle("Move to new window")
+						.setIcon("picture-in-picture-2")
+						.onClick(() => workspace.moveLeafToPopout(this)),
+				);
+			}
 		}
 		this.view.onPaneMenu(menu, "tab-header");
 		workspace.trigger("leaf-menu", menu, this);
 		menu.showAtMouseEvent(evt);
 	}
 }
+
+// Tab groups by their containerEl, to find the group under a dragged tab.
+const tabsByEl = new WeakMap<Element, WorkspaceTabs>();
 
 // A tab group: tab headers plus one visible leaf.
 export class WorkspaceTabs extends WorkspaceParent {
@@ -548,6 +582,7 @@ export class WorkspaceTabs extends WorkspaceParent {
 
 	constructor(app: App, id?: string) {
 		super(app, createDiv("workspace-tabs"), id);
+		tabsByEl.set(this.containerEl, this);
 		this.headerEl = this.containerEl.createDiv("workspace-tab-header-container");
 		this.tabHeaderContainerEl = this.headerEl.createDiv("workspace-tab-header-container-inner");
 		const newTab = this.headerEl.createDiv("workspace-tab-header-new-tab clickable-icon");
@@ -736,13 +771,44 @@ export class WorkspaceRoot extends WorkspaceContainer {
 	}
 }
 
-// Popout windows are not supported; this exists so instanceof checks work.
+// A popout window: the root split of a child window of the vault window's
+// page (popout-window.ts), whose document this page builds and drives. Its
+// body holds the same container chain as the vault window's, so Obsidian's
+// selectors and plugin styles apply.
 export class WorkspaceWindow extends WorkspaceContainer {
-	win = window;
-	doc = document;
+	win: Window;
+	doc: Document;
+	#stopMirror: () => void;
+
+	constructor(app: App, win: Window, id?: string) {
+		super(app, "vertical", "mod-root", id);
+		this.win = win;
+		this.doc = win.document;
+		this.#stopMirror = mirrorDocument(this.doc);
+		const main = this.doc.body.createDiv("app-container").createDiv("horizontal-main-container");
+		main.createDiv("workspace").appendChild(this.containerEl);
+	}
+
+	// Where the window is on screen, for the layout.
+	get bounds(): PopoutBounds {
+		const win = this.win;
+		return { x: win.screenX, y: win.screenY, width: win.outerWidth, height: win.outerHeight };
+	}
+
+	serialize() {
+		const data = super.serialize();
+		data.type = "window";
+		if (!this.win.closed) Object.assign(data, this.bounds);
+		return data;
+	}
+
+	// Stops following the vault window's styles; the window is going.
+	dispose() {
+		this.#stopMirror();
+	}
 }
 
-// Would hold popout windows; always empty.
+// Holds the popout windows.
 export class WorkspaceFloating extends WorkspaceParent {
 	declare children: WorkspaceWindow[];
 
@@ -753,15 +819,17 @@ export class WorkspaceFloating extends WorkspaceParent {
 	insertChild(index: number, child: WorkspaceWindow) {
 		child.parent = this;
 		this.children.splice(index, 0, child);
+		this.app.workspace.onLayoutChange();
 	}
 
 	removeChild(child: WorkspaceWindow) {
 		this.children.remove(child);
 		child.parent = null;
+		this.app.workspace.onLayoutChange();
 	}
 
 	serialize() {
-		return { id: this.id, type: "floating", children: [] };
+		return { id: this.id, type: "floating", children: this.children.map((c) => c.serialize()) };
 	}
 }
 
@@ -1010,6 +1078,52 @@ function tabGroups(item: WorkspaceItem): WorkspaceTabs[] {
 	return item instanceof WorkspaceParent ? item.children.flatMap(tabGroups) : [];
 }
 
+// Where a tab dropped on a pane goes: into the pane's tab group ("center") or
+// into a new group split off at one of the pane's edges. The outer quarter of
+// the pane by each allowed side counts as that edge.
+export type DropZone = "center" | "left" | "right" | "top" | "bottom";
+
+export function dropZone(rect: { left: number; top: number; width: number; height: number }, x: number, y: number, sides: DropZone[] = ["left", "right", "top", "bottom"]): DropZone {
+	const fx = rect.width ? (x - rect.left) / rect.width : 0.5;
+	const fy = rect.height ? (y - rect.top) / rect.height : 0.5;
+	const distance: Record<string, number> = { left: fx, right: 1 - fx, top: fy, bottom: 1 - fy };
+	let best: DropZone = "center";
+	let nearest = 0.25;
+	for (const side of sides) {
+		if (side !== "center" && distance[side] < nearest) {
+			best = side;
+			nearest = distance[side];
+		}
+	}
+	return best;
+}
+
+// The position among a group's tab headers (their left edges and widths, in
+// order) that a tab dropped at x takes: before the first header whose middle
+// is right of x.
+export function tabDropIndex(headers: { left: number; width: number }[], x: number) {
+	const index = headers.findIndex((h) => x < h.left + h.width / 2);
+	return index < 0 ? headers.length : index;
+}
+
+// Where a dragged tab goes: at `index` among a group's tabs (dropped on the
+// tab headers, or on the pane), or into a group split off `tabs`.
+type DropTarget =
+	| { tabs: WorkspaceTabs; index: number; onHeaders: boolean; zone?: undefined }
+	| { tabs: WorkspaceTabs; zone: Exclude<DropZone, "center">; index?: undefined };
+
+// Obsidian's window options as popout bounds; unset values stay unset.
+export function boundsOf(data?: WorkspaceWindowInitData): PopoutBounds {
+	const bounds: PopoutBounds = {};
+	if (typeof data?.x === "number") bounds.x = data.x;
+	if (typeof data?.y === "number") bounds.y = data.y;
+	if (data?.size && data.size.width > 0 && data.size.height > 0) {
+		bounds.width = data.size.width;
+		bounds.height = data.size.height;
+	}
+	return bounds;
+}
+
 function withTimeout(promise: Promise<unknown>, ms: number) {
 	return Promise.race([promise, sleep(ms)]);
 }
@@ -1034,10 +1148,14 @@ export class Workspace extends Events {
 	editorExtensions: Extension[] = [];
 	// An own property, so plugins can pass it around unbound.
 	requestSaveLayout: Debouncer<[], Promise<void>> = debounce(async () => {
-		// Before the saved layout is restored, saving would overwrite it.
-		if (this.layoutReady) this.app.saveLayoutState();
+		// Before the saved layout is restored, saving would overwrite it, and so
+		// would saving while the page unloads (its popouts closing).
+		if (this.layoutReady && !this.#unloading) this.app.saveLayoutState();
 	}, 1000, true);
-	requestUpdateLayout: Debouncer<[], void> = debounce(() => this.iterateAllLeaves((l) => l.updateHeader()), 100, true);
+	requestUpdateLayout: Debouncer<[], void> = debounce(() => {
+		this.iterateAllLeaves((l) => l.updateHeader());
+		this.#updateWindowTitles();
+	}, 100, true);
 	#layoutReadyCallbacks: (() => any)[] = [];
 	#lastOpenFiles: string[] = [];
 	// The file last announced with file-open; only for deduplication.
@@ -1048,7 +1166,12 @@ export class Workspace extends Events {
 	#clock = 0;
 	#closed: { state: LeafViewState; eState: any }[] = [];
 	#quitting: Promise<void> | null = null;
+	#unloading = false;
+	// While closing a popout window, its leaves are not remembered as closed tabs.
+	#closingWindow = false;
+	#drag: { leaf: WorkspaceLeaf; target: DropTarget | null; dropped: boolean } | null = null;
 	#layoutChanged = debounce(() => {
+		this.#updateWindowTitles();
 		this.trigger("layout-change");
 		this.requestResize();
 		this.requestSaveLayout();
@@ -1073,7 +1196,7 @@ export class Workspace extends Events {
 		this.rightSplit = new WorkspaceSidedock(app, "right");
 		this.floatingSplit = new WorkspaceFloating(app);
 		this.containerEl.append(this.leftRibbon.containerEl, this.leftSplit.containerEl, this.rootSplit.containerEl, this.rightSplit.containerEl);
-		window.addEventListener("resize", () => this.requestResize());
+		this.#watchWindow(window);
 		app.vault.on("rename", (file: TAbstractFile, oldPath: string) => this.#onRename(file, oldPath));
 		app.vault.on("delete", (file: TAbstractFile) => this.#onDelete(file));
 		this.on("hover-link", (info) => this.#onHoverLink(info));
@@ -1135,12 +1258,20 @@ export class Workspace extends Events {
 		this.#clock = Math.max(Date.now(), this.#clock + 1);
 		leaf.activeTime = this.#clock;
 		leaf.parent.selectTab(leaf);
-		for (const el of document.querySelectorAll(".workspace-leaf.mod-active, .workspace-tabs.mod-active")) el.removeClass("mod-active");
+		for (const win of appWindows()) {
+			for (const el of win.document.querySelectorAll(".workspace-leaf.mod-active, .workspace-tabs.mod-active")) el.removeClass("mod-active");
+		}
 		leaf.containerEl.addClass("mod-active");
 		leaf.parent.containerEl.addClass("mod-active");
+		// The leaf's window is where the user works now; handing it the keyboard
+		// brings that window to the front.
+		const win = leaf.containerEl.win;
+		setActiveWindow(win);
+		if (focus && !win.document.hasFocus()) win.focus();
 		if (changed) {
 			this.#embeddedEditor = null;
 			this.trigger("active-leaf-change", leaf);
+			this.#updateWindowTitles();
 		}
 		this.#updateActiveFile();
 		// Last, so the focusin it causes finds this leaf already active. The
@@ -1161,7 +1292,7 @@ export class Workspace extends Events {
 	}
 
 	onLeafClosing(leaf: WorkspaceLeaf) {
-		if (!this.isRootLeaf(leaf) || leaf.view.getViewType() === "empty" || showsNoFile(leaf.view)) return;
+		if (this.#closingWindow || !this.inMainArea(leaf) || leaf.view.getViewType() === "empty" || showsNoFile(leaf.view)) return;
 		try {
 			this.#closed.push({ state: leaf.getViewState(), eState: leaf.getEphemeralState() });
 		} catch (err) {
@@ -1176,7 +1307,7 @@ export class Workspace extends Events {
 		if (this.activeLeaf === leaf) {
 			this.activeLeaf = null;
 			// A main-area tab hands over to the tab now shown in its group.
-			const sibling = parent.getRoot() === this.rootSplit ? parent.children[parent.currentTab] : null;
+			const sibling = this.inMainArea(parent) && !this.#closingWindow ? parent.children[parent.currentTab] : null;
 			const next = sibling ?? this.getMostRecentLeaf();
 			if (next) this.setActiveLeaf(next, { focus: true });
 		}
@@ -1185,15 +1316,39 @@ export class Workspace extends Events {
 	}
 
 	// A tab group lost its last leaf. The main area always keeps one leaf, like
-	// Obsidian's empty "New tab"; a sidedock keeps one (possibly empty) group.
+	// Obsidian's empty "New tab"; a sidedock keeps one (possibly empty) group;
+	// a popout window without tabs closes.
 	onEmptyTabs(tabs: WorkspaceTabs) {
-		const root = tabs.getRoot();
+		const container = tabs.getContainer();
+		const root = container instanceof WorkspaceWindow ? container : tabs.getRoot();
 		if (tabGroups(root).length > 1) tabs.parent?.removeChild(tabs);
 		else if (root === this.rootSplit) tabs.insertChild(0, new WorkspaceLeaf(this.app));
+		else if (root instanceof WorkspaceWindow) this.#closeWindow(root);
 	}
 
 	isRootLeaf(leaf: WorkspaceLeaf) {
 		return leaf.getRoot() === this.rootSplit;
+	}
+
+	// The main area: the vault window's root split and the popout windows, as
+	// opposed to the sidebars.
+	inMainArea(item: WorkspaceItem) {
+		const root = item.getRoot();
+		return root === this.rootSplit || root === this.floatingSplit;
+	}
+
+	isOnlyLeafOfWindow(leaf: WorkspaceLeaf) {
+		const container = leaf.getContainer();
+		if (!(container instanceof WorkspaceWindow)) return false;
+		let count = 0;
+		walkLeaves(container, () => void count++);
+		return count === 1;
+	}
+
+	// The leaf new tabs and splits go next to: the active leaf when it is in
+	// the main area (a popout's included), else the vault window's most recent.
+	#mainLeaf() {
+		return this.activeLeaf && this.inMainArea(this.activeLeaf) ? this.activeLeaf : this.getMostRecentLeaf();
 	}
 
 	getMostRecentLeaf(root: WorkspaceParent = this.rootSplit): WorkspaceLeaf | null {
@@ -1206,8 +1361,7 @@ export class Workspace extends Events {
 
 	// The tab group new main-area tabs go to: the active or most recent one.
 	#rootTabs(): WorkspaceTabs {
-		const recent = this.activeLeaf && this.isRootLeaf(this.activeLeaf) ? this.activeLeaf : this.getMostRecentLeaf();
-		const tabs = recent?.parent ?? tabGroups(this.rootSplit)[0];
+		const tabs = this.#mainLeaf()?.parent ?? tabGroups(this.rootSplit)[0];
 		if (tabs) return tabs;
 		const created = new WorkspaceTabs(this.app);
 		this.rootSplit.insertChild(this.rootSplit.children.length, created);
@@ -1218,12 +1372,12 @@ export class Workspace extends Events {
 	getLeaf(newLeaf?: PaneType | boolean): WorkspaceLeaf;
 	getLeaf(newLeaf?: PaneType | boolean, direction: SplitDirection = "vertical"): WorkspaceLeaf {
 		if (newLeaf === "split") {
-			const active = this.activeLeaf && this.isRootLeaf(this.activeLeaf) ? this.activeLeaf : this.getMostRecentLeaf();
+			const active = this.#mainLeaf();
 			return active ? this.createLeafBySplit(active, direction) : this.getLeaf("tab");
 		}
 		if (newLeaf === "window") return this.openPopoutLeaf();
 		if (!newLeaf) {
-			const recent = this.getMostRecentLeaf();
+			const recent = this.#mainLeaf();
 			if (recent?.canNavigate()) return recent;
 		}
 		const tabs = this.#rootTabs();
@@ -1245,11 +1399,16 @@ export class Workspace extends Events {
 	// A new leaf in its own tab group beside `leaf`. When the direction differs
 	// from the parent split's, the leaf's group is wrapped in a new split.
 	createLeafBySplit(leaf: WorkspaceLeaf, direction: SplitDirection = "vertical", before = false) {
-		const tabs = leaf.parent ?? this.#rootTabs();
-		const split = tabs.parent ?? this.rootSplit;
 		const next = new WorkspaceLeaf(this.app);
+		this.#splitOff(leaf.parent ?? this.#rootTabs(), next, direction, before);
+		return next;
+	}
+
+	// Puts `leaf` in a new tab group beside `tabs`.
+	#splitOff(tabs: WorkspaceTabs, leaf: WorkspaceLeaf, direction: SplitDirection, before: boolean) {
+		const split = tabs.parent ?? this.rootSplit;
 		const group = new WorkspaceTabs(this.app);
-		group.insertChild(0, next);
+		group.insertChild(0, leaf);
 		if (tabs.dimension !== null) {
 			tabs.setDimension(tabs.dimension / 2);
 			group.setDimension(tabs.dimension);
@@ -1268,7 +1427,6 @@ export class Workspace extends Events {
 			wrapper.insertChild(0, tabs);
 			wrapper.insertChild(before ? 0 : 1, group);
 		}
-		return next;
 	}
 
 	async duplicateLeaf(leaf: WorkspaceLeaf, leafType?: PaneType | boolean | SplitDirection, direction?: SplitDirection) {
@@ -1453,22 +1611,250 @@ export class Workspace extends Events {
 		await leaf.openFile(file, { ...openViewState, active, eState });
 	}
 
-	// Stopgap until popout windows exist: a new tab in the main window. It is
-	// shown at once, as a popout window would be (a view such as terminal's
-	// starts only once visible), and takes focus only if the caller makes it
-	// active. A tab that hides the active one becomes the active leaf, without
-	// the keyboard, so commands act on the tab in view.
-	openPopoutLeaf(_data?: unknown) {
-		const leaf = this.getLeaf("tab");
-		const tabs = leaf.parent;
-		const hidden = tabs?.children[tabs.currentTab];
-		if (hidden && hidden !== leaf && hidden === this.activeLeaf) this.setActiveLeaf(leaf);
-		else tabs?.selectTab(leaf);
+	// A new leaf in a new popout window. Like a new tab it stays inactive until
+	// the caller opens something in it with `active`.
+	openPopoutLeaf(data?: WorkspaceWindowInitData) {
+		const win = this.#openWindow(boundsOf(data));
+		const leaf = new WorkspaceLeaf(this.app);
+		this.#addTabs(win).insertChild(0, leaf);
+		this.trigger("window-open", win, win.win);
 		return leaf;
 	}
 
-	moveLeafToPopout(_leaf: WorkspaceLeaf, _data?: unknown): WorkspaceWindow {
-		throw new Error("Popout windows are not supported");
+	// Moves a leaf, with its view as it is, into a new popout window. The
+	// window opens where the leaf was on screen, at its size, unless `data`
+	// says otherwise.
+	moveLeafToPopout(leaf: WorkspaceLeaf, data?: WorkspaceWindowInitData): WorkspaceWindow {
+		const bounds = { ...this.#screenBoundsOf(leaf), ...boundsOf(data) };
+		const win = this.#openWindow(bounds);
+		this.#moveLeaf(leaf, { tabs: this.#addTabs(win), index: 0, onHeaders: false });
+		this.trigger("window-open", win, win.win);
+		return win;
+	}
+
+	#addTabs(win: WorkspaceWindow) {
+		const tabs = new WorkspaceTabs(this.app);
+		win.insertChild(0, tabs);
+		return tabs;
+	}
+
+	// Opens a native popout window and its WorkspaceWindow, empty.
+	#openWindow(bounds: PopoutBounds, id?: string) {
+		// A fresh frame name every time: a window being closed (the ones a reload
+		// or a layout change replaces) would otherwise be reused under its name.
+		const win = openPopoutWindow(randomId(), { width: 800, height: 600, ...bounds });
+		let ww: WorkspaceWindow;
+		try {
+			addWindow(win);
+			ww = new WorkspaceWindow(this.app, win, id);
+		} catch (err) {
+			removeWindow(win);
+			win.close();
+			throw err;
+		}
+		this.#watchWindow(win);
+		// The user closed the window (or the page that drives it is going).
+		win.addEventListener("pagehide", () => this.#closeWindow(ww));
+		// A link never replaces the popout's document (main sends the others
+		// out); following a heading link within it is fine.
+		win.navigation?.addEventListener("navigate", (evt) => {
+			if (!evt.hashChange) evt.preventDefault();
+		});
+		this.floatingSplit.insertChild(this.floatingSplit.children.length, ww);
+		return ww;
+	}
+
+	// Leaves the layout and closes its leaves, unless the page itself is
+	// unloading, then closes the native window if it is still open.
+	#closeWindow(ww: WorkspaceWindow, closeLeaves = true) {
+		if (!this.floatingSplit.children.includes(ww)) return;
+		this.floatingSplit.removeChild(ww);
+		if (closeLeaves && !this.#unloading) {
+			if (this.activeLeaf?.getContainer() === ww) {
+				const next = this.getMostRecentLeaf();
+				if (next) this.setActiveLeaf(next);
+			}
+			this.#closingWindow = true;
+			try {
+				walkLeaves(ww, (leaf) => leaf.detach());
+			} finally {
+				this.#closingWindow = false;
+			}
+		}
+		ww.dispose();
+		removeWindow(ww.win);
+		this.trigger("window-close", ww, ww.win);
+		if (!ww.win.closed) ww.win.close();
+	}
+
+	// Before the page unloads (a reload, the vault window closing): the layout
+	// is saved by then, the popouts close without changing it.
+	closePopoutsForUnload() {
+		this.#unloading = true;
+		this.requestSaveLayout.cancel();
+		for (const ww of [...this.floatingSplit.children]) this.#closeWindow(ww, false);
+	}
+
+	// Listeners each app window needs: resizes, the active window, tab drops.
+	#watchWindow(win: Window) {
+		const doc = win.document;
+		win.addEventListener("resize", () => this.requestResize());
+		win.addEventListener("focus", () => setActiveWindow(win));
+		doc.addEventListener("dragover", (evt) => this.#onDragOver(evt), true);
+		doc.addEventListener("drop", (evt) => this.#onDrop(evt), true);
+		// Chromium gives dragleave no relatedTarget even between elements; the
+		// pointer leaving the page is what hides the indicator.
+		doc.addEventListener("dragleave", (evt) => {
+			if (evt.clientX <= 0 || evt.clientY <= 0 || evt.clientX >= win.innerWidth || evt.clientY >= win.innerHeight) this.#showDropTarget(doc, null);
+		});
+	}
+
+	// A popout's title is the title of its active, or last active, tab.
+	#updateWindowTitles() {
+		for (const ww of this.floatingSplit.children) {
+			const leaf = this.activeLeaf?.getContainer() === ww ? this.activeLeaf : this.getMostRecentLeaf(ww);
+			const title = leaf?.getDisplayText() ?? "";
+			if (ww.doc.title !== title) ww.doc.title = title;
+		}
+	}
+
+	// Where a leaf's tab group is on screen, as bounds for a window.
+	#screenBoundsOf(leaf: WorkspaceLeaf): PopoutBounds {
+		const el = leaf.parent?.containerEl;
+		const rect = el?.getBoundingClientRect();
+		if (!el || !rect?.width || !rect.height) return {};
+		const win = el.win;
+		// The window's frame around its page.
+		const frameX = win.outerWidth - win.innerWidth;
+		const frameY = win.outerHeight - win.innerHeight;
+		return { x: win.screenX + rect.left, y: win.screenY + frameY + rect.top, width: rect.width + frameX, height: rect.height + frameY };
+	}
+
+	// Moves a leaf, view and all, to a drop target. A leaf moved to another
+	// window takes its DOM along (an iframe in it reloads, as in Obsidian), and
+	// becomes the active leaf.
+	#moveLeaf(leaf: WorkspaceLeaf, target: DropTarget) {
+		const from = leaf.parent;
+		if (!from) return;
+		const { tabs } = target;
+		if (target.zone === undefined) {
+			const fromIndex = from.children.indexOf(leaf);
+			let index = target.index;
+			if (tabs === from) {
+				if (index > fromIndex) index--;
+				if (index === fromIndex) return this.setActiveLeaf(leaf, { focus: true });
+			}
+			from.removeChild(leaf);
+			tabs.insertChild(Math.min(index, tabs.children.length), leaf);
+		} else {
+			// The only tab of a group split off from its own group stays.
+			if (tabs === from && from.children.length === 1) return;
+			from.removeChild(leaf);
+			const direction = target.zone === "left" || target.zone === "right" ? "vertical" : "horizontal";
+			this.#splitOff(tabs, leaf, direction, target.zone === "left" || target.zone === "top");
+		}
+		this.setActiveLeaf(leaf, { focus: true });
+	}
+
+	onTabDragStart(evt: DragEvent, leaf: WorkspaceLeaf) {
+		if (!evt.dataTransfer) return;
+		this.#drag = { leaf, target: null, dropped: false };
+		evt.dataTransfer.effectAllowed = "move";
+		evt.dataTransfer.setData("application/x-justnotes-leaf", leaf.id);
+		// A <webview> or <iframe> under the pointer would take the drag events.
+		for (const win of appWindows()) win.document.body.addClass("is-grabbing");
+	}
+
+	// Dropped outside every app window, a main-area tab moves to a new popout
+	// window there, as in Obsidian.
+	onTabDragEnd(evt: DragEvent, leaf: WorkspaceLeaf) {
+		const drag = this.#drag;
+		this.#drag = null;
+		for (const win of appWindows()) {
+			win.document.body.removeClass("is-grabbing");
+			this.#showDropTarget(win.document, null);
+		}
+		if (!drag || drag.leaf !== leaf || drag.dropped || evt.dataTransfer?.dropEffect !== "none") return;
+		const { screenX: x, screenY: y } = evt;
+		// A drag cancelled without a pointer position reports the screen origin.
+		if (x === 0 && y === 0) return;
+		const inside = appWindows().some((w) => x >= w.screenX && x < w.screenX + w.outerWidth && y >= w.screenY && y < w.screenY + w.outerHeight);
+		if (inside || !leaf.parent || !this.inMainArea(leaf) || this.isOnlyLeafOfWindow(leaf)) return;
+		const bounds = this.#screenBoundsOf(leaf);
+		this.moveLeafToPopout(leaf, { x: x - 40, y: y - 20, size: bounds.width && bounds.height ? { width: bounds.width, height: bounds.height } : undefined });
+	}
+
+	// The drop target under the pointer: a tab header bar, or a pane. A pane in
+	// a sidebar splits only above or below.
+	#dropTargetAt(evt: DragEvent): DropTarget | null {
+		const el = evt.target as Element | null;
+		const groupEl = el?.closest?.(".workspace-tabs");
+		const tabs = groupEl ? tabsByEl.get(groupEl) : undefined;
+		if (!tabs?.parent || !this.#drag) return null;
+		const leaf = this.#drag.leaf;
+		if (el?.closest(".workspace-tab-header-container")) {
+			const headers = tabs.children.map((l) => l.tabHeaderEl.getBoundingClientRect());
+			return { tabs, index: tabDropIndex(headers, evt.clientX), onHeaders: true };
+		}
+		const sides: DropZone[] = tabs.getRoot() instanceof WorkspaceSidedock ? ["top", "bottom"] : ["left", "right", "top", "bottom"];
+		const zone = dropZone(tabs.tabsContainerEl.getBoundingClientRect(), evt.clientX, evt.clientY, sides);
+		if (zone === "center") return tabs === leaf.parent ? null : { tabs, index: tabs.children.length, onHeaders: false };
+		if (tabs === leaf.parent && tabs.children.length === 1) return null;
+		return { tabs, zone };
+	}
+
+	#onDragOver(evt: DragEvent) {
+		if (!this.#drag) return;
+		const doc = (evt.target as Node).doc;
+		const target = this.#dropTargetAt(evt);
+		this.#drag.target = target;
+		this.#showDropTarget(doc, target);
+		// Kept from the views below (an editor would show its own drop caret).
+		evt.stopPropagation();
+		if (!target) return;
+		evt.preventDefault();
+		if (evt.dataTransfer) evt.dataTransfer.dropEffect = "move";
+	}
+
+	#onDrop(evt: DragEvent) {
+		const drag = this.#drag;
+		if (!drag) return;
+		evt.preventDefault();
+		evt.stopPropagation();
+		const target = this.#dropTargetAt(evt);
+		this.#showDropTarget((evt.target as Node).doc, null);
+		if (!target) return;
+		drag.dropped = true;
+		this.#moveLeaf(drag.leaf, target);
+	}
+
+	// The drop indicator: the part of a pane a dropped tab would take, or a bar
+	// between tab headers where it would go.
+	#showDropTarget(doc: Document, target: DropTarget | null) {
+		let overlay = doc.body.querySelector<HTMLElement>(":scope > .workspace-drop-overlay");
+		if (!target) {
+			overlay?.remove();
+			return;
+		}
+		overlay ??= doc.body.createDiv("workspace-drop-overlay");
+		let rect: { left: number; top: number; width: number; height: number };
+		if (target.zone === undefined && target.onHeaders) {
+			const headers = target.tabs.children.map((l) => l.tabHeaderEl.getBoundingClientRect());
+			const bar = target.tabs.tabHeaderContainerEl.getBoundingClientRect();
+			const x = target.index < headers.length ? headers[target.index].left : (headers.at(-1)?.right ?? bar.left);
+			rect = { left: x - 2, top: bar.top, width: 4, height: bar.height };
+			overlay.addClass("mod-tab");
+		} else {
+			const pane = target.tabs.tabsContainerEl.getBoundingClientRect();
+			const half = { left: pane.left, top: pane.top, width: pane.width, height: pane.height };
+			if (target.zone === "left" || target.zone === "right") half.width /= 2;
+			if (target.zone === "top" || target.zone === "bottom") half.height /= 2;
+			if (target.zone === "right") half.left += half.width;
+			if (target.zone === "bottom") half.top += half.height;
+			rect = half;
+			overlay.removeClass("mod-tab");
+		}
+		overlay.setCssStyles({ left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
 	}
 
 	registerEditorExtension(ext: Extension) {
@@ -1487,14 +1873,16 @@ export class Workspace extends Events {
 	}
 
 	getLayout() {
-		return {
+		const layout: Record<string, unknown> = {
 			main: this.rootSplit.serialize(),
 			left: this.leftSplit.serialize(),
 			right: this.rightSplit.serialize(),
-			"left-ribbon": this.leftRibbon.serialize(),
-			active: this.activeLeaf?.id,
-			lastOpenFiles: this.getLastOpenFiles(),
 		};
+		if (this.floatingSplit.children.length) layout.floating = this.floatingSplit.serialize();
+		layout["left-ribbon"] = this.leftRibbon.serialize();
+		layout.active = this.activeLeaf?.id;
+		layout.lastOpenFiles = this.getLastOpenFiles();
+		return layout;
 	}
 
 	// Replaces the whole workspace with a layout in getLayout()'s shape.
@@ -1506,6 +1894,7 @@ export class Workspace extends Events {
 		await Promise.allSettled(leaves.map((l) => l.view.close()));
 		// Old leaves count as detached, so stale references cannot come back.
 		for (const leaf of leaves) leaf.parent = null;
+		for (const ww of [...this.floatingSplit.children]) this.#closeWindow(ww, false);
 		this.activeLeaf = null;
 		this.#restoring = true;
 		try {
@@ -1514,8 +1903,8 @@ export class Workspace extends Events {
 			this.#restoring = false;
 		}
 		const saved = typeof layout?.active === "string" ? this.getLeafById(layout.active) : null;
-		const tabs = this.#rootTabs();
-		const active = saved && this.isRootLeaf(saved) ? saved : tabs.children[tabs.currentTab];
+		const tabs = tabGroups(this.rootSplit).find((t) => t.children.length) ?? this.#rootTabs();
+		const active = saved && this.inMainArea(saved) ? saved : tabs.children[tabs.currentTab];
 		if (active) this.setActiveLeaf(active, { focus: true });
 		this.onLayoutChange();
 	}
@@ -1525,6 +1914,21 @@ export class Workspace extends Events {
 		this.#load(this.rootSplit, layout?.main, restore);
 		this.#load(this.leftSplit, layout?.left, restore);
 		this.#load(this.rightSplit, layout?.right, restore);
+		// Popout windows open again where they were; one left without tabs closes.
+		const windows: any[] = Array.isArray(layout?.floating?.children) ? layout.floating.children : [];
+		for (const data of windows.filter((w) => w?.type === "window")) {
+			const num = (key: string) => (typeof data[key] === "number" ? data[key] : undefined);
+			let ww: WorkspaceWindow;
+			try {
+				ww = this.#openWindow({ x: num("x"), y: num("y"), width: num("width"), height: num("height") }, typeof data.id === "string" ? data.id : undefined);
+			} catch (err) {
+				console.error(err);
+				continue;
+			}
+			this.#load(ww, data, restore);
+			if (!tabGroups(ww).some((t) => t.children.length)) this.#closeWindow(ww, false);
+			else this.trigger("window-open", ww, ww.win);
+		}
 		this.leftSplit.setWidth(typeof layout?.left?.width === "number" ? layout.left.width : 280);
 		this.rightSplit.setWidth(typeof layout?.right?.width === "number" ? layout.right.width : 280);
 		layout?.left?.collapsed ? this.leftSplit.collapse() : this.leftSplit.expand();
@@ -1557,7 +1961,7 @@ export class Workspace extends Events {
 			child.containerEl.detach();
 		}
 		if (typeof data?.id === "string") split.id = data.id;
-		if (split === this.rootSplit && (data?.direction === "vertical" || data?.direction === "horizontal")) split.setDirection(data.direction);
+		if ((split === this.rootSplit || split instanceof WorkspaceWindow) && (data?.direction === "vertical" || data?.direction === "horizontal")) split.setDirection(data.direction);
 		for (const c of Array.isArray(data?.children) ? data.children : []) {
 			const item = this.#deserialize(c, restore);
 			if (item instanceof WorkspaceTabs || item instanceof WorkspaceSplit) split.insertChild(split.children.length, item);

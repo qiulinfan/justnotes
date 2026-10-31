@@ -243,6 +243,20 @@ export class FileExplorerView extends ItemView {
 					.setSection("open")
 					.onClick(() => this.app.workspace.getLeaf("tab").openFile(file)),
 			);
+			menu.addItem((i) =>
+				i
+					.setTitle("Open to the right")
+					.setIcon("separator-vertical")
+					.setSection("open")
+					.onClick(() => this.app.workspace.getLeaf("split").openFile(file)),
+			);
+			menu.addItem((i) =>
+				i
+					.setTitle("Open in new window")
+					.setIcon("picture-in-picture-2")
+					.setSection("open")
+					.onClick(() => this.app.workspace.getLeaf("window").openFile(file)),
+			);
 		}
 		this.#addFileItems(menu, file);
 		this.app.workspace.trigger("file-menu", menu, file, "file-explorer-context-menu", this.leaf);

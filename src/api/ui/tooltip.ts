@@ -1,4 +1,6 @@
-// One tooltip for the whole document, shown for any element with an
+import { onWindowAdded } from "../dom";
+
+// One tooltip for the whole app, shown for any element with an
 // aria-label after a hover delay, the way Obsidian shows its own tooltips.
 // Plugins often set aria-label and data-tooltip-position directly instead of
 // calling setTooltip, so hovering is watched globally (installTooltips).
@@ -50,12 +52,18 @@ export function hideTooltip() {
 	tooltipEl?.detach();
 }
 
-// Called once at boot.
+// Called once at boot; popout windows get the same listeners.
 export function installTooltips() {
-	document.addEventListener("mouseover", onMouseOver, true);
-	document.addEventListener("mouseout", onMouseOut, true);
-	for (const type of ["mousedown", "keydown", "wheel", "dragstart"]) document.addEventListener(type, hideTooltip, true);
-	window.addEventListener("blur", hideTooltip);
+	listen(window);
+	onWindowAdded(listen);
+}
+
+function listen(win: Window) {
+	const doc = win.document;
+	doc.addEventListener("mouseover", onMouseOver, true);
+	doc.addEventListener("mouseout", onMouseOut, true);
+	for (const type of ["mousedown", "keydown", "wheel", "dragstart"]) doc.addEventListener(type, hideTooltip, true);
+	win.addEventListener("blur", hideTooltip);
 }
 
 function optionsOf(el: HTMLElement): TooltipOptions {
@@ -77,7 +85,7 @@ function isPlacement(value: string | null): value is TooltipPlacement {
 
 function onMouseOver(evt: MouseEvent) {
 	const el = (evt.target as Element | null)?.closest?.("[aria-label]");
-	if (!(el instanceof HTMLElement) || el === target) return;
+	if (!el?.instanceOf(HTMLElement) || el === target) return;
 	const label = el.getAttribute("aria-label");
 	if (!label) return;
 	hideTooltip();
@@ -110,7 +118,7 @@ function show(el: HTMLElement, content: string | DocumentFragment, options: Tool
 	if (placement !== "bottom") tooltipEl.addClass(`mod-${placement}`);
 	tooltipEl.setText(content);
 	tooltipEl.createDiv("tooltip-arrow");
-	document.body.appendChild(tooltipEl);
+	el.doc.body.appendChild(tooltipEl);
 	position(tooltipEl, el.getBoundingClientRect(), placement, options.gap ?? DEFAULT_GAP);
 	if (watchTimer === null) {
 		// Hide when the target leaves the DOM, e.g. a re-rendered button.
@@ -121,6 +129,7 @@ function show(el: HTMLElement, content: string | DocumentFragment, options: Tool
 }
 
 function position(el: HTMLElement, r: DOMRect, placement: TooltipPlacement, gap: number) {
+	const window = el.win;
 	const w = el.offsetWidth;
 	const h = el.offsetHeight;
 	let side = placement;

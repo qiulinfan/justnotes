@@ -42,19 +42,21 @@ export class Modal {
 	open() {
 		if (this.isOpen) return;
 		this.isOpen = true;
-		this.#restoreFocus = document.activeElement;
-		const selection = window.getSelection();
+		// A modal opens in the focused window, a popout included.
+		const doc = activeDocument;
+		this.#restoreFocus = doc.activeElement;
+		const selection = doc.getSelection();
 		this.#ranges = [];
 		if (this.shouldRestoreSelection && selection) {
 			for (let i = 0; i < selection.rangeCount; i++) this.#ranges.push(selection.getRangeAt(i).cloneRange());
 		}
-		document.body.appendChild(this.containerEl);
+		doc.body.appendChild(this.containerEl);
 		this.containerEl.addClass("mod-dim");
 		this.app.keymap.pushScope(this.scope);
 		this.onOpen();
 		// Keys the modal does not handle must not keep editing the note behind it.
-		const active = document.activeElement;
-		if (this.isOpen && active instanceof HTMLElement && !this.containerEl.contains(active)) active.blur();
+		const active = doc.activeElement;
+		if (this.isOpen && active?.instanceOf(HTMLElement) && !this.containerEl.contains(active)) active.blur();
 	}
 
 	close() {
@@ -70,12 +72,12 @@ export class Modal {
 
 	#restore() {
 		const el = this.#restoreFocus;
-		if (!(el instanceof HTMLElement) || !el.isConnected) return;
+		if (!el?.instanceOf(HTMLElement) || !el.isConnected) return;
 		el.focus();
 		// CodeMirror restores its own selection on focus; saved DOM ranges
 		// could point into lines it has redrawn since.
 		if (el.closest(".cm-editor")) return;
-		const selection = window.getSelection();
+		const selection = el.doc.getSelection();
 		if (!selection || !this.#ranges.every((r) => r.startContainer.isConnected && r.endContainer.isConnected)) return;
 		selection.removeAllRanges();
 		for (const range of this.#ranges) selection.addRange(range);

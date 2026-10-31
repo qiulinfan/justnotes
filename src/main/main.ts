@@ -4,6 +4,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell
 import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
+import { isPopoutOpen } from "./popout";
 import { handleSchemes, registerSchemes } from "./protocol";
 
 // @electron/remote resolves remote.require() through the real module tree, so
@@ -176,6 +177,36 @@ function setApplicationMenu() {
 	);
 }
 
+// A popout window is a child window of the vault page, in the same renderer:
+// the page's own code builds and drives its document, as in Obsidian. Its links
+// follow the same policy as the page's, it never navigates away from its blank
+// document, and it closes with the page (a reload or the vault window closing).
+function setupPopout(child: BrowserWindow, opener: WebContents) {
+	const contents = child.webContents;
+	contents.setWindowOpenHandler(({ url }) => {
+		openUrl(url, opener);
+		return { action: "deny" };
+	});
+	contents.on("will-navigate", (evt) => {
+		if (!evt.isMainFrame) return;
+		evt.preventDefault();
+		openUrl(evt.url, opener);
+	});
+	const close = () => {
+		if (!child.isDestroyed()) child.close();
+	};
+	const onNavigation = (details: { isMainFrame: boolean; isSameDocument: boolean }) => {
+		if (details.isMainFrame && !details.isSameDocument) close();
+	};
+	opener.once("destroyed", close);
+	opener.on("did-start-navigation", onNavigation);
+	child.once("closed", () => {
+		if (opener.isDestroyed()) return;
+		opener.off("destroyed", close);
+		opener.off("did-start-navigation", onNavigation);
+	});
+}
+
 function samePage(target: string, current: string) {
 	try {
 		const a = new URL(target);
@@ -219,10 +250,14 @@ function openVault(vault: string) {
 	remoteMain.enable(contents);
 	setupWindowLifecycle(win);
 	trackCliWindow(win);
-	contents.setWindowOpenHandler(({ url }) => {
+	contents.setWindowOpenHandler(({ url, frameName }) => {
+		if (isPopoutOpen(url, frameName)) {
+			return { action: "allow", overrideBrowserWindowOptions: { minWidth: 200, minHeight: 150, titleBarStyle: "default", autoHideMenuBar: true, webPreferences: { nodeIntegration: false, contextIsolation: false, sandbox: false } } };
+		}
 		openUrl(url, contents);
 		return { action: "deny" };
 	});
+	contents.on("did-create-window", (child) => setupPopout(child, contents));
 	// A link without a handler must not navigate the window away from the app;
 	// it opens as from window.open instead. Chromium never asks about an about:
 	// URL; the page cancels those navigations itself (boot.ts).

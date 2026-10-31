@@ -118,9 +118,14 @@ export class Keymap {
 	modifiers = "";
 	#scope: Scope;
 
-	// `win` is the window whose keys this keymap handles.
+	// `win` is the window whose keys this keymap handles; popout windows are
+	// added with attachWindow.
 	constructor(root: Scope, win: EventTarget = window) {
 		this.rootScope = this.#scope = root;
+		this.attachWindow(win);
+	}
+
+	attachWindow(win: EventTarget) {
 		win.addEventListener("keydown", (evt) => this.#onKeyDown(evt as KeyboardEvent), true);
 		win.addEventListener("keyup", (evt) => this.updateModifiers(evt as KeyboardEvent), true);
 		win.addEventListener("blur", () => (this.modifiers = ""));
@@ -319,6 +324,11 @@ interface EditorContext {
 // input, a settings field, another editor) belongs to that field, so editor
 // commands do not take it to the note. A command chosen in the palette is not
 // such a key: the palette has closed and given focus back by then.
+function currentEvent(): Event | undefined {
+	const global = globalThis as { event?: Event; activeWindow?: { event?: Event } };
+	return global.activeWindow?.event ?? global.event;
+}
+
 function keyInOtherField(evt: Event | undefined, activeEditor: EditorContext | null) {
 	if (evt?.type !== "keydown") return false;
 	const el = evt.target as HTMLElement | null;
@@ -388,12 +398,13 @@ export class Commands {
 	}
 
 	// `evt` is what triggered the command. Plugins that run hotkeys themselves
-	// (Completr) pass none; the key being handled is then window.event.
+	// (Completr) pass none; the key being handled is then window.event, of the
+	// window it is typed in (a popout's).
 	executeCommand(cmd: Command, evt?: Event) {
 		if (evt) this.app.lastEvent = evt as UIEvent;
 		try {
 			const editor = this.app.workspace.activeEditor;
-			const trigger = evt ?? (globalThis as { event?: Event }).event;
+			const trigger = evt ?? currentEvent();
 			if ((cmd.editorCallback || cmd.editorCheckCallback) && keyInOtherField(trigger, editor)) return false;
 			if (!runCommand(cmd, true, editor)) return false;
 			runCommand(cmd, false, editor);

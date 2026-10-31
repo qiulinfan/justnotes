@@ -1,3 +1,4 @@
+import { AppResizeObserver } from "../dom";
 import { Component } from "../events";
 
 export interface HoverParent {
@@ -25,7 +26,8 @@ export class HoverPopover extends Component {
 	#staticPos: { x: number; y: number } | null;
 	#showTimer: number | null;
 	#hideTimer: number | null = null;
-	#resize = new ResizeObserver(() => this.#position());
+	#doc: Document | null = null;
+	#resize = new AppResizeObserver(() => this.#position());
 
 	constructor(parent: HoverParent, targetEl: HTMLElement | null, waitTime = 300, staticPos: { x: number; y: number } | null = null) {
 		super();
@@ -52,8 +54,8 @@ export class HoverPopover extends Component {
 		this.#resize.disconnect();
 		this.targetEl?.removeEventListener("mouseenter", this.#onEnter);
 		this.targetEl?.removeEventListener("mouseleave", this.#onLeave);
-		document.removeEventListener("mousedown", this.#onOutside, true);
-		document.removeEventListener("keydown", this.#onKey, true);
+		this.#doc?.removeEventListener("mousedown", this.#onOutside, true);
+		this.#doc?.removeEventListener("keydown", this.#onKey, true);
 		this.hoverEl.detach();
 		if (this.parent.hoverPopover === this) this.parent.hoverPopover = null;
 		this.unload();
@@ -64,19 +66,23 @@ export class HoverPopover extends Component {
 		this.#showTimer = null;
 		if (this.state !== PopoverState.Showing) return;
 		if (this.targetEl && !this.targetEl.isConnected) return this.hide();
-		document.body.appendChild(this.hoverEl);
+		// In the target's window, a popout included.
+		const doc = this.targetEl?.doc ?? activeDocument;
+		this.#doc = doc;
+		doc.body.appendChild(this.hoverEl);
 		this.state = PopoverState.Shown;
 		shown.push(this);
 		this.#position();
 		this.#resize.observe(this.hoverEl);
-		document.addEventListener("mousedown", this.#onOutside, true);
-		document.addEventListener("keydown", this.#onKey, true);
+		doc.addEventListener("mousedown", this.#onOutside, true);
+		doc.addEventListener("keydown", this.#onKey, true);
 		this.load();
 	}
 
 	// Below the target, or above it when there is no room; inside the window.
 	#position() {
 		const el = this.hoverEl;
+		const window = el.win;
 		const box = el.getBoundingClientRect();
 		let { x, y } = this.#staticPos ?? { x: 0, y: 0 };
 		if (!this.#staticPos && this.targetEl) {

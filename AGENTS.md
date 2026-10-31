@@ -22,7 +22,9 @@ plain style. Development notes belong in this file.
 - `src/main/`: the Electron main process. `main.ts` opens one window per vault
   (Node integration on, context isolation off, `webviewTag`,
   `@electron/remote`), owns the external-link policy and routes `obsidian://`
-  URLs to the vault window. `lifecycle.ts` runs the quit flush
+  URLs to the vault window. The only `window.open` it lets through as a window
+  is a popout's (`popout.ts`: `about:blank` under the `justnotes-popout`
+  frame name). `lifecycle.ts` runs the quit flush
   (`justnotes:before-close` / `justnotes:close-ready`), `ipc.ts` the
   synchronous IPC behind SecretStorage (Electron `safeStorage`) and the
   plugins' clipboard, `protocol.ts` scheme registration.
@@ -40,7 +42,9 @@ plain style. Development notes belong in this file.
     `@codemirror/collab` modules; plugins must share the editor's instances.
   - `app.ts` (App, CustomCss, RenderContext, `obsidian://` handling),
     `workspace.ts` (leaf tree, tabs, splits, side docks, placeholders, page
-    preview, history), `view.ts` (View, ItemView, FileView, TextFileView),
+    preview, history, tab drag and drop, popout windows; `popout-window.ts`
+    opens and styles their documents), `view.ts` (View, ItemView, FileView,
+    TextFileView),
     `markdown-view.ts` (editing and reading halves of MarkdownView),
     `markdown-preview.ts` (reading view), `markdown.ts` (MarkdownRenderer, post
     processors, code-block registry, the math grammar, MathJax/pdf.js/Prism/
@@ -311,9 +315,43 @@ plain style. Development notes belong in this file.
   Preview.
 - The layout restores from localStorage; leaves of view types nobody has
   registered yet become placeholders that keep their state and turn into the
-  real view when a plugin registers the type. There are no popout windows:
-  `getLeaf("window")` opens a tab, shows it and makes it the active leaf
-  without moving keyboard focus, as a new window would.
+  real view when a plugin registers the type.
+- Popout windows follow Obsidian's model (`popout-window.ts`, `WorkspaceWindow`
+  in `workspace.floatingSplit`): a child window of the vault page opened with
+  `window.open("about:blank")`, in the same renderer, whose document the
+  page's code builds and drives. Main gives it `nodeIntegration: false`;
+  with Node on, Electron puts the child in its own browsing instance and
+  `window.open` returns null. Its body repeats the vault window's container
+  chain plus `is-popout-window`; the vault window's stylesheets (in order,
+  CSSOM-added rules included), `<html>`/`<body>` classes and inline styles are
+  mirrored into it. Leaves moved there keep their DOM (an iframe in it
+  reloads). `getLeaf("window")`, `openPopoutLeaf`, `moveLeafToPopout`, the
+  tab menu, `workspace:open-in-new-window`/`move-to-new-window` and
+  Mod+Alt+Shift links open one; `window-open`/`window-close` fire with the
+  `WorkspaceWindow` and its `Window`. A popout whose last tab goes closes;
+  closing the window closes its leaves. The layout stores windows under
+  `floating` (`type: "window"`, `x`, `y`, `width`, `height`) and reopens them;
+  on unload the page saves the layout first, then closes popouts without
+  saving again. New tabs, splits and `getLeaf(false)` follow the active leaf
+  into its popout.
+- Cross-window rules: a node keeps the realm it was made in when it moves
+  (`constructorWin`), so DOM `instanceof` checks in host code use
+  `.instanceOf()`; `el.createEl` makes elements in the parent's document and
+  every popout realm gets the DOM augmentations (`addWindow`). A ResizeObserver
+  sees only its own window's elements, so host code uses `AppResizeObserver`.
+  Listeners on a window (keymap, `lastEvent`, focus tracking, tooltips) are
+  installed in every popout through `onWindowAdded`. Modals and notices open
+  in `activeDocument` (the focused window, also set by `setActiveLeaf`),
+  menus in the event's document, suggests and popovers in their anchor's.
+  MarkdownView's CodeMirror calls `setRoot` on `onWindowMigrated`.
+- Tabs drag with HTML5 drag and drop, across windows too: onto a tab bar
+  (a bar marks the position), onto a pane's middle (into its group) or the
+  outer quarter of an edge (`dropZone`: a new group split off on that side;
+  sidebar panes only above or below). `.workspace-drop-overlay` shows the
+  target; `body.is-grabbing` keeps `<webview>`/`<iframe>` guests from taking
+  the drag. A main-area tab dropped outside every app window moves to a new
+  popout there. Moves go through `removeChild`/`insertChild`, so
+  `layout-change` fires and the layout saves the result.
 - Resize drags end on `lostpointercapture`, and `body.is-resizing` turns off
   pointer events in `<webview>` and `<iframe>` guests, which would otherwise
   swallow the moves and the pointerup (omp-sidebar's webview).
@@ -434,8 +472,10 @@ paid: only within the owner's small test budget), background, kgdistiller
 and 2.42.0), omp-sidebar, quickadd (2.24.2 and 2.33.1), terminal (3.27.2 and
 3.29.0) and obsidian-tinymist (0.1.0, its YOLO bridge against a local mock
 provider). QuickAdd's capture into the active canvas and into a configured
-card were tested on a synthetic vault. Known gaps: popout windows, tab drag
-and drop.
+card were tested on a synthetic vault. In a popout window Markdown editing,
+Completr's and the link suggests, latex-live's math, QuickAdd's modals and
+menus and a terminal moved there (its `onWindowMigrated` reopens xterm) were
+tested live.
 
 ## Verify
 
@@ -451,8 +491,11 @@ and drop.
   throttling) and reports boot errors; drive a kept one with
   `CDP_PORT=<port> bun scripts/cdp.ts` (real key events, `eval` against
   `window.app`, screenshots, `reload`; always set `CDP_PORT`, or it drives
-  whatever listens on 9333; with two windows it attaches to the first page
-  target). Mouse input goes through `Input.dispatchMouseEvent`. Injected keys
+  whatever listens on 9333; it attaches to the first vault page, and
+  `CDP_POPOUT=<n>` to the n-th popout window for keys and screenshots; `eval`
+  in the vault page reaches popouts' documents). A real tab drag needs
+  `Input.setInterceptDrags` and `Input.dispatchDragEvent` on the target page;
+  a page whose popout closes on the drop stops answering. Mouse input goes through `Input.dispatchMouseEvent`. Injected keys
   never trigger macOS menu key equivalents, so Cmd+A needs `cdp.ts selectall`;
   native `<select>` popups cannot be driven. A plugin's `<iframe>` from
   another origin (tinymist's preview on 127.0.0.1) is a target of its own
