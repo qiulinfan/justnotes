@@ -192,6 +192,18 @@ describe("links", () => {
 		expect(clickableTokenAt(stateOf(doc, 0), 1)).toEqual({ type: "internal-link", text: "Known", from: 0, to: 12 });
 	});
 
+	// GFM autolinks a URL or address in the link text; it was taken for the
+	// destination, so clicking [a@b.co](mailto:a@b.co) created a note "a@b.co".
+	test("a URL in the link text is not the link's destination", () => {
+		const doc = "[a@b.co](mailto:a@b.co) [www.x.com](https://x.com)\nend";
+		const links = decorate(doc, doc.length).filter((d) => d.mark?.includes("cm-underline"));
+		expect(links.map((d) => [doc.slice(d.from, d.to), d.attrs])).toEqual([
+			["a@b.co", { class: "external-link", "data-href": "mailto:a@b.co" }],
+			["www.x.com", { class: "external-link", "data-href": "https://x.com" }],
+		]);
+		expect(clickableTokenAt(stateOf(doc, 0), 3)).toEqual({ type: "external-link", text: "mailto:a@b.co", from: 0, to: 23 });
+	});
+
 	// A README's badge, [![alt](img)](url), and formatted link text render
 	// inside the link, as in the reading view, instead of showing their source.
 	test("an image or formatting in a link's text renders within the link", () => {

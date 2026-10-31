@@ -116,10 +116,15 @@ function autolinkHref(node: SyntaxNode, url: string) {
 	return SCHEME.test(url) ? url : `mailto:${url}`;
 }
 
-// A Markdown link's or image's destination; `<...>` (a path with spaces,
-// as in [a](<My note.md>)) without its angle brackets, as the reading view
-// reads it.
-function destination(state: EditorState, url: SyntaxNode) {
+// A Markdown link's or image's destination, as the reading view reads it:
+// the URL after the text's closing bracket, not one in the text itself
+// ([a@b.co](mailto:a@b.co), [www.x.com](https://x.com)), and `<...>` (a
+// path with spaces, as in [a](<My note.md>)) without its angle brackets.
+// Null for a reference link, whose destination is elsewhere.
+function destination(state: EditorState, node: SyntaxNode) {
+	const textEnd = node.getChildren("LinkMark")[1]?.to;
+	const url = textEnd === undefined ? undefined : node.getChildren("URL").find((u) => u.from >= textEnd);
+	if (!url) return null;
 	const text = state.sliceDoc(url.from, url.to);
 	return text.startsWith("<") && text.endsWith(">") ? text.slice(1, -1) : text;
 }
@@ -134,9 +139,8 @@ function tokenOf(state: EditorState, n: SyntaxNode): ClickableToken | null {
 		}
 		case "Link":
 		case "Image": {
-			const url = n.getChild("URL");
-			if (!url) return null;
-			const href = destination(state, url);
+			const href = destination(state, n);
+			if (href === null) return null;
 			return SCHEME.test(href)
 				? { type: "external-link", text: href, from: n.from, to: n.to }
 				: { type: "internal-link", text: safeDecode(href), from: n.from, to: n.to };
@@ -845,11 +849,10 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 				}
 				case "Link": {
 					if (touches(from, to)) return;
-					const url = node.getChild("URL");
 					const marks = node.getChildren("LinkMark");
-					if (!url || marks.length < 2) return;
+					const href = destination(state, node);
+					if (href === null) return;
 					const textEnd = marks[1].from;
-					const href = destination(state, url);
 					decos.push(hide.range(from, marks[0].to));
 					if (textEnd > marks[0].to) {
 						const mark = SCHEME.test(href) ? linkMark("external-link", href) : linkMark("internal-link", href, !!cx.linkDest(getLinkpath(safeDecode(href))));
@@ -877,9 +880,9 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 				}
 				case "Image": {
 					if (touches(from, to)) return;
-					const url = node.getChild("URL");
 					const marks = node.getChildren("LinkMark");
-					const target = url ? safeDecode(destination(state, url)) : null;
+					const href = destination(state, node);
+					const target = href === null ? null : safeDecode(href);
 					if (!target) return false;
 					const alt = marks.length >= 2 ? state.sliceDoc(marks[0].to, marks[1].from) : "";
 					const local = !SCHEME.test(target);
