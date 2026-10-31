@@ -16,7 +16,7 @@
 import { closeCompletion, completionStatus } from "@codemirror/autocomplete";
 import { Compartment, EditorState, Extension, StateField } from "@codemirror/state";
 import { EditorView, ViewPlugin, ViewUpdate, keymap } from "@codemirror/view";
-import type { App } from "obsidian";
+import type { App } from "../../../api/app";
 import { popupVisible } from "./keyArbiter";
 import type { InlineStatus, InlineSuggestions } from "./keyArbiter";
 

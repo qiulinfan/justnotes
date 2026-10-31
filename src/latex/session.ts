@@ -12,7 +12,7 @@ import { TexDiagnostic } from "./tex/logParser";
 import { detectEngine, Engine } from "./tex/project";
 import { PosRecord, readLlpos } from "./tex/llpos";
 import { synctexStamp } from "./tex/synctex";
-import type LatexLivePlugin from "./main";
+import type { LatexLive as LatexLivePlugin } from "./latex-live";
 
 export type SessionEvent = "start" | "result" | "failure";
 
@@ -81,10 +81,10 @@ export function compiledSources(
   };
 }
 
-/** Build output folder of a root document: `$TMPDIR/obsidian-latex-live/<hash>`. */
+/** Build output folder of a root document: `$TMPDIR/justnotes-latex/<hash>` (latex-live in Obsidian uses `obsidian-latex-live`: the two never share a build). */
 export function outDirFor(root: string): string {
   const id = createHash("sha1").update(root).digest("hex").slice(0, 12);
-  return join(tmpdir(), "obsidian-latex-live", id);
+  return join(tmpdir(), "justnotes-latex", id);
 }
 
 /**

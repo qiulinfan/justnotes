@@ -1,4 +1,5 @@
-import { App, Modal } from "obsidian";
+import { App } from "../../api/app";
+import { Modal } from "../../api/ui/modal";
 import { parseTemplateProfiles, type EnvironmentVisualization, type TemplateVisualizationProfile } from "./templateVisualization";
 
 export interface TemplateVisualizationHost {

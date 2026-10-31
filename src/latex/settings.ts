@@ -1,5 +1,7 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
-import type LatexLivePlugin from "./main";
+import { App } from "../api/app";
+import { SettingTab } from "../api/plugin";
+import { Setting } from "../api/ui/setting";
+import type { LatexLive as LatexLivePlugin } from "./latex-live";
 import type { EngineSetting } from "./tex/project";
 import type { TemplateVisualizationProfile } from "./editor/templateVisualization";
 import { EMPTY_USER_RULES, type UserEnvRules } from "./tex/envRules";
@@ -85,12 +87,15 @@ export const DEFAULT_SETTINGS: LatexLiveSettings = {
   exportFolder: "",
 };
 
-export class LatexLiveSettingTab extends PluginSettingTab {
+/** The `latex` core plugin's options, listed under Core plugins in the settings. */
+export class LatexLiveSettingTab extends SettingTab {
   constructor(
     app: App,
-    private plugin: LatexLivePlugin,
+    readonly plugin: LatexLivePlugin,
   ) {
-    super(app, plugin);
+    super(app);
+    this.id = "latex";
+    this.name = "LaTeX";
   }
 
   display(): void {

@@ -40,7 +40,7 @@ import {
   TransactionSpec,
 } from "@codemirror/state";
 import { Command, EditorView, KeyBinding, ViewPlugin, ViewUpdate } from "@codemirror/view";
-import type { Modifier, Scope } from "obsidian";
+import type { Modifier, Scope } from "../../../api/keymap";
 
 // ---- External text ----------------------------------------------------------------
 

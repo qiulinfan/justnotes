@@ -1,5 +1,8 @@
-import { Modal, Notice, TFile, TFolder, getLanguage, normalizePath } from "obsidian";
-import type LatexLivePlugin from "../main";
+import { Modal } from "../../api/ui/modal";
+import { Notice } from "../../api/ui/notice";
+import { TFile, TFolder } from "../../api/vault";
+import { getLanguage, normalizePath } from "../../api/util";
+import type { LatexLive as LatexLivePlugin } from "../latex-live";
 
 const messages = () => getLanguage().startsWith("zh") ? {
   title: "新建 TeX 文件", name: "文件名", create: "创建", open: "打开文件", cancel: "取消", untitled: "未命名", root: "库根目录",

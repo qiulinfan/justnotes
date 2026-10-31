@@ -1,19 +1,15 @@
-import {
-  ItemView,
-  Modal,
-  Notice,
-  ViewStateResult,
-  WorkspaceLeaf,
-  setIcon,
-} from "obsidian";
+import { ItemView, type ViewStateResult } from "../../api/view";
+import { Modal } from "../../api/ui/modal";
+import { Notice } from "../../api/ui/notice";
+import { WorkspaceLeaf } from "../../api/workspace";
+import { setIcon } from "../../api/icons";
 import { basename, relative } from "path";
-import type LatexLivePlugin from "../main";
+import type { LatexLive as LatexLivePlugin } from "../latex-live";
 import type { LatexSession, SessionEvent } from "../session";
 import type { TexDiagnostic } from "../tex/logParser";
 import type { PdfBox } from "../tex/synctex";
 import { PdfRenderer, type PdfReadingStatus } from "./pdfRenderer";
 import { savePdfSnapshot } from "./pdfReading";
-import { checkPluginStyles } from "../pluginStyles";
 import { ClickText, wordOf } from "../editor/reveal";
 
 /** Characters of PDF text on each side of a double-clicked word sent along to place the cursor. */
@@ -41,7 +37,6 @@ export class LatexPreviewView extends ItemView {
   private saveButton!: HTMLButtonElement;
   private pageButtons: HTMLButtonElement[] = [];
   private saving = false;
-  private stopStyleCheck: (() => void) | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -66,8 +61,6 @@ export class LatexPreviewView extends ItemView {
     const root = this.contentEl;
     root.empty();
     root.addClass("ll-preview");
-    this.stopStyleCheck?.();
-    this.stopStyleCheck = checkPluginStyles(root);
 
     const dock = root.createDiv({ cls: "ll-preview-dock" });
     const bar = dock.createDiv({ cls: "ll-toolbar" });
@@ -124,8 +117,6 @@ export class LatexPreviewView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    this.stopStyleCheck?.();
-    this.stopStyleCheck = null;
     this.attach(null);
     this.renderer?.destroy();
     this.renderer = null;

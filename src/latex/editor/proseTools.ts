@@ -1,7 +1,8 @@
 import { StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
-import { Modal, Notice } from "obsidian";
-import type LatexLivePlugin from "../main";
+import { Modal } from "../../api/ui/modal";
+import { Notice } from "../../api/ui/notice";
+import type { LatexLive as LatexLivePlugin } from "../latex-live";
 import { countProse, parseDelimitedTable, proseWords, tableLatex, type ProseWord } from "../tex/prose";
 import { readProjectSnapshot } from "../tex/projectIndex";
 import { visitNodes } from "../export/plan";

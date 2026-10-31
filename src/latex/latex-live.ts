@@ -3,17 +3,17 @@ import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { readFile } from "fs/promises";
 import { isAbsolute, join, relative, sep } from "path";
-import {
-  FileSystemAdapter,
-  Notice,
-  Plugin,
-  TAbstractFile,
-  TFile,
-  WorkspaceLeaf,
-  finishRenderMath,
-  loadMathJax,
-  normalizePath,
-} from "obsidian";
+import type { App } from "../api/app";
+import type { EventRef } from "../api/events";
+import type { CorePluginHost } from "../api/internal-plugins";
+import type { Command } from "../api/keymap";
+import type { SettingTab } from "../api/plugin";
+import { FileSystemAdapter, TAbstractFile, TFile } from "../api/vault";
+import { Notice } from "../api/ui/notice";
+import type { ViewCreator } from "../api/view";
+import { WorkspaceLeaf } from "../api/workspace";
+import { finishRenderMath, loadMathJax } from "../api/markdown";
+import { normalizePath } from "../api/util";
 import { HistoryCache, syncDarkTheme } from "./editor/shared/editorKit";
 import { isLive, renderStats } from "./editor/shared/livePreview";
 import { YoloBridge } from "./editor/shared/yoloBridge";
@@ -52,9 +52,26 @@ import { findRoot } from "./tex/project";
 import { forwardSearch, inverseSearch, SourceLocation } from "./tex/synctex";
 import { lineWords } from "./preview/syncText";
 
-const TEX_EXTENSIONS = ["tex", "sty", "cls", "ltx", "bib"];
+export const TEX_EXTENSIONS = ["tex", "sty", "cls", "ltx", "bib"];
 
-export default class LatexLivePlugin extends Plugin {
+// Commands keep the community plugin's ids and names, so hotkeys.json's
+// bindings of `latex-live:*` apply to the built-in too.
+const COMMAND_PREFIX = "latex-live";
+const COMMAND_NAME = "LaTeX Live";
+
+// Where justnotes keeps the settings (localStorage, see AGENTS.md), and the
+// community plugin's data.json they start from the first time.
+const SETTINGS_KEY = "latex-live-settings";
+const PLUGIN_DATA = "plugins/latex-live/data.json";
+
+/**
+ * The built-in TeX support: obsidian-latex-live's plugin class, run as the
+ * `latex` core plugin. Everything it registers goes through its core plugin
+ * host, so turning the core plugin off takes it all away.
+ */
+export class LatexLive {
+  readonly app: App;
+  readonly host: CorePluginHost;
   settings: LatexLiveSettings = DEFAULT_SETTINGS;
   /** Undo history of recently closed files (restored on reopen). */
   readonly histories = new HistoryCache();
@@ -86,8 +103,54 @@ export default class LatexLivePlugin extends Plugin {
   private unloading = false;
   private templateSaving = false;
 
+  constructor(app: App, host: CorePluginHost) {
+    this.app = app;
+    this.host = host;
+  }
+
+  // The host's registrations, under the names the feature modules call.
+  addCommand(command: Command): Command {
+    return this.host.addCommand({ ...command, id: `${COMMAND_PREFIX}:${command.id}`, name: `${COMMAND_NAME}: ${command.name}` });
+  }
+
+  registerView(type: string, creator: ViewCreator): void {
+    this.host.registerView(type, creator);
+  }
+
+  registerEvent(ref: EventRef): void {
+    this.host.registerEvent(ref);
+  }
+
+  register(cb: () => unknown): void {
+    this.host.register(cb);
+  }
+
+  addSettingTab(tab: SettingTab): void {
+    this.host.addSettingTab(tab);
+  }
+
+  /** justnotes' copy of the settings, else the community plugin's data.json (read, never written). */
+  async loadData(): Promise<Partial<LatexLiveSettings> | null> {
+    const saved = this.app.loadLocalStorage(SETTINGS_KEY);
+    if (saved && typeof saved === "object") return saved;
+    try {
+      const data = JSON.parse(await this.app.vault.adapter.read(`${this.app.vault.configDir}/${PLUGIN_DATA}`));
+      return data && typeof data === "object" ? data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async saveData(data: LatexLiveSettings): Promise<void> {
+    this.app.saveLocalStorage(SETTINGS_KEY, data);
+  }
+
   async onload(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const data = await this.loadData();
+    // Turned off while the settings were read: nothing was registered yet.
+    if (!this.host._loaded) return;
+    this.host.register(() => this.onunload());
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
     try { this.settings.envRules = parseUserRules(this.settings.envRules); }
     catch (error) {
       new Notice(`LaTeX Live: live editor rules ignored: ${error instanceof Error ? error.message : String(error)}`);
@@ -163,7 +226,7 @@ export default class LatexLivePlugin extends Plugin {
 
     this.registerView(VIEW_TYPE_TEX, (leaf) => new TexView(leaf, this));
     this.registerView(VIEW_TYPE_PREVIEW, (leaf) => new LatexPreviewView(leaf, this));
-    this.registerExtensions(TEX_EXTENSIONS, VIEW_TYPE_TEX);
+    this.host.registerExtensions(TEX_EXTENSIONS, VIEW_TYPE_TEX);
 
     this.addCommand({ id: "template-visualization", name: "Choose / edit template visualization", callback: () => this.openTemplateVisualizations() });
 
@@ -283,7 +346,22 @@ export default class LatexLivePlugin extends Plugin {
         for (const v of this.texViews()) if (v.editorView) syncDarkTheme(v.editorView);
       }),
     );
-    this.app.workspace.trigger(API_READY_EVENT, this);
+    // Community plugins load after the core plugins: those that add editor extensions
+    // (kgdistiller's markers) hear the event once the layout is ready, or now on a toggle.
+    this.app.workspace.onLayoutReady(() => {
+      if (!this.unloading) this.app.workspace.trigger(API_READY_EVENT, this);
+    });
+  }
+
+  /** The installer of the `latex` core plugin (src/renderer/core-plugins.ts). */
+  static install(app: App, host: CorePluginHost): void {
+    const latex = new LatexLive(app, host);
+    // The community plugin goes first (turned on at runtime), and comes back when this goes.
+    host.register(() => app.plugins.coreReplacementStopped(host.id));
+    void (async () => {
+      await app.plugins.coreReplacementStarted(host.id);
+      if (host._loaded) await latex.onload();
+    })().catch((err) => console.error("LaTeX Live failed to load", err));
   }
 
   /**

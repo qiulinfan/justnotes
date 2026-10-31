@@ -19,6 +19,8 @@ export interface SettingPageEntry {
 // back out of a page before it closes the window.
 export class SettingModal extends Modal {
 	settingTabs: SettingTab[];
+	// The options of core plugins that have any (justnotes' own LaTeX).
+	coreTabs: SettingTab[] = [];
 	pluginTabs: SettingTab[] = [];
 	activeTab: SettingTab | null = null;
 	lastTabId = "";
@@ -66,8 +68,15 @@ export class SettingModal extends Modal {
 		if (this.isOpen) this.#renderNav();
 	}
 
+	addCoreSettingTab(tab: SettingTab) {
+		this.coreTabs.push(tab);
+		this.#update(tab);
+		if (this.isOpen) this.#renderNav();
+	}
+
 	removeSettingTab(tab: SettingTab) {
 		this.pluginTabs.remove(tab);
+		this.coreTabs.remove(tab);
 		if (this.activeTab === tab) {
 			this.clearPageStack();
 			this.#hideTab(tab);
@@ -195,7 +204,7 @@ export class SettingModal extends Modal {
 	}
 
 	#find(id: string) {
-		return this.settingTabs.find((t) => t.id === id) ?? this.pluginTabs.find((t) => t.id === id) ?? null;
+		return [...this.settingTabs, ...this.coreTabs, ...this.pluginTabs].find((t) => t.id === id) ?? null;
 	}
 
 	#update(tab: SettingTab) {
@@ -256,6 +265,7 @@ export class SettingModal extends Modal {
 	#renderNav() {
 		this.#groupsEl.empty();
 		this.#navGroup("Options", "options", this.settingTabs);
+		if (this.coreTabs.length) this.#navGroup("Core plugins", "core-plugins", [...this.coreTabs].sort((a, b) => a.name.localeCompare(b.name)));
 		this.#navGroup("Community plugins", "community-plugins", [...this.pluginTabs].sort((a, b) => a.name.localeCompare(b.name)));
 	}
 
@@ -286,7 +296,7 @@ export class SettingModal extends Modal {
 		this.#groupsEl.toggle(q === "");
 		if (!q) return;
 		let found = 0;
-		for (const tab of [...this.settingTabs, ...this.pluginTabs]) {
+		for (const tab of [...this.settingTabs, ...this.coreTabs, ...this.pluginTabs]) {
 			const matches = searchDefinitions(tab.settingItems, q);
 			if (tab.name.toLowerCase().includes(q.toLowerCase())) matches.unshift({ name: tab.name, pagePath: [] });
 			for (const match of matches) {
@@ -339,10 +349,14 @@ class CorePluginsTab extends SettingTab {
 				continue;
 			}
 			if (info?.description) setting.setDesc(info.description);
+			const tab = this.app.setting.coreTabs.find((t) => t.id === id);
+			if (plugin.enabled && tab) setting.addExtraButton((b) => b.setIcon("settings").setTooltip("Options").onClick(() => this.app.setting.openTab(tab)));
 			setting.addToggle((toggle) =>
 				toggle.setValue(plugin.enabled).onChange((on) => {
 					if (on) plugin.enable(true);
 					else plugin.disable(true);
+					// The Options button follows the plugin, a moment later for one that loads its settings first.
+					setTimeout(() => this.containerEl.isConnected && this.display(), 50);
 				}),
 			);
 		}
@@ -403,6 +417,13 @@ class CommunityPluginsTab extends SettingTab {
 		if (manifest.description) setting.descEl.createDiv({ text: manifest.description });
 		const funding = typeof manifest.fundingUrl === "string" ? manifest.fundingUrl : Object.values(manifest.fundingUrl ?? {})[0];
 		if (funding) setting.addExtraButton((b) => b.setIcon("heart").setTooltip("Donate").onClick(() => window.open(funding)));
+		const replacedBy = plugins.replacedBy(manifest.id);
+		if (replacedBy) {
+			const core = CORE_PLUGIN_INFO[replacedBy]?.name ?? replacedBy;
+			setting.descEl.createDiv({ cls: "mod-warning", text: `Built into justnotes: not loaded while the ${core} core plugin is on.` });
+			setting.addToggle((toggle) => toggle.setValue(false).setDisabled(true));
+			return;
+		}
 		const enabled = plugins.enabledPlugins.has(manifest.id);
 		const tab = this.app.setting.pluginTabs.find((t) => t.id === manifest.id);
 		if (enabled && tab) setting.addExtraButton((b) => b.setIcon("settings").setTooltip("Options").onClick(() => this.app.setting.openTab(tab)));

@@ -2,19 +2,16 @@ import { Compartment, EditorState, Extension } from "@codemirror/state";
 import { EditorView, Tooltip } from "@codemirror/view";
 import { statSync } from "fs";
 import { dirname, resolve } from "path";
-import {
-  Component,
-  MarkdownRenderer,
-  Notice,
-  Scope,
-  TFile,
-  TextFileView,
-  ViewStateResult,
-  WorkspaceLeaf,
-  setIcon,
-  setTooltip,
-} from "obsidian";
-import type LatexLivePlugin from "../main";
+import { Component } from "../../api/events";
+import { MarkdownRenderer } from "../../api/markdown";
+import { Notice } from "../../api/ui/notice";
+import { Scope } from "../../api/keymap";
+import { TFile } from "../../api/vault";
+import { TextFileView, type ViewStateResult } from "../../api/view";
+import { WorkspaceLeaf } from "../../api/workspace";
+import { setIcon } from "../../api/icons";
+import { setTooltip } from "../../api/ui/tooltip";
+import type { LatexLive as LatexLivePlugin } from "../latex-live";
 import type { EditingMode } from "../settings";
 import { Definitions, emptyDefinitions, projectDefinitions } from "../tex/macros";
 import { includeName, preambleFiles } from "../tex/project";

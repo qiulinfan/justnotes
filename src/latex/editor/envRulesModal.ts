@@ -1,4 +1,5 @@
-import { App, Modal } from "obsidian";
+import { App } from "../../api/app";
+import { Modal } from "../../api/ui/modal";
 import { DEFAULT_HIDDEN, DEFAULT_MATH_ENVS, DEFAULT_WRAPPERS, UserEnvRules, parseFormulaRules, parseNameList } from "../tex/envRules";
 
 export type EnvRulesKind = keyof UserEnvRules;

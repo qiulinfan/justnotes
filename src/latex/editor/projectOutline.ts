@@ -1,6 +1,9 @@
 import { basename } from "path";
-import { ItemView, Notice, type EventRef, type WorkspaceLeaf } from "obsidian";
-import type LatexLivePlugin from "../main";
+import { ItemView } from "../../api/view";
+import { Notice } from "../../api/ui/notice";
+import type { EventRef } from "../../api/events";
+import type { WorkspaceLeaf } from "../../api/workspace";
+import type { LatexLive as LatexLivePlugin } from "../latex-live";
 import { readProjectSnapshot } from "../tex/projectIndex";
 import { buildProjectOutline, type OutlineHeading, type ProjectOutline } from "../tex/outline";
 import type { TexView } from "./texView";

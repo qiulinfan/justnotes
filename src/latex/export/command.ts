@@ -1,9 +1,13 @@
 import { promises as fsp, readFileSync } from "fs";
 import { randomUUID } from "crypto";
 import { basename, dirname, extname, join, relative, resolve } from "path";
-import { App, Modal, Notice, TFile, loadPrism } from "obsidian";
+import { App } from "../../api/app";
+import { Modal } from "../../api/ui/modal";
+import { Notice } from "../../api/ui/notice";
+import { TFile } from "../../api/vault";
+import { loadPrism } from "../../api/markdown";
 import { TexView, VIEW_TYPE_TEX } from "../editor/texView";
-import type LatexLivePlugin from "../main";
+import type { LatexLive as LatexLivePlugin } from "../latex-live";
 import { pdfPagePngs } from "../preview/pdfRenderer";
 import { outDirFor } from "../session";
 import type { CompileResult } from "../tex/compiler";

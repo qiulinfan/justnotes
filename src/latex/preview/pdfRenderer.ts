@@ -1,4 +1,4 @@
-import { loadPdfJs } from "obsidian";
+import { loadPdfJs } from "../../api/markdown";
 import type { PdfBox } from "../tex/synctex";
 import { PAGE_REACH, PageText, TextRun, placeLine } from "./syncText";
 import { abortError } from "../tex/run";

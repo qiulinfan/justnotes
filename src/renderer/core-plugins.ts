@@ -1,4 +1,5 @@
 import type { App } from "../api/app";
+import { LatexLive } from "../latex/latex-live";
 import type { CorePluginHost, CorePluginInstaller } from "../api/internal-plugins";
 import { installAudioRecorder } from "./audio-recorder";
 import { installBacklinksInDocument } from "./backlinks-in-document";
@@ -71,6 +72,7 @@ function installers(): Record<string, CorePluginInstaller> {
 	result.bookmarks = installBookmarks;
 	result.slides = installSlides;
 	result["audio-recorder"] = installAudioRecorder;
+	result.latex = LatexLive.install;
 	return result;
 }
 

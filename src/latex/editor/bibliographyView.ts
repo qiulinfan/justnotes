@@ -1,6 +1,7 @@
 import { basename } from "path";
-import { Modal, Notice } from "obsidian";
-import type LatexLivePlugin from "../main";
+import { Modal } from "../../api/ui/modal";
+import { Notice } from "../../api/ui/notice";
+import type { LatexLive as LatexLivePlugin } from "../latex-live";
 import { TexView } from "./texView";
 import { latexContext } from "./latexCompletion";
 import { searchCitations, type IndexedCitation } from "./bibliographies";
