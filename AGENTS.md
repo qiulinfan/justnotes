@@ -8,7 +8,9 @@ from Obsidian's `app.asar`. The references are the public typings
 The owner's goal: a local note tool with Live Preview, local search, and (not
 built yet) one-way upload of the vault to a cloud drive for restoring on a new
 device. No accounts, no sync service, no database: the files are the data and
-everything else is derived in memory at startup.
+everything else is derived in memory at startup. The only thing kept between
+runs is a disposable cache of that derivation in the profile (see Caches),
+never in the vault; deleting it changes nothing but the next start's time.
 
 ## README
 
@@ -51,7 +53,8 @@ plain style. Development notes belong in this file.
     `markdown-preview.ts` (reading view), `markdown.ts` (MarkdownRenderer, post
     processors, code-block registry, the math grammar, MathJax/pdf.js/Prism/
     Mermaid loaders), `live-preview.ts` and `editor-*.ts` (CodeMirror 6),
-    `vault.ts`, `metadata*.ts` (the cache; `metadata-types.ts`, the
+    `vault.ts`, `metadata*.ts` (the cache; `metadata-store.ts`, its copy
+    in the profile; `metadata-types.ts`, the
     `metadataTypeManager`; `metadata-editor.ts` and `metadata-widgets.ts`,
     the Properties block), `frontmatter-edit.ts`, `file-manager.ts`, `keymap.ts`,
     `internal-plugins.ts`, `secret-storage.ts`, `sanitize.ts` (DOMPurify),
@@ -397,7 +400,8 @@ plain style. Development notes belong in this file.
   commands run in the vault window; `main` ones (`vaults`, `vault:open`,
   `restart`, `quit`) in main; `completion` in the command. With no app
   running, a `vault` command reads the vault folder itself: `offline.ts`
-  loads the app's own Vault, MetadataCache, MetadataTypeManager and
+  loads the app's own Vault, MetadataCache (reading, never writing, the
+  profile's metadata cache, see Caches), MetadataTypeManager and
   InternalPlugins (core plugin options) in Bun, after
   `installLanguageExtensions()`, and writes nothing. When that cannot answer
   (no `file=` for an active-file default, a change such as `task toggle`) the
@@ -583,6 +587,36 @@ plain style. Development notes belong in this file.
   indentation, quotes and a trailing comment. A flow-style map is rewritten
   whole. Removing the last property removes the block. YAML that does not
   parse to a map shows "Invalid properties", which opens the YAML.
+
+## Caches
+
+Derived data kept between runs lives in the profile (Electron's `userData`,
+`--profile`), never in the vault, and is only ever a shortcut: a missing,
+stale or corrupt cache gives the same result, more slowly.
+
+- Metadata (`metadata-store.ts`): `<profile>/metadata-cache/<id>.jsonl`, `id`
+  a hash of the vault's real path (the app and the offline CLI may spell it
+  differently). A header line (`version`, `vault`), then one line per note:
+  `[path, mtime, size, CachedMetadata]`, the parse of the note's text when the
+  file had that mtime and size, with every position packed as six numbers
+  (frontmatter is left as it is). At startup a note whose stat matches its
+  line is not read; every other note is read and parsed as before, and links
+  are resolved for all of them. The stat recorded is the one taken before the
+  read, so a note written during the read is parsed again next time. The app
+  writes the file 3 s after a start that parsed any note (copying the lines
+  of unchanged notes as read) and when the window closes (boot.ts, after the
+  views are saved), written beside and renamed over; after a crash or a
+  reload, the notes changed since are parsed at the next start. A note whose
+  metadata would not survive JSON (YAML's `.inf`, binary) is left out and
+  parsed on every start. The offline CLI reads the file of its `--profile`
+  and never writes it. Bump `METADATA_CACHE_VERSION` whenever
+  `parseMetadata`'s output changes for some text (the digest test in
+  `test/metadata-store.test.ts` fails until a new digest is added under the
+  new version); otherwise notes keep their old metadata until edited.
+- Startup leaves those notes' texts unread, so the vault's text cache
+  (`cachedRead`) fills on the first search, unlinked-mentions scan or graph
+  content query; they read through `readInOrder` (`read-in-order.ts`), up
+  to 16 reads under way, in order.
 
 ## Live Preview and math
 

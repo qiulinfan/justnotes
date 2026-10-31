@@ -1,5 +1,6 @@
 import * as nodePath from "node:path";
 import { Events } from "./events";
+import type { MetadataStore, StoredMetadata } from "./metadata-store";
 import { getAllTags, getLinkpath, locateFrontMatter, parseFrontMatterAliases } from "./metadata-utils";
 import { parseYaml } from "./util";
 import { type TAbstractFile, TFile, type Vault } from "./vault";
@@ -727,7 +728,11 @@ const nameKey = (path: string) => nodePath.posix.basename(path).toLowerCase();
 
 // Everything is derived in memory: initialize() parses every note once at
 // startup, then vault events keep the cache, the link maps and their reverse
-// indexes current. Resolution is incremental: a create, delete or rename
+// indexes current. With a store (useStore), startup takes a note's parse
+// from the previous run instead when the note's mtime and size are the ones
+// that parse was made from. The store is rewritten a few seconds after a
+// start that parsed anything, and by the host when the window closes
+// (saveStore); a note changed after the last save is parsed at the next start. Resolution is incremental: a create, delete or rename
 // re-resolves only the notes whose links it can change, each firing 'resolve',
 // and one 'resolved' follows once the batch is done.
 export class MetadataCache extends Events {
@@ -749,6 +754,11 @@ export class MetadataCache extends Events {
 	#inflight = 0;
 	#initializing: Promise<void> | null = null;
 	#onClean: (() => void)[] = [];
+	#store: MetadataStore | null = null;
+	#storeWrites = false;
+	// The stat of the file each cache entry was parsed from, for the store.
+	#parsedFrom = new Map<string, { mtime: number; size: number }>();
+	#saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(vault: Vault) {
 		super();
@@ -767,14 +777,58 @@ export class MetadataCache extends Events {
 		return this.#initializing;
 	}
 
+	// Set before initialize(). Without `write` the store is only read (the
+	// offline CLI, which writes nothing).
+	useStore(store: MetadataStore, write = true) {
+		this.#store = store;
+		this.#storeWrites = write;
+	}
+
 	async #initialIndex() {
 		this.#buildNames();
 		const files = this.vault.getMarkdownFiles();
-		for (let i = 0; i < files.length; i += 50) await Promise.all(files.slice(i, i + 50).map((f) => this.#index(f)));
+		const stored = this.#store ? await this.#store.load().catch(() => null) : null;
+		const unread: TFile[] = [];
+		for (const f of files) {
+			const entry = stored?.get(f.path);
+			if (!entry || entry.mtime !== f.stat.mtime || entry.size !== f.stat.size) {
+				unread.push(f);
+				continue;
+			}
+			this.#cache.set(f.path, entry.cache);
+			this.#parsedFrom.set(f.path, { mtime: entry.mtime, size: entry.size });
+			this.#pending.add(f);
+			this.#dirty = true;
+		}
+		for (let i = 0; i < unread.length; i += 50) await Promise.all(unread.slice(i, i + 50).map((f) => this.#index(f)));
 		this.#flush();
 		this.resolved = true;
 		this.trigger("resolved");
 		this.#settle();
+		if (unread.length || stored?.size !== files.length) this.#scheduleSave();
+	}
+
+	#scheduleSave() {
+		if (!this.#store || !this.#storeWrites) return;
+		if (this.#saveTimer) clearTimeout(this.#saveTimer);
+		this.#saveTimer = setTimeout(() => {
+			this.#saveTimer = null;
+			this.saveStore().catch((err) => console.error("Could not save the metadata cache", err));
+		}, 3000);
+		// Node and Bun timers: a pending save never keeps a process alive.
+		(this.#saveTimer as { unref?: () => void }).unref?.();
+	}
+
+	// Writes every parsed note to the store now: the host calls it when the
+	// window closes.
+	async saveStore() {
+		if (!this.#store) return;
+		const entries = new Map<string, StoredMetadata>();
+		for (const [path, cache] of this.#cache) {
+			const stat = this.#parsedFrom.get(path);
+			if (stat && this.vault.getFileByPath(path)) entries.set(path, { ...stat, cache });
+		}
+		await this.#store.save(entries);
 	}
 
 	#buildNames() {
@@ -793,11 +847,15 @@ export class MetadataCache extends Events {
 		const generation = (this.#generation.get(file) ?? 0) + 1;
 		this.#generation.set(file, generation);
 		this.#inflight++;
+		// Taken before the read: the text is at least this new, so a later
+		// start re-parses the note whenever the stat it finds differs.
+		const stat = { mtime: file.stat.mtime, size: file.stat.size };
 		try {
 			const text = await this.vault.cachedRead(file);
 			if (this.#generation.get(file) !== generation || this.vault.getAbstractFileByPath(file.path) !== file) return;
 			const cache = parseMetadata(text);
 			this.#cache.set(file.path, cache);
+			this.#parsedFrom.set(file.path, stat);
 			this.trigger("changed", file, text, cache);
 			this.#queue(file);
 		} catch {
@@ -830,6 +888,7 @@ export class MetadataCache extends Events {
 		this.#names().remove(file.name.toLowerCase(), file);
 		const prev = this.#cache.get(file.path) ?? null;
 		this.#cache.delete(file.path);
+		this.#parsedFrom.delete(file.path);
 		this.#setLinks(file.path, null, null);
 		for (const src of this.#backlinks.get(file.path) ?? []) this.#queuePath(src);
 		if (file.extension === "md") this.trigger("deleted", file, prev);
@@ -842,6 +901,9 @@ export class MetadataCache extends Events {
 		const cache = this.#cache.get(oldPath);
 		this.#cache.delete(oldPath);
 		if (cache) this.#cache.set(file.path, cache);
+		const parsedFrom = this.#parsedFrom.get(oldPath);
+		this.#parsedFrom.delete(oldPath);
+		if (parsedFrom) this.#parsedFrom.set(file.path, parsedFrom);
 		// Its own links move with it; links to it follow it at once and are re-resolved.
 		const resolved = this.resolvedLinks[oldPath] ?? null;
 		const unresolved = this.unresolvedLinks[oldPath] ?? null;

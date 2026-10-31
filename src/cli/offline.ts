@@ -2,6 +2,7 @@ import type { App } from "../api/app";
 import { installLanguageExtensions } from "../api/dom";
 import { InternalPlugins } from "../api/internal-plugins";
 import { MetadataCache } from "../api/metadata";
+import { FileMetadataStore } from "../api/metadata-store";
 import { MetadataTypeManager } from "../api/metadata-types";
 import { Vault } from "../api/vault";
 import type { Ctx } from "./commands/context";
@@ -14,7 +15,7 @@ import type { CommandSpec } from "./spec";
 // the vault itself with the app's own Vault, MetadataCache, property types and
 // core plugin options, and reads; it writes nothing. A command that needs the
 // running app (the active file, a change) throws NeedsApp to the caller.
-export async function runOffline(spec: CommandSpec, vaultPath: string, words: string[], cwd: string, version: string): Promise<CliResponse> {
+export async function runOffline(spec: CommandSpec, vaultPath: string, words: string[], cwd: string, version: string, profile?: string): Promise<CliResponse> {
 	const handler = VAULT_COMMANDS[spec.name];
 	if (!handler) throw new Error(`${spec.name} needs the app`);
 	// The app's modules rely on Obsidian's Array and String additions.
@@ -27,6 +28,9 @@ export async function runOffline(spec: CommandSpec, vaultPath: string, words: st
 	try {
 		await vault.load();
 		app.metadataCache = new MetadataCache(vault);
+		// The app's cache for this vault, when it has run with this profile:
+		// read, never written.
+		if (profile) app.metadataCache.useStore(FileMetadataStore.forVault(profile, vault.adapter.basePath), false);
 		await app.metadataCache.initialize();
 		app.metadataTypeManager = new MetadataTypeManager(app);
 		await app.metadataTypeManager.load();

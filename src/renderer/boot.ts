@@ -4,6 +4,7 @@ import { installDomExtensions } from "../api/dom";
 import { setIcon } from "../api/icons";
 import { registerEditorSuggests } from "../api/editor-suggests";
 import { loadMathJax, setMarkdownApp } from "../api/markdown";
+import { FileMetadataStore } from "../api/metadata-store";
 import { MarkdownView } from "../api/markdown-view";
 import { Notice } from "../api/ui/notice";
 import { installTooltips } from "../api/ui/tooltip";
@@ -85,12 +86,13 @@ function keepAppPage() {
 }
 
 // Before the window closes, main asks the renderer to save open views, the
-// layout and plugins' quit tasks, and waits for the reply. A reload cannot
-// wait, so it saves only the layout.
+// layout, plugins' quit tasks and the metadata cache, and waits for the
+// reply. A reload cannot wait, so it saves only the layout.
 function handleWindowClose(app: App) {
 	ipcRenderer.on("justnotes:before-close", async () => {
 		try {
 			await app.workspace.flushBeforeQuit();
+			await app.metadataCache.saveStore().catch((err) => console.error("Could not save the metadata cache", err));
 		} finally {
 			ipcRenderer.send("justnotes:close-ready");
 		}
@@ -130,6 +132,9 @@ async function boot() {
 	registerCorePluginViews(app);
 
 	buildShell(app);
+	// The metadata cache of the last run, kept in the profile.
+	const profile: string = (window as any).require("@electron/remote").app.getPath("userData");
+	app.metadataCache.useStore(FileMetadataStore.forVault(profile, app.vault.adapter.basePath));
 	await app.vault.load();
 	mark("vault-loaded");
 	// Indexing overlaps the rest of boot and is done before plugins load, so

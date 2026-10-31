@@ -1,5 +1,6 @@
 import type { CachedMetadata } from "../api/metadata";
 import { getAllTags, parseFrontMatterTags } from "../api/metadata-utils";
+import { readInOrder } from "../api/read-in-order";
 import { debounce } from "../api/util";
 import type { TFile } from "../api/vault";
 import { ItemView } from "../api/view";
@@ -135,11 +136,10 @@ export class SearchView extends ItemView {
 		let files = 0;
 		let matches = 0;
 		const all = this.app.vault.getMarkdownFiles().sort((a, b) => b.stat.mtime - a.stat.mtime);
-		for (const file of all) {
+		// Only a tagged note is worth reading for a tag.
+		const wanted = tag === null ? all : all.filter((file) => getAllTags(this.app.metadataCache.getFileCache(file))?.some((name) => isTag(name, tag)));
+		for await (const [file, text] of readInOrder(this.app.vault, wanted)) {
 			const cache = tag === null ? null : this.app.metadataCache.getFileCache(file);
-			// Only a tagged note is worth reading for a tag.
-			if (tag !== null && !getAllTags(cache)?.some((name) => isTag(name, tag))) continue;
-			const text = await this.app.vault.cachedRead(file);
 			if (generation !== this.#generation) return;
 			const found = tag !== null ? tagMatches(cache, text, tag) : textMatches(text, re!);
 			const nameHit = !!nameRe && file.basename.search(nameRe) >= 0;

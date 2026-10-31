@@ -5,6 +5,7 @@ import type { App } from "../api/app";
 import { setIcon } from "../api/icons";
 import { Keymap } from "../api/keymap";
 import { getAllTags } from "../api/metadata-utils";
+import { readInOrder } from "../api/read-in-order";
 import { Menu } from "../api/ui/menu";
 import { Setting } from "../api/ui/setting";
 import { debounce } from "../api/util";
@@ -107,9 +108,8 @@ abstract class BaseGraphView extends ItemView {
 		const queries = [search, ...groups.map((g) => g.query)].filter((q): q is Query => !!q);
 		const files = vault.getFiles();
 		if (queries.some((q) => q.needsText)) {
-			for (const file of files) {
-				if (file.extension !== "md" || this.#texts.has(file.path)) continue;
-				const text = await vault.cachedRead(file);
+			const unread = files.filter((file) => file.extension === "md" && !this.#texts.has(file.path));
+			for await (const [file, text] of readInOrder(vault, unread)) {
 				if (generation !== this.#generation) return;
 				this.#texts.set(file.path, text);
 			}
