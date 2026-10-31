@@ -394,16 +394,32 @@ function fileJob<T>(file: TFile, job: () => Promise<T>): Promise<T> {
 
 const isMissing = (err: unknown) => (err as { code?: unknown } | null)?.code === "ENOENT";
 
+// Whether `text` is `from` with lines added, the shape of a capture: every
+// line of `from` is still there, in order, except that an added line may
+// take the place of a blank one (QuickAdd writes a capture into the blank
+// line below its target, or onto the empty last line of a note that ends
+// with a newline).
+function addsLines(from: string, text: string) {
+	const lines = text.split("\n");
+	let k = 0;
+	for (const line of from.split("\n")) {
+		if (line.trim()) while (k < lines.length && lines[k] !== line) k++;
+		if (k++ >= lines.length) return false;
+	}
+	return true;
+}
+
 // The base a change on disk is merged against: the text the document last
 // took in, unless the change was made from the text its last write replaced
 // (a capture that read the note just before a save and wrote it right after).
 // Merged against the write, such a change would undo it. Within a second of
-// the write, a change that lacks the write's edits and keeps them without a
-// conflict when merged with them is taken for one; a change built on the
-// write, a rewrite of the written lines and an exact revert are not.
+// the write, a change that only adds lines to the replaced text and keeps the
+// write's edits without a conflict when merged with them is taken for one.
+// Reverts (to that text or an older one) and rewrites remove or change lines;
+// a change built on the write already has its edits.
 function mergeBase(doc: TextDoc, text: string) {
 	const prior = doc.prior;
-	if (!prior || text === prior.text || Date.now() - prior.at > 1000) return doc.base;
+	if (!prior || text === prior.text || Date.now() - prior.at > 1000 || !addsLines(prior.text, text)) return doc.base;
 	const kept = mergeText(prior.text, doc.base, text);
 	return !kept.conflicts && kept.text !== text ? prior.text : doc.base;
 }

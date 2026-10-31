@@ -180,21 +180,29 @@ describe("TextFileView saves", () => {
 	});
 
 	// QuickAdd's capture reads the note, the view saves its edit, and the
-	// capture then writes text built on what it read: the edit stays.
-	test("a plugin's write built on the text from before the view's save keeps the saved edit", async () => {
-		const { vault, view, file, full } = await editedNote("line1\nline2\nline3\n");
-		await view.save();
-		await vault.modify(file, "line1\nline2\nline3\n- captured\n");
-		// Saving again waits for the view to take the change in.
-		await view.save();
-		expect(fs.readFileSync(full, "utf8")).toBe("line1 edit\nline2\nline3\n- captured\n");
-		expect(view.text).toBe("line1 edit\nline2\nline3\n- captured\n");
-	});
+	// capture then writes text built on what it read: the edit stays. A
+	// capture adds lines, and may write into a blank line below its target.
+	const captures: [string, string, string, string][] = [
+		["appended", "line1\nline2\nline3\n", "line1\nline2\nline3\n- captured\n", "line1 edit\nline2\nline3\n- captured\n"],
+		["written into a blank line", "line1\n\nline3\n", "line1\n- captured\nline3\n", "line1 edit\n- captured\nline3\n"],
+	];
+	for (const [name, note, captured, merged] of captures) {
+		test(`a plugin's write built on the text from before the view's save (a capture ${name}) keeps the saved edit`, async () => {
+			const { vault, view, file, full } = await editedNote(note);
+			await view.save();
+			await vault.modify(file, captured);
+			// Saving again waits for the view to take the change in.
+			await view.save();
+			expect(fs.readFileSync(full, "utf8")).toBe(merged);
+			expect(view.text).toBe(merged);
+		});
+	}
 
 	const afterSave: [string, string][] = [
 		["a write built on the saved text", "line1 edit\nline2\nline3\n- captured\n"],
 		["a plugin rewriting the saved line", "line1 rewritten\nline2\nline3\n"],
 		["an outside revert to the text before the save", "line1\nline2\nline3\n"],
+		["an outside revert to the text before the save, with a line removed", "line1\nline2\n"],
 	];
 	for (const [name, text] of afterSave) {
 		test(`${name} right after the view's save is taken as written`, async () => {
@@ -206,6 +214,19 @@ describe("TextFileView saves", () => {
 			expect(view.text).toBe(text);
 		});
 	}
+
+	// git discarding the note's changes right after the second of two saves.
+	test("an outside revert to the text from before two saves is taken as written", async () => {
+		const { vault, view, file, full } = await editedNote("line1\nline2\nline3\n");
+		await view.save();
+		view.text = "line1 edit\nline2\nline3 edit\n";
+		view.requestSave();
+		await view.save();
+		await vault.modify(file, "line1\nline2\nline3\n");
+		await view.save();
+		expect(fs.readFileSync(full, "utf8")).toBe("line1\nline2\nline3\n");
+		expect(view.text).toBe("line1\nline2\nline3\n");
+	});
 
 	test("a save racing an outside delete keeps the edits unsaved and does not re-create the file", async () => {
 		const { view, full } = await editedNote("line1\nline2\n");
