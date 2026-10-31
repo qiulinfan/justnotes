@@ -98,25 +98,29 @@ function options(app: App): TemplatesOptions {
 	return app.internalPlugins.getPluginById("templates")?.instance.options ?? {};
 }
 
-const dateFormat = (app: App) => options(app).dateFormat?.trim() || "YYYY-MM-DD";
-const timeFormat = (app: App) => options(app).timeFormat?.trim() || "HH:mm";
+export const dateFormat = (app: App) => options(app).dateFormat?.trim() || "YYYY-MM-DD";
+export const timeFormat = (app: App) => options(app).timeFormat?.trim() || "HH:mm";
 
-// The templates folder from templates.json, which Obsidian's settings set.
-function templatesFolder(app: App) {
+// The templates folder from templates.json, which Obsidian's settings set,
+// or why there is none.
+export function findTemplatesFolder(app: App): TFolder | string {
 	const path = options(app).folder?.trim();
-	if (!path) {
-		new Notice("Set the templates folder in Obsidian's Templates settings first; justnotes only reads them.");
-		return null;
-	}
+	if (!path) return "Set the templates folder in Obsidian's Templates settings first; justnotes only reads them.";
 	const folder = app.vault.getAbstractFileByPath(normalizePath(path));
-	if (!(folder instanceof TFolder)) {
-		new Notice(`The templates folder "${path}" does not exist.`);
+	if (!(folder instanceof TFolder)) return `The templates folder "${path}" does not exist.`;
+	return folder;
+}
+
+function templatesFolder(app: App) {
+	const folder = findTemplatesFolder(app);
+	if (typeof folder === "string") {
+		new Notice(folder);
 		return null;
 	}
 	return folder;
 }
 
-function templateFiles(folder: TFolder): TFile[] {
+export function templateFiles(folder: TFolder): TFile[] {
 	return folder.children.flatMap((child) => (child instanceof TFolder ? templateFiles(child) : child instanceof TFile && child.extension === "md" ? [child] : []));
 }
 

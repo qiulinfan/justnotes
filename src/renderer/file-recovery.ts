@@ -119,7 +119,7 @@ export class SnapshotStore {
 	}
 }
 
-class FileRecovery {
+export class FileRecovery {
 	app: App;
 	store: SnapshotStore;
 	#last = new Map<string, { ts: number; data: string } | null>();
@@ -337,8 +337,21 @@ class FileRecoveryModal extends Modal {
 // Obsidian's File recovery: snapshots of edited notes kept outside the vault
 // (file-recovery.json's intervalMinutes and keepDays), and a modal to browse
 // and restore them.
+const installed = new WeakMap<App, FileRecovery>();
+
+// The vault's File recovery, while the core plugin is enabled.
+export function fileRecoveryOf(app: App): FileRecovery | null {
+	return installed.get(app) ?? null;
+}
+
+export function openFileRecovery(app: App, path: string | null) {
+	const recovery = installed.get(app);
+	if (recovery) new FileRecoveryModal(app, recovery, path).open();
+}
+
 export function installFileRecovery(app: App) {
 	const recovery = new FileRecovery(app);
+	installed.set(app, recovery);
 	recovery.install();
 	app.commands.addCommand({
 		id: "file-recovery:open",

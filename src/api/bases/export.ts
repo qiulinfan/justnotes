@@ -1,4 +1,5 @@
 // Copying or exporting the rows a view shows, with its visible properties as columns.
+import type { BasesViewConfig } from "./config";
 import type { QueryController } from "./controller";
 import type { BasesEntry } from "./entry";
 import type { BasesPropertyId } from "./property";
@@ -8,14 +9,20 @@ function cellText(entry: BasesEntry, id: BasesPropertyId) {
 	return entry.getValue(id)?.toString() ?? "";
 }
 
-function table(controller: QueryController) {
-	const config = controller.configs[controller.viewIndex];
+// The rows of a view as text, with its visible properties as columns (the
+// file name when it shows none); `justnotes base:query` prints them too.
+export function viewTable(config: BasesViewConfig, entries: BasesEntry[]) {
 	const order = config.getOrder();
 	const columns: BasesPropertyId[] = order.length ? order : ["file.name"];
 	return {
+		columns,
 		header: columns.map((id) => config.getDisplayName(id)),
-		rows: controller.currentResult.data.map((entry) => columns.map((id) => cellText(entry, id))),
+		rows: entries.map((entry) => columns.map((id) => cellText(entry, id))),
 	};
+}
+
+function table(controller: QueryController) {
+	return viewTable(controller.configs[controller.viewIndex], controller.currentResult.data);
 }
 
 const csvField = (s: string) => (/[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
