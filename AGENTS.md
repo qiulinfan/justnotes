@@ -583,6 +583,9 @@ plain style. Development notes belong in this file.
   indentation, quotes and a trailing comment. A flow-style map is rewritten
   whole. Removing the last property removes the block. YAML that does not
   parse to a map shows "Invalid properties", which opens the YAML.
+  `fileManager.processFrontMatter` (QuickAdd, Bases cells) applies what its
+  callback changed the same way, property by property, and throws on YAML
+  that is not a map rather than replacing it.
 
 ## Live Preview and math
 

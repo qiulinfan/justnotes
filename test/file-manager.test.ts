@@ -157,6 +157,20 @@ describe("FileManager.processFrontMatter", () => {
 		expect(modified).toEqual([]);
 	});
 
+	// QuickAdd and Bases set one property through processFrontMatter; the
+	// note's other properties must come out as they were written.
+	test("only the properties fn changes are rewritten: comments, quoting and number spellings survive", async () => {
+		const yaml = "# kept\nzip: 02134\ntitle: 'A: b'\ntags: [x, y]\nstatus: todo # c\nold: 1\n";
+		const { vault, fm, read } = await setup({ "n.md": `---\n${yaml}---\nbody` });
+		await fm.processFrontMatter(vault.getFileByPath("n.md")!, (f) => {
+			f.status = "done";
+			f.tags.push("z");
+			delete f.old;
+			f.added = true;
+		});
+		expect(read("n.md")).toBe("---\n# kept\nzip: 02134\ntitle: 'A: b'\ntags: [x, y, z]\nstatus: done # c\nadded: true\n---\nbody");
+	});
+
 	// A note may open with a paragraph between two rules, which reads as a
 	// frontmatter block holding a string; a plugin setting a property must not
 	// replace that text.
