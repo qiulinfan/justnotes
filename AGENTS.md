@@ -746,7 +746,10 @@ plain style. Development notes belong in this file.
   is in. Only a line inside a real quote counts (the syntax tree reaches a
   `Blockquote` before any text block): a `>` line in code, HTML, math or
   frontmatter gets a plain newline. Inside a fence lang-markdown's Enter never
-  continues quote or list markup, so a new line in a quoted fence gets no `> `.
+  continues quote or list markup, so `continueQuotedCode` (bound after
+  `exitEmptyQuote`) starts a new line in a fenced block inside a quote with the
+  line's quote marks and the whitespace after them, as Obsidian does, also on
+  an empty code line.
 - Only heading sections (`foldHeading`) and what is nested in list items
   (`foldIndent`) fold, as in Obsidian: `markdownSupport` strips lang-markdown's
   block folds and the folds of every language it mounts: fenced code

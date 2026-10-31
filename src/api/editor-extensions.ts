@@ -451,6 +451,32 @@ export const exitEmptyQuote: StateCommand = ({ state, dispatch }) => {
 	return true;
 };
 
+// Enter in a fenced code block inside a quote keeps the new line in the
+// quote, as Obsidian does: it starts with the line's quote marks and the
+// whitespace after them (a list item's indentation, the code's own).
+// lang-markdown's Enter continues no markup inside a fence, so the new line
+// would end the quote and the fence with it.
+export const continueQuotedCode: StateCommand = ({ state, dispatch }) => {
+	const sel = state.selection;
+	if (sel.ranges.length !== 1) return false;
+	const { from, to } = sel.main;
+	const line = state.doc.lineAt(from);
+	if (state.doc.lineAt(to).number !== line.number) return false;
+	const prefix = /^(?:[ \t]*>)+[ \t]*/.exec(line.text)?.[0];
+	if (!prefix || from - line.from < prefix.length) return false;
+	let inFence = false;
+	for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(from, -1); node; node = node.parent) {
+		if (node.name === "FencedCode") inFence = true;
+		else if (node.name === "Blockquote") {
+			if (!inFence) return false;
+			const insert = `\n${prefix}`;
+			dispatch(state.update({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, scrollIntoView: true, userEvent: "input" }));
+			return true;
+		}
+	}
+	return false;
+};
+
 // Tab indents list items and selections, and otherwise inserts one indent
 // unit at the cursor, as Obsidian does.
 function indentOrInsertTab(view: EditorView) {
@@ -839,7 +865,7 @@ function dropDefault(view: MarkdownView, evt: DragEvent) {
 export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
 	return [
 		editorLivePreviewField,
-		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }])),
+		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }, { key: "Enter", run: continueQuotedCode }])),
 		indentation.of(indentConfig(host.app)),
 		history(),
 		drawSelection(),
@@ -875,7 +901,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		editorEditorField.init(() => view.editor?.cm ?? null),
 		editorLivePreviewField,
 		plugins.of(app.workspace.editorExtensions),
-		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }])),
+		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }, { key: "Enter", run: continueQuotedCode }])),
 		EditorState.allowMultipleSelections.of(true),
 		// Alt-click adds a cursor, as in Obsidian; Mod-click opens links.
 		EditorView.clickAddsSelectionRange.of((evt) => evt.altKey),
