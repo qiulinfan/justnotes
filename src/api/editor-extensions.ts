@@ -1,12 +1,13 @@
 import { autocompletion, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
+import { html } from "@codemirror/lang-html";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { bracketMatching, codeFolding, foldGutter, foldNodeProp, foldService, HighlightStyle, indentOnInput, indentUnit, Language, LanguageDescription, syntaxHighlighting, syntaxTree } from "@codemirror/language";
+import { bracketMatching, codeFolding, foldGutter, foldNodeProp, foldService, HighlightStyle, indentOnInput, indentUnit, Language, LanguageDescription, LanguageSupport, ParseContext, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range, type StateCommand } from "@codemirror/state";
 import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { IterMode, NodeProp, type NodePropSource, type Parser, type SyntaxNode } from "@lezer/common";
+import { type Input, IterMode, NodeProp, type NodePropSource, Parser, type SyntaxNode, type TreeFragment } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import type { BlockContext, Element, LeafBlock, LeafBlockParser, Line, MarkdownConfig } from "@lezer/markdown";
 import type { App } from "./app";
@@ -483,8 +484,9 @@ const activeLine = ViewPlugin.fromClass(
 // What folds, by Obsidian's two settings (both on by default): a heading's
 // section (foldHeading) and what is nested in a list item (foldIndent).
 // Nothing else does, though lang-markdown folds every block of more than one
-// line (paragraphs, quotes, tables, math, code blocks) and the languages of
-// fenced code fold their own syntax.
+// line (paragraphs, quotes, tables, math, code blocks), and the languages of
+// fenced code and of HTML (with the CSS and JavaScript in it) fold their own
+// syntax.
 export interface FoldSettings {
 	heading: boolean;
 	indent: boolean;
@@ -500,19 +502,45 @@ function foldListItem(item: SyntaxNode, state: EditorState) {
 	return first?.nextSibling ? { from: state.doc.lineAt(first.to).to, to: item.to } : null;
 }
 
-// A fenced block's language from language-data, with its folds left out.
-const foldlessCode = new WeakMap<Language, Language>();
+// A language with its folds left out; null for a stream language, which has
+// no folds.
+const foldlessLanguages = new WeakMap<Language, Language>();
+function foldless(lang: Language): Language | null {
+	const parser = lang.parser as Parser & { configure?(config: { props: NodePropSource[] }): Parser };
+	if (!parser.configure) return null;
+	let out = foldlessLanguages.get(lang);
+	if (!out) foldlessLanguages.set(lang, (out = new Language(lang.data, parser.configure({ props: [foldNodeProp.add(() => noFold)] }), [], lang.name)));
+	return out;
+}
+
+// A fenced block's language from language-data with its folds left out, or
+// its description while it is not loaded (lang-markdown loads it and parses
+// again) and for a stream language, which has no folds.
 function codeLanguage(info: string): Language | LanguageDescription | null {
 	const found = LanguageDescription.matchLanguageName(languages, info, true);
 	const lang = found?.support?.language;
-	const parser = lang?.parser as (Parser & { configure?(config: { props: NodePropSource[] }): Parser }) | undefined;
-	// Not loaded yet (lang-markdown loads it and parses again), or a stream
-	// language, which has no folds.
-	if (!lang || !parser?.configure) return found;
-	let foldless = foldlessCode.get(lang);
-	if (!foldless) foldlessCode.set(lang, (foldless = new Language(lang.data, parser.configure({ props: [foldNodeProp.add(() => noFold)] }), [], lang.name)));
-	return foldless;
+	return (lang && foldless(lang)) ?? found;
 }
+
+// The code in a note's HTML (a script's JavaScript, a style's CSS) parses as
+// in a fenced block of its language, skipped until that is loaded.
+class NestedCode extends Parser {
+	constructor(readonly info: string) {
+		super();
+	}
+
+	createParse(input: Input, fragments: readonly TreeFragment[], ranges: readonly { from: number; to: number }[]) {
+		const lang = codeLanguage(this.info)!;
+		const parser = lang instanceof Language ? lang.parser : (lang.support?.language.parser ?? ParseContext.getSkippingParser(lang.load()));
+		return parser.createParse(input, fragments, ranges);
+	}
+}
+
+// HTML in a note, as lang-markdown parses it (closing tags not matched), with
+// no folds of its own or of the code in it: every script's as JavaScript and
+// every style's as CSS.
+const htmlSupport = html({ matchClosingTags: false, nestedLanguages: [{ tag: "script", parser: new NestedCode("javascript") }, { tag: "style", parser: new NestedCode("css") }] });
+const htmlTags = new LanguageSupport(foldless(htmlSupport.language)!, htmlSupport.support);
 
 // The Markdown language with Obsidian's syntax and folds.
 export function markdownSupport(fold: FoldSettings): Extension {
@@ -524,7 +552,7 @@ export function markdownSupport(fold: FoldSettings): Extension {
 			}),
 		],
 	};
-	const md = markdown({ base: markdownLanguage, codeLanguages: codeLanguage, extensions: [...obsidianMarkdown, blockFolds] });
+	const md = markdown({ base: markdownLanguage, codeLanguages: codeLanguage, htmlTagLanguage: htmlTags, extensions: [...obsidianMarkdown, blockFolds] });
 	if (fold.heading) return md;
 	// lang-markdown folds heading sections with a fold service among its support extensions.
 	const support = Array.isArray(md.support) ? md.support : [md.support];
