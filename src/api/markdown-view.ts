@@ -2,13 +2,23 @@ import { openSearchPanel } from "@codemirror/search";
 import { EditorSelection, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { Editor, EditorPosition } from "./editor";
-import type { Component } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import { Keymap, Scope } from "./keymap";
 import { MarkdownEditView, MarkdownPreviewView, type MarkdownSubView, subpathLine } from "./markdown-preview";
 import { Menu } from "./ui/menu";
+import type { HoverPopover } from "./ui/popover";
 import { mirrorEdits, TextFileView, type ViewStateResult } from "./view";
 import type { WorkspaceLeaf } from "./workspace";
+
+const SCHEME = /^[a-z][\w+.-]*:/i;
+
+function safeDecode(href: string) {
+	try {
+		return decodeURI(href);
+	} catch {
+		return href;
+	}
+}
 
 export class MarkdownView extends TextFileView {
 	editor: Editor;
@@ -17,7 +27,7 @@ export class MarkdownView extends TextFileView {
 	currentMode: MarkdownSubView;
 	modes: { source: MarkdownEditView; preview: MarkdownPreviewView };
 	sourceEl: HTMLElement;
-	hoverPopover: Component | null = null;
+	hoverPopover: HoverPopover | null = null;
 	scope: Scope;
 	// Source mode: editing with Live Preview off.
 	#source: boolean;
@@ -130,14 +140,17 @@ export class MarkdownView extends TextFileView {
 		return file ? this.app.vault.getResourcePath(file) : null;
 	}
 
-	// Rendered links open on click, as in Obsidian's Live Preview.
+	// Rendered links open on click, as in Obsidian's Live Preview; a link to a
+	// heading or block of this note (even in a pinned tab) moves within it.
 	onLinkClick(evt: MouseEvent) {
 		const el = evt.button === 0 ? (evt.target as HTMLElement).closest("[data-href]") : null;
 		if (!el) return false;
 		evt.preventDefault();
 		const href = el.getAttribute("data-href")!;
-		if (/^[a-z][\w+.-]*:/i.test(href)) require("electron").shell.openExternal(href);
-		else this.app.workspace.openLinkText(decodeURI(href), this.file?.path ?? "", Keymap.isModEvent(evt));
+		const newLeaf = Keymap.isModEvent(evt);
+		if (SCHEME.test(href)) require("electron").shell.openExternal(href);
+		else if (href.startsWith("#") && !newLeaf) this.setEphemeralState({ subpath: safeDecode(href) });
+		else this.app.workspace.openLinkText(safeDecode(href), this.file?.path ?? "", newLeaf);
 		return true;
 	}
 
@@ -147,7 +160,28 @@ export class MarkdownView extends TextFileView {
 
 	showContextMenu(evt: MouseEvent) {
 		const menu = new Menu();
+		menu.addSections(["selection-link", "selection", "selection.format", "clipboard", "action", "info", "view", "system"]);
 		const editor = this.editor;
+		// A link under the pointer: a note link gets the workspace's link menu,
+		// a URL its own items and the 'url-menu' event.
+		const href = (evt.target as Element | null)?.closest?.("[data-href]")?.getAttribute("data-href");
+		if (href && SCHEME.test(href)) {
+			menu.addItem((i) =>
+				i
+					.setTitle("Open link")
+					.setIcon("external-link")
+					.setSection("selection-link")
+					.onClick(() => require("electron").shell.openExternal(href)),
+			);
+			menu.addItem((i) =>
+				i
+					.setTitle("Copy URL")
+					.setIcon("copy")
+					.setSection("selection-link")
+					.onClick(() => navigator.clipboard.writeText(href)),
+			);
+			this.app.workspace.trigger("url-menu", menu, href);
+		} else if (href) this.app.workspace.handleLinkContextMenu(menu, safeDecode(href), this.file?.path ?? "", this.leaf);
 		menu.addItem((i) =>
 			i
 				.setTitle("Cut")

@@ -1,7 +1,9 @@
 import type { App } from "../api/app";
 import { setIcon } from "../api/icons";
+import { Keymap } from "../api/keymap";
 import { Menu } from "../api/ui/menu";
 import { Modal } from "../api/ui/modal";
+import { Notice } from "../api/ui/notice";
 import { FuzzySuggestModal } from "../api/ui/suggest";
 import { debounce } from "../api/util";
 import { type TAbstractFile, TFile, TFolder } from "../api/vault";
@@ -39,6 +41,10 @@ export class EmptyView extends ItemView {
 export class FileExplorerView extends ItemView {
 	#treeEl!: HTMLElement;
 	#expanded = new Set<string>();
+	// Items picked with Alt-click and Shift-click, for one menu on all of them;
+	// a Shift range starts at the anchor, the item clicked before.
+	#selected = new Set<TAbstractFile>();
+	#anchor: TAbstractFile | null = null;
 	#refresh = debounce(() => this.#render(), 100, true);
 
 	constructor(leaf: WorkspaceLeaf) {
@@ -82,12 +88,26 @@ export class FileExplorerView extends ItemView {
 		this.#render();
 	}
 
+	// Shows `file` in the tree: the folders above it open (and stay open), and
+	// its row is marked and scrolled into view.
+	revealInFolder(file: TAbstractFile) {
+		for (let folder = file.parent; folder && !folder.isRoot(); folder = folder.parent) this.#expanded.add(folder.path);
+		this.app.saveLocalStorage("justnotes-expanded", [...this.#expanded]);
+		this.#render();
+		const row = this.#treeEl.find(`.tree-item-self[data-path="${CSS.escape(file.path)}"]`);
+		if (!row) return;
+		for (const el of this.#treeEl.findAll(".tree-item-self.is-active")) el.removeClass("is-active");
+		row.addClass("is-active");
+		row.scrollIntoView({ block: "nearest" });
+	}
+
 	#render() {
 		const scroll = this.#treeEl.scrollTop;
 		this.#treeEl.empty();
 		this.#renderFolder(this.app.vault.getRoot(), this.#treeEl);
 		this.#treeEl.scrollTop = scroll;
 		this.#markActive();
+		this.#markSelected();
 	}
 
 	#renderFolder(folder: TFolder, el: HTMLElement) {
@@ -105,7 +125,8 @@ export class FileExplorerView extends ItemView {
 				setIcon(icon, collapsed ? "chevron-right" : "chevron-down");
 				const children = item.createDiv("tree-item-children nav-folder-children");
 				if (!collapsed) this.#renderFolder(child, children);
-				self.addEventListener("click", () => {
+				self.addEventListener("click", (evt) => {
+					if (this.#select(evt, child)) return;
 					if (this.#expanded.has(child.path)) this.#expanded.delete(child.path);
 					else this.#expanded.add(child.path);
 					this.app.saveLocalStorage("justnotes-expanded", [...this.#expanded]);
@@ -117,7 +138,13 @@ export class FileExplorerView extends ItemView {
 				const self = item.createDiv({ cls: "tree-item-self nav-file-title is-clickable", attr: { "data-path": child.path } });
 				self.createDiv({ cls: "tree-item-inner nav-file-title-content", text: child.extension === "md" ? child.basename : child.name });
 				if (child.extension !== "md") self.createDiv({ cls: "nav-file-tag", text: child.extension });
-				self.addEventListener("click", (evt) => this.app.workspace.getLeaf(evt.metaKey || evt.ctrlKey ? "tab" : false).openFile(child));
+				self.addEventListener("click", (evt) => {
+					if (!this.#select(evt, child)) this.app.workspace.getLeaf(Keymap.isModEvent(evt)).openFile(child);
+				});
+				// A middle click opens a new tab, as Mod-click does.
+				self.addEventListener("auxclick", (evt) => {
+					if (evt.button === 1) this.app.workspace.getLeaf("tab").openFile(child);
+				});
 				self.addEventListener("contextmenu", (evt) => this.#showMenu(evt, child));
 			}
 		}
@@ -128,10 +155,62 @@ export class FileExplorerView extends ItemView {
 		for (const el of this.#treeEl.findAll(".nav-file-title")) el.toggleClass("is-active", el.getAttr("data-path") === active);
 	}
 
+	// Alt-click adds the item to the selection or takes it out; Shift-click
+	// selects the rows from the anchor (else the open file) to it. True when
+	// the click selected; a plain click ends the selection and anchors there,
+	// and so does a Mod-click, which opens a new tab, split or window.
+	#select(evt: MouseEvent, item: TAbstractFile) {
+		const mod = Keymap.isModifier(evt, "Mod");
+		const anchor = this.#anchor ?? this.app.workspace.getActiveFile();
+		const range = !mod && evt.shiftKey && anchor ? this.#rowsBetween(anchor, item) : null;
+		const toggle = !mod && !range && Keymap.isModifier(evt, "Alt");
+		if (range) this.#selected = new Set(range);
+		else {
+			if (!toggle) this.#selected.clear();
+			else if (!this.#selected.delete(item)) this.#selected.add(item);
+			this.#anchor = item;
+		}
+		this.#markSelected();
+		return !!range || toggle;
+	}
+
+	// The items of the shown rows from `a` to `b`, in either order.
+	#rowsBetween(a: TAbstractFile, b: TAbstractFile) {
+		const paths = this.#treeEl.findAll(".tree-item-self").map((el) => el.getAttr("data-path") ?? "");
+		const i = paths.indexOf(a.path);
+		const j = paths.indexOf(b.path);
+		if (i < 0 || j < 0) return null;
+		return paths.slice(Math.min(i, j), Math.max(i, j) + 1).flatMap((p) => this.app.vault.getAbstractFileByPath(p) ?? []);
+	}
+
+	// Items deleted or gone from the vault leave the selection.
+	#markSelected() {
+		for (const item of this.#selected) if (this.app.vault.getAbstractFileByPath(item.path) !== item) this.#selected.delete(item);
+		const paths = new Set([...this.#selected].map((f) => f.path));
+		for (const el of this.#treeEl.findAll(".tree-item-self")) el.toggleClass("is-selected", paths.has(el.getAttr("data-path") ?? ""));
+	}
+
 	#showMenu(evt: MouseEvent, file: TAbstractFile) {
 		evt.preventDefault();
 		evt.stopPropagation();
 		const menu = new Menu();
+		menu.addSections(["title", "action-primary", "open", "action", "info", "view", "system", "danger"]);
+		// On one of several selected items the menu is for all of them.
+		if (this.#selected.size > 1 && this.#selected.has(file)) {
+			const files = [...this.#selected];
+			menu.addItem((i) =>
+				i
+					.setTitle(`Move ${files.length} items to...`)
+					.setIcon("folder-input")
+					.setSection("action")
+					.onClick(() => new MoveModal(this.app, files).open()),
+			);
+			this.app.workspace.trigger("files-menu", menu, files, "file-explorer-context-menu", this.leaf);
+			menu.showAtMouseEvent(evt);
+			return;
+		}
+		this.#selected.clear();
+		this.#markSelected();
 		if (file instanceof TFolder) {
 			menu.addItem((i) => i.setTitle("New note").setIcon("square-pen").setSection("action-primary").onClick(() => newNote(this.app, file)));
 			menu.addItem((i) => i.setTitle("New folder").setIcon("folder-plus").setSection("action-primary").onClick(() => newFolder(this.app, file)));
@@ -154,12 +233,28 @@ export class FileExplorerView extends ItemView {
 		menu.addItem((i) => i.setTitle("Rename...").setIcon("pencil").setSection("action").onClick(() => renameFile(this.app, file)));
 		menu.addItem((i) =>
 			i
+				.setTitle(file instanceof TFolder ? "Move folder to..." : "Move file to...")
+				.setIcon("folder-input")
+				.setSection("action")
+				.onClick(() => new MoveModal(this.app, [file]).open()),
+		);
+		menu.addItem((i) =>
+			i
 				.setTitle("Delete")
 				.setIcon("trash-2")
 				.setWarning(true)
 				.setSection("danger")
-				.onClick(() => this.app.fileManager.trashFile(file)),
+				.onClick(() => attempt(() => this.app.fileManager.promptForDeletion(file))),
 		);
+	}
+}
+
+// A file operation that fails (a name taken, a file in use) says why.
+async function attempt(action: () => Promise<unknown>) {
+	try {
+		await action();
+	} catch (err) {
+		new Notice(err instanceof Error ? err.message : String(err));
 	}
 }
 
@@ -169,18 +264,44 @@ async function newNote(app: App, folder: TFolder) {
 }
 
 function newFolder(app: App, parent: TFolder) {
-	new PromptModal(app, "New folder", "Untitled", async (name) => {
-		await app.vault.createFolder(parent.isRoot() ? name : `${parent.path}/${name}`);
-	}).open();
+	new PromptModal(app, "New folder", "Untitled", (name) => attempt(() => app.vault.createFolder(parent.isRoot() ? name : `${parent.path}/${name}`))).open();
 }
 
 function renameFile(app: App, file: TAbstractFile) {
 	const isMd = file instanceof TFile && file.extension === "md";
 	const current = isMd ? (file as TFile).basename : file.name;
-	new PromptModal(app, "Rename", current, async (name) => {
+	new PromptModal(app, "Rename", current, (name) => {
 		const dir = file.parent && !file.parent.isRoot() ? `${file.parent.path}/` : "";
-		await app.fileManager.renameFile(file, `${dir}${name}${isMd ? ".md" : ""}`);
+		return attempt(() => app.fileManager.renameFile(file, `${dir}${name}${isMd ? ".md" : ""}`));
 	}).open();
+}
+
+// Moves items into a folder picked from the vault's folders, except the
+// moved folders and the folders inside them.
+class MoveModal extends FuzzySuggestModal<TFolder> {
+	#items: TAbstractFile[];
+
+	constructor(app: App, items: TAbstractFile[]) {
+		super(app);
+		// An item inside a moved folder moves with it.
+		const inside = (item: TAbstractFile, folder: TAbstractFile) => folder instanceof TFolder && item.path.startsWith(`${folder.path}/`);
+		this.#items = items.filter((item) => !items.some((other) => inside(item, other)));
+		this.setPlaceholder("Move to folder...");
+	}
+
+	getItems() {
+		return this.app.vault.getAllFolders(true).filter((f) => !this.#items.some((item) => f === item || (item instanceof TFolder && f.path.startsWith(`${item.path}/`))));
+	}
+
+	getItemText(folder: TFolder) {
+		return folder.isRoot() ? "/" : folder.path;
+	}
+
+	async onChooseItem(folder: TFolder) {
+		for (const item of this.#items) {
+			if (item.parent !== folder) await attempt(() => this.app.fileManager.renameFile(item, folder.isRoot() ? item.name : `${folder.path}/${item.name}`));
+		}
+	}
 }
 
 class PromptModal extends Modal {

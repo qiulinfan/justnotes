@@ -5,8 +5,7 @@ import { Events } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import { Keymap } from "./keymap";
 import { MarkdownRenderer } from "./markdown";
-import type { CachedMetadata } from "./metadata";
-import { parseLinktext, stripHeading } from "./metadata-utils";
+import { parseLinktext } from "./metadata-utils";
 import { Menu } from "./ui/menu";
 import { type HoverParent, HoverPopover, PopoverState } from "./ui/popover";
 import type { EditorSuggest } from "./ui/suggest";
@@ -50,6 +49,14 @@ function fileOf(view: View) {
 function showsNoFile(view: View) {
 	if (!(view instanceof FileView)) return false;
 	return view.file ? view.app.vault.getAbstractFileByPath(view.file.path) !== view.file : !view.allowNoFile;
+}
+
+function safeDecode(text: string) {
+	try {
+		return decodeURI(text);
+	} catch {
+		return text;
+	}
 }
 
 // Leaves showing a recorded state again (going back or forward, a restored
@@ -304,12 +311,15 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 	}
 
 	async openFile(file: TFile, openState: OpenViewState = {}) {
-		const type = this.app.viewRegistry.getTypeByExtension(file.extension) ?? (file.extension === "md" ? "markdown" : undefined);
+		// A file view that accepts the file keeps showing it (a plugin's own view
+		// of Markdown stays itself); otherwise the extension's view takes over.
+		const keep = this.view instanceof FileView && this.view.canAcceptExtension(file.extension);
+		const type = keep ? this.view.getViewType() : (this.app.viewRegistry.getTypeByExtension(file.extension) ?? (file.extension === "md" ? "markdown" : undefined));
 		// A file no view can show opens in the system's default app rather than
 		// as text, which a save would write back over the binary. A tab opened
 		// just for it (empty and never active) goes away again.
 		if (!type) {
-			require("electron").shell.openPath(this.app.vault.adapter.getFullPath(file.path));
+			this.app.openWithDefaultApp(file.path);
 			if (this.view.getViewType() === "empty" && !this.activeTime) this.detach();
 			return;
 		}
@@ -988,22 +998,6 @@ function withTimeout(promise: Promise<unknown>, ms: number) {
 	return Promise.race([promise, sleep(ms)]);
 }
 
-// The heading or block a subpath names, as a line range of the note.
-function subpathLines(cache: CachedMetadata | null, subpath: string): [number, number] | null {
-	if (!cache || !subpath) return null;
-	if (subpath.startsWith("#^")) {
-		const block = cache.blocks?.[subpath.slice(2).toLowerCase()];
-		return block ? [block.position.start.line, block.position.end.line] : null;
-	}
-	const wanted = stripHeading(subpath.split("#").filter(Boolean).last() ?? "").toLowerCase();
-	const headings = cache.headings ?? [];
-	const index = headings.findIndex((h) => stripHeading(h.heading).toLowerCase() === wanted);
-	if (index < 0) return null;
-	const level = headings[index].level;
-	const end = headings.slice(index + 1).find((h) => h.level <= level);
-	return [headings[index].position.start.line, end ? end.position.start.line - 1 : Number.MAX_SAFE_INTEGER];
-}
-
 export class Workspace extends Events {
 	app: App;
 	containerEl: HTMLElement;
@@ -1133,17 +1127,9 @@ export class Workspace extends Events {
 			this.trigger("active-leaf-change", leaf);
 		}
 		this.#updateActiveFile();
-		// Last, so the focusin it causes finds this leaf already active.
-		if (focus) this.#focus(leaf);
-	}
-
-	#focus(leaf: WorkspaceLeaf) {
-		const view = leaf.view as View & { editor?: { focus?: () => void } };
-		if (typeof view.editor?.focus === "function") view.editor.focus();
-		else if (!view.containerEl.contains(document.activeElement)) {
-			if (!view.containerEl.hasAttribute("tabindex")) view.containerEl.tabIndex = -1;
-			view.containerEl.focus({ preventScroll: true });
-		}
+		// Last, so the focusin it causes finds this leaf already active. The
+		// view decides where the keyboard goes (its editor, its own input).
+		if (focus) leaf.setEphemeralState({ focus: true });
 	}
 
 	// After a leaf's setViewState: swapping the active leaf's view or file
@@ -1629,54 +1615,33 @@ export class Workspace extends Events {
 		return !!file;
 	}
 
-	// Page preview, Obsidian's core plugin: a rendered note in a popover for a
-	// hovered internal link, with Mod held when the source asks for it.
+	// Page preview, Obsidian's core plugin: a hovered internal link shows its
+	// note, heading or block in a popover, with Mod held when the source asks
+	// for it. The target renders as an embed (![[linktext]]), so what a post
+	// processor sees in a heading's part of a note reports no section lines:
+	// lines of the part are not lines of the file. A Markdown link's target
+	// comes from Live Preview %-encoded, as written ([x](Note.md#Heading%20Two)),
+	// and is decoded as a click on it is.
 	#onHoverLink(info: { event: MouseEvent; source: string; hoverParent: HoverParent; targetEl: HTMLElement | null; linktext: string; sourcePath?: string }) {
-		const { event, source, hoverParent, targetEl, linktext } = info ?? {};
-		if (!hoverParent || typeof linktext !== "string") return;
+		const { event, source, hoverParent, targetEl, linktext: href } = info ?? {};
+		if (!hoverParent || typeof href !== "string") return;
 		if ((this.hoverLinkSources[source]?.defaultMod ?? true) && !Keymap.isModEvent(event)) return;
 		const existing = hoverParent.hoverPopover;
 		if (existing && existing.targetEl === targetEl && existing.state !== PopoverState.Hidden) return;
-		const { path, subpath } = parseLinktext(linktext);
-		const file = this.app.metadataCache.getFirstLinkpathDest(path, info.sourcePath ?? "");
-		const image = file && /^(png|jpe?g|gif|svg|webp|bmp|avif)$/i.test(file.extension);
-		if (!file || (file.extension !== "md" && !image)) return;
+		const linktext = safeDecode(href);
+		const sourcePath = info.sourcePath ?? "";
+		const file = this.app.metadataCache.getFirstLinkpathDest(parseLinktext(linktext).path, sourcePath);
+		if (!file || (file.extension !== "md" && !/^(png|jpe?g|gif|svg|webp|bmp|avif)$/i.test(file.extension))) return;
 		const popover = new HoverPopover(hoverParent, targetEl);
-		const content = popover.hoverEl.createDiv("markdown-embed is-loaded").createDiv("markdown-embed-content");
-		if (image) {
-			content.createEl("img", { attr: { src: this.app.vault.getResourcePath(file) } });
-			return;
-		}
-		const preview = content.createDiv("markdown-preview-view");
-		this.app.vault.cachedRead(file).then(
-			(text) => {
-				const range = subpathLines(this.app.metadataCache.getFileCache(file), subpath);
-				const markdown = range ? text.split("\n").slice(range[0], range[1] + 1).join("\n") : text;
-				return MarkdownRenderer.render(this.app, markdown, preview, file.path, popover);
-			},
-			(err) => console.error(err),
-		);
+		MarkdownRenderer.render(this.app, `![[${linktext}]]`, popover.hoverEl, sourcePath, popover).catch((err) => console.error(err));
 	}
 
 	// Leaves of a type that is not registered (yet) are placeholders; they come
 	// alive when the type is registered and go back when it is unregistered.
 	#watchViewRegistry() {
-		const registry = this.app.viewRegistry as object as Partial<Events> & Pick<App["viewRegistry"], "registerView" | "unregisterView">;
-		if (registry instanceof Events) {
-			registry.on("view-registered", (type: string) => this.#onViewRegistered(type));
-			registry.on("view-unregistered", (type: string) => this.#onViewUnregistered(type));
-			return;
-		}
-		// Until ViewRegistry emits those events (views package), watch the calls.
-		const { registerView, unregisterView } = registry;
-		registry.registerView = (type, creator) => {
-			registerView.call(registry, type, creator);
-			this.#onViewRegistered(type);
-		};
-		registry.unregisterView = (type) => {
-			unregisterView.call(registry, type);
-			this.#onViewUnregistered(type);
-		};
+		const registry = this.app.viewRegistry;
+		registry.on("view-registered", (type: string) => this.#onViewRegistered(type));
+		registry.on("view-unregistered", (type: string) => this.#onViewUnregistered(type));
 	}
 
 	#onViewRegistered(type: string) {
