@@ -680,6 +680,15 @@ plain style. Development notes belong in this file.
   `fileManager.processFrontMatter` (QuickAdd, Bases cells) applies what its
   callback changed the same way, property by property, and throws on YAML
   that is not a map rather than replacing it.
+- While Daily notes is on, a date or date & time property links to its day's
+  daily note, as Obsidian's date widget does: the date shows in the link
+  colour, a click on its text opens the note (made from the daily note
+  template when missing; Mod-click in a new tab) through the plugin
+  instance's `openDailyNoteOf`, which the installer sets and removes; the
+  calendar icon, a click beside the text and the keyboard edit the value.
+  `color-scheme` follows the theme on `body`, so native date pickers (their
+  calendar icon), checkboxes and scrollbars are dark on the dark theme in
+  properties and plugin views alike.
 
 ## Live Preview and math
 
