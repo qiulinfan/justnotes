@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { insertNewlineAndIndent } from "@codemirror/commands";
 import { insertNewlineContinueMarkup, markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorSelection, EditorState, type Transaction } from "@codemirror/state";
@@ -16,7 +17,7 @@ function enterAndType(marked: string) {
 	});
 	ensureSyntaxTree(state, doc.length, 5000);
 	const target = { state, dispatch: (tr: Transaction) => (state = tr.state) };
-	if (!exitEmptyQuote(target)) insertNewlineContinueMarkup(target);
+	if (!exitEmptyQuote(target) && !insertNewlineContinueMarkup(target)) insertNewlineAndIndent(target);
 	const at = state.selection.main.head;
 	state = state.update({ changes: { from: at, insert: "typed" } }).state;
 	let quotes = 0;
@@ -55,5 +56,13 @@ describe("Enter on an empty quote line", () => {
 	test("Enter in or after a quote line's text continues the quote", () => {
 		expect(enterAndType("> ab|c").text).toBe("> ab\n> typedc");
 		expect(enterAndType("> > abc|").text).toBe("> > abc\n> > typed");
+	});
+
+	// In code the same characters are text, which Enter leaves as it is: a
+	// line of '>' in a code block, or an empty code line in a quoted one.
+	test("Enter on a line of '>' in a code block starts a new line below it", () => {
+		expect(enterAndType("```\n>|\n```")).toEqual({ text: "```\n>\ntyped\n```", quotes: 0, inList: false });
+		expect(enterAndType("```\ncode\n> |\n```")).toEqual({ text: "```\ncode\n> \ntyped\n```", quotes: 0, inList: false });
+		expect(enterAndType("> ```\n> code\n> |\n> ```").text).toStartWith("> ```\n> code\n> \n");
 	});
 });

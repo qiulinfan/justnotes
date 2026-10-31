@@ -410,6 +410,22 @@ const codeHighlight = HighlightStyle.define([
 	{ tag: t.invalid, class: "cm-error" },
 ]);
 
+// Blocks whose lines are text even where they hold only quote marks: a line
+// of `>` in code, or an empty code line in a quoted fence, is no empty quote
+// line.
+const textBlocks = new Set(["FencedCode", "CodeBlock", "HTMLBlock", "CommentBlock", "ProcessingInstructionBlock", "BlockMath", "hmd-frontmatter", "comment-block"]);
+
+// Whether the `>` at `pos` belongs to a quote line: the Markdown tree reaches
+// a quote from it before any such block. A fenced language's own tree (the
+// quotes in a markdown fence) does not count.
+function marksQuote(state: EditorState, pos: number) {
+	for (let node: SyntaxNode | null = syntaxTree(state).resolve(pos, 1); node; node = node.parent) {
+		if (node.name === "Blockquote") return true;
+		if (textBlocks.has(node.name)) return false;
+	}
+	return false;
+}
+
 // Enter on an empty quote line steps out one quote level, as in Typora,
 // instead of CodeMirror's default of continuing the quote. Text typed right
 // below a line of the quote's text would continue that paragraph (a
@@ -420,7 +436,7 @@ export const exitEmptyQuote: StateCommand = ({ state, dispatch }) => {
 	const sel = state.selection;
 	if (sel.ranges.length !== 1 || !sel.main.empty) return false;
 	const line = state.doc.lineAt(sel.main.head);
-	if (sel.main.head !== line.to || !/^\s*(>\s*)+$/.test(line.text)) return false;
+	if (sel.main.head !== line.to || !/^\s*(>\s*)+$/.test(line.text) || !marksQuote(state, line.from + line.text.lastIndexOf(">"))) return false;
 	const outer = line.text.replace(/>\s*$/, "").trimEnd();
 	const above = line.number > 1 ? state.doc.line(line.number - 1).text : "";
 	const next = outer ? `${outer} ` : line.text.slice(0, line.text.search(/\S/));
