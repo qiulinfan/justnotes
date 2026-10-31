@@ -95,6 +95,9 @@ async function boot() {
 
 	buildShell(app);
 	await app.vault.load();
+	// Indexing overlaps the rest of boot and is done before plugins load, so
+	// getFileCache() works in their onload, as in Obsidian.
+	const indexed = app.metadataCache.initialize();
 	await applyTheme(app);
 	await app.hotkeyManager.load();
 	await loadMathJax().catch((err) => console.error(err));
@@ -103,12 +106,10 @@ async function boot() {
 	registerViewCommands(app);
 	registerWorkspaceCommands(app);
 
-	// Plugins load first so the layout can restore their views; layout-ready
-	// callbacks then see every file's metadata.
-	await app.plugins.initialize();
-	const indexed = app.metadataCache.initialize();
-	await app.restoreLayoutState(DEFAULT_LAYOUT);
 	await indexed;
+	// Plugins load before the layout, so it can restore their views.
+	await app.plugins.initialize();
+	await app.restoreLayoutState(DEFAULT_LAYOUT);
 	app.workspace.setLayoutReady();
 	handleWindowClose(app);
 
