@@ -61,6 +61,7 @@ const IMPLEMENTED = new Set([
 	"note-composer",
 	"word-count",
 	"file-recovery",
+	"bookmarks",
 ]);
 
 // File explorer and Search are part of justnotes' window: they stay on.

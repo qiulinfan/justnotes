@@ -129,6 +129,39 @@ plain style. Development notes belong in this file.
   every note (each note's YAML changed only at that key). Not there yet: the other core plugins,
   the Tags view's Mod-click to add a tag to the search, links to an
   extracted heading (`[[Note#Heading]]`) are not redirected to the new note.
+- Bookmarks (`bookmarks-data.ts`: format, merge, rename/delete following,
+  tested; `bookmarks.ts`: instance, view, dialog, commands, menus). The
+  instance (`app.internalPlugins.plugins.bookmarks.instance`, created in
+  `registerCorePluginViews`) has Obsidian's members plugins read: `items`
+  (the array is kept; reloads splice into it), `getBookmarks()` (all but
+  groups), `bookmarkLookup`/`urlBookmarkLookup`, `getItemTitle`,
+  `addItem(item, group?, index?)`, `removeItem`, `moveItem`, `editItem`,
+  `openBookmark(item, newLeaf)`, `onItemsChanged(save)`, `saveData()` and the
+  `changed` event. Items are saved in `<configDir>/bookmarks.json`, the one
+  Obsidian config file justnotes writes, because bookmarks are vault data the
+  owner shares with Obsidian and syncs with git: written only after a
+  bookmark changes (never on load, never created empty), with
+  `JSON.stringify(data, null, 2)` and new items' keys in Obsidian's order
+  (`type`, `ctime`, `path`, `subpath`, `query`, `url`, `options`, `items`,
+  `title`), unknown fields and types kept in place. The file is re-read on
+  its vault `raw` event; every sync reads the file first, and if it changed
+  since the last read or write, `mergeBookmarks` three-way merges it (items
+  are told apart by `type` and `ctime`; `ctime()` keeps new ones unique).
+  Without changes of ours the file is taken as it is and not rewritten; a
+  file that does not parse is left alone and nothing is saved until it does.
+  Bookmarks follow renamed files and folders and go with deleted ones.
+  Commands: `bookmarks:open`, `bookmark-current-view` (a file, the search
+  view, the global graph; Edit bookmark when bookmarked),
+  `bookmark-current-search`, `bookmark-current-heading`,
+  `bookmark-current-section` (the block under the cursor, given a `^id` when
+  it has none), `bookmark-all-tabs` (a new group) and
+  `unbookmark-current-view`. Menus: file (Bookmark.../Edit bookmark...),
+  files (several), editor (on a heading line), tab (`leaf-menu`, graph and
+  search). The view drags rows through `app.dragManager` (`type:
+  "bookmarks"`, `items: [{item}]`, `files`), before/after a row or into a
+  group, and takes files dragged from the explorer. Not there yet: the tab
+  group's "Bookmark N tabs" menu, adding URL bookmarks (no Web viewer), a
+  heading bookmark does not follow a renamed heading.
 - Graph view (`graph-data.ts` for options, queries and nodes, tested;
   `graph-renderer.ts` for the canvas; `graph-view.ts` for the views): a
   d3-force simulation drawn with Canvas 2D, frames only while the layout moves
@@ -264,7 +297,9 @@ plain style. Development notes belong in this file.
   not drop it) and inserts links where it lands.
 - Never write Obsidian's own config files (`workspace.json`,
   `community-plugins.json`, `app.json`, `appearance.json`, `hotkeys.json`,
-  `core-plugins.json`, `types.json`). justnotes state lives in localStorage through
+  `core-plugins.json`, `types.json`). The one exception is `bookmarks.json`
+  (see Bookmarks above): bookmarks are content the owner keeps in both apps
+  and in git, not app settings. justnotes state lives in localStorage through
   `app.saveLocalStorage` (keys prefixed with the vault id): `justnotes-layout`
   (the layout, in `workspace.json`'s shape, with leaf ids), `enabled-plugins`
   (the Settings toggles, applied over `community-plugins.json`),
@@ -493,7 +528,10 @@ DeepSeek translation (one paid call of a fraction of a cent; it reads its key
 from a file under `~/Desktop/apis`), and the core plugin panes, a popout and
 the CLI worked; the vault's git state was unchanged afterwards. Loading
 rewrites `plugins/terminal/data.json` and obsidian-git's
-`obsidian_askpass.sh`, as in Obsidian.
+`obsidian_askpass.sh`, as in Obsidian. Bookmarks (every item type, groups, drags, renames and
+deletions, a bookmarks.json changed outside while justnotes saved) and the
+Core plugins toggles were tested live on a synthetic vault and on a copy of
+blogs with five of its plugins.
 
 ## Verify
 

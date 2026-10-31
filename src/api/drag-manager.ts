@@ -6,12 +6,15 @@ import type { TAbstractFile, TFile, TFolder } from "./vault";
 // `app.dragManager.draggable`: plugins that accept drops read it (terminal
 // 3.29 types the dragged files' paths), and the editor turns it into links.
 export interface DragData {
-	type: "file" | "folder" | "files";
+	type: "file" | "folder" | "files" | "bookmarks";
 	icon: string;
 	title: string;
 	source?: string;
 	file?: TAbstractFile;
 	files?: TAbstractFile[];
+	// Bookmarks being dragged, as Obsidian's `{ item }` entries; `files`
+	// holds the files and folders they point at.
+	items?: { item: unknown }[];
 }
 
 // A transparent image hides Chromium's own drag image; the ghost below
@@ -88,7 +91,7 @@ export class DragManager {
 	// The files a drag carries, folders included.
 	static files(data: DragData | null): TAbstractFile[] {
 		if (!data) return [];
-		return data.type === "files" ? (data.files ?? []) : data.file ? [data.file] : [];
+		return data.files ?? (data.file ? [data.file] : []);
 	}
 
 	#move(evt: DragEvent) {

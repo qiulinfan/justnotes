@@ -1,6 +1,7 @@
 import type { App } from "../api/app";
 import type { CorePluginHost, CorePluginInstaller } from "../api/internal-plugins";
 import { installBacklinksInDocument } from "./backlinks-in-document";
+import { BookmarksInstance, installBookmarks } from "./bookmarks";
 import { installCanvas } from "./canvas-view";
 import { registerAllPropertiesView } from "./all-properties";
 import { installDailyNotes } from "./daily-notes";
@@ -29,6 +30,8 @@ export function registerCorePluginViews(app: App) {
 	app.viewRegistry.registerView("tag", (leaf) => new TagView(leaf));
 	registerGraphViews(app);
 	registerAllPropertiesView(app);
+	const bookmarks = app.internalPlugins.plugins.bookmarks;
+	bookmarks.instance = new BookmarksInstance(app);
 }
 
 // A pane's command; turned on in Settings the pane joins the right sidebar,
@@ -63,6 +66,7 @@ function installers(): Record<string, CorePluginInstaller> {
 	result["note-composer"] = installNoteComposer;
 	result["file-recovery"] = installFileRecovery;
 	result["word-count"] = installWordCount;
+	result.bookmarks = installBookmarks;
 	return result;
 }
 
