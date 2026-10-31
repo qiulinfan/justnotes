@@ -497,20 +497,28 @@ input[type="range"].slider:disabled {
 	width: 100%;
 }
 
+/* The icon is drawn by ::after, as in Obsidian, so a plugin can swap it by
+   setting the pseudo-element's mask (obsidian-git's show-password toggle). */
 .search-input-clear-button {
 	position: absolute;
 	right: 6px;
 	top: 50%;
 	transform: translateY(-50%);
-	width: 14px;
-	height: 14px;
+	display: flex;
+	color: var(--search-clear-button-color);
 	cursor: pointer;
-	background: var(--text-faint);
+}
+
+.search-input-clear-button::after {
+	content: "";
+	width: var(--search-clear-button-size);
+	height: var(--search-clear-button-size);
+	background-color: currentColor;
 	-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .search-input-clear-button:hover {
-	background: var(--text-muted);
+	color: var(--text-muted);
 }
 
 input:placeholder-shown ~ .search-input-clear-button {
