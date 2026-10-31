@@ -6,6 +6,7 @@ import { enclosingVault } from "../cli/vaults";
 import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultNamed, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
+import { isMarkdown, isObsidianUrl } from "./launch-args";
 import { droppedSchemes, sameAppPage } from "./link-policy";
 import { microphoneRequest, systemMicrophoneAccess } from "./media";
 import { isPopoutOpen } from "./popout";
@@ -30,7 +31,6 @@ if (profile) app.setPath("userData", path.resolve(profile));
 // links, window.open, macOS open-url events or launch arguments. justnotes does
 // not register itself as the scheme's handler: that would take it from an
 // installed Obsidian.
-const isObsidianUrl = (url: string) => /^obsidian:/i.test(url);
 // The only URLs a <webview> guest's popups may hand to the system.
 const isWebUrl = (url: string) => /^(https?|mailto):/i.test(url);
 // Pages whose renderer listens for URLs. Until then a page's URLs wait in
@@ -301,7 +301,6 @@ function openVault(vault: string) {
 // arrive as open-file events, at launch before the app is ready; Windows and
 // Linux pass them as arguments. Those that come before the first windows
 // open wait in launchFiles.
-const isMarkdown = (file: string) => /\.(md|markdown)$/i.test(file);
 const launchFiles = process.argv.slice(1).filter((arg) => isMarkdown(arg) && fs.statSync(arg, { throwIfNoEntry: false })?.isFile());
 let started = false;
 app.on("open-file", (evt, file) => {

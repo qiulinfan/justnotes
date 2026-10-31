@@ -407,7 +407,10 @@ plain style. Development notes belong in this file.
   write workspaces.json).
 - Where a built-in runs (`spec.ts`): `vault` (marked `*` in help) and `app`
   commands run in the vault window; `main` ones (`vaults`, `vault:open`,
-  `restart`, `quit`) in main; `completion` in the command. With no app
+  `restart`, `quit`) in main; `completion` in the command. `restart`
+  relaunches with the launch's options and a `--vault` for each open vault
+  window (`restartArgs`), never the files or `obsidian:` URLs the launch
+  opened. With no app
   running, a `vault` command reads the vault folder itself: `offline.ts`
   loads the app's own Vault, MetadataCache, MetadataTypeManager and
   InternalPlugins (core plugin options) in Bun, after
