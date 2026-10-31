@@ -83,7 +83,8 @@ const esc = md.utils.escapeHtml;
 // Renderer rules receive markdown-it's loosely typed env.
 const envOf = (env: Env | undefined) => env as RenderEnv;
 const SCHEME = /^[a-z][\w+.-]*:/i;
-const BLOCK_ID = /(?:^|[ \t])\^([A-Za-z0-9-]+)[ \t]*$/;
+// ^id after a space, or on a line of its own at the end of a paragraph.
+const BLOCK_ID = /(?:^|\s)\^([A-Za-z0-9-]+)[ \t]*$/;
 const CALLOUT = /^\[!([^\]|]+)(?:\|([^\]]*))?\]([+-]?)[ \t]*(.*)$/;
 const TAG = /^[^\s#!@$%^&*(),.?":{}|<>[\]\\`'~;=+]+/;
 
@@ -1074,14 +1075,16 @@ function sliceSubpath(text: string, subpath: string) {
 		const line = lines.findIndex((l) => BLOCK_ID.exec(l)?.[1].toLowerCase() === id);
 		if (line < 0) return null;
 		const blocks = tokens.filter((t) => t.map && t.nesting >= 0 && t.level === 0);
-		// A line holding only the id names the block above it.
-		if (!lines[line].replace(BLOCK_ID, "").trim()) {
-			const above = blocks.filter((t) => t.map![1] <= line).pop();
-			return above ? range(above.map![0], above.map![1]) : null;
-		}
-		const item = tokens.filter((t) => t.type === "list_item_open" && t.map && t.map[0] <= line && line < t.map[1]).pop();
-		const block = item ?? blocks.find((t) => t.map![0] <= line && line < t.map![1]);
-		return block ? range(block.map![0], block.map![1]) : range(line, line + 1);
+		// A line holding only the id belongs to the block it continues; after a
+		// blank line it is a paragraph of its own and names the block above.
+		const lone = !lines[line].replace(BLOCK_ID, "").trim();
+		const holds = (t: Token) => t.map![0] <= line && line < t.map![1] && !(lone && t.map![0] === line);
+		const item = tokens.filter((t) => t.type === "list_item_open" && t.map && holds(t)).pop();
+		const block = item ?? blocks.find(holds);
+		if (block) return range(block.map![0], block.map![1]);
+		if (!lone) return range(line, line + 1);
+		const above = blocks.filter((t) => t.map![1] <= line).pop();
+		return above ? range(above.map![0], above.map![1]) : null;
 	}
 	const headings: { line: number; level: number; text: string }[] = [];
 	tokens.forEach((t, i) => {
