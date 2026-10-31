@@ -147,6 +147,23 @@ describe("MetadataCache startup and tags", () => {
 		expect(resolvedCount).toBe(1);
 	});
 
+	// Startup resolves a link text once per folder: the same text in another
+	// folder, or a link to the note itself, must still get its own answer.
+	test("the same link text resolves per folder, and [[#heading]] to each note itself", async () => {
+		const { cache } = await makeCache({
+			"a/x.md": "[[note]] [[#Top]] [[note]]",
+			"a/y.md": "[[note]] [[#Top]]",
+			"a/note.md": "",
+			"b/z.md": "[[note]] [[#Top]]",
+			"b/note.md": "",
+			"c/w.md": "[[note]]",
+		});
+		expect(cache.resolvedLinks["a/x.md"]).toEqual({ "a/note.md": 2, "a/x.md": 1 });
+		expect(cache.resolvedLinks["a/y.md"]).toEqual({ "a/note.md": 1, "a/y.md": 1 });
+		expect(cache.resolvedLinks["b/z.md"]).toEqual({ "b/note.md": 1, "b/z.md": 1 });
+		expect(cache.resolvedLinks["c/w.md"]).toEqual({ "a/note.md": 1 });
+	});
+
 	test("getTags counts frontmatter and body tags, merging spellings that differ in case", async () => {
 		const { cache } = await makeCache({ "a.md": "---\ntags: [Project, solo]\n---\n#project", "b.md": "#project/sub" });
 		expect(cache.getTags()).toEqual({ "#Project": 2, "#solo": 1, "#project/sub": 1 });
