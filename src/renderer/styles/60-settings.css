@@ -380,7 +380,6 @@ button.mod-destructive.mod-cta {
 	opacity: 0.4;
 }
 
-.extra-setting-button:focus-visible,
 .checkbox-container:focus-visible {
 	outline: 2px solid var(--interactive-accent);
 	outline-offset: 2px;

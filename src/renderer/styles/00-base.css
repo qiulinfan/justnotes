@@ -238,6 +238,13 @@ button.mod-warning {
 	border-color: transparent;
 }
 
+/* Keyboard focus shows Obsidian's ring, not the system accent one. */
+button:focus-visible,
+.clickable-icon:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 3px var(--background-modifier-border-focus);
+}
+
 input[type="text"],
 input[type="search"],
 input[type="password"],
