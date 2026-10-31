@@ -429,7 +429,7 @@ export class FileSystemAdapter {
 	// Sets the vault's change handler and starts watching the vault folder.
 	async watch(handler: AdapterChange) {
 		this.#handler = handler;
-		this.#watchDir("", this.basePath);
+		if (!this.watchers[""]) this.#watchDir("", this.basePath);
 	}
 
 	trigger(type: string, path: string, oldPath?: string, stat?: FileStats) {
@@ -580,11 +580,12 @@ export class FileSystemAdapter {
 		let s: fs.Stats;
 		let target: string | null = null;
 		try {
-			if ((await fs.promises.lstat(full)).isSymbolicLink()) {
+			s = await fs.promises.lstat(full);
+			if (s.isSymbolicLink()) {
 				target = await fs.promises.realpath(full);
 				if (await this.#cyclic(normalizedPath, target)) return;
+				s = await fs.promises.stat(full);
 			}
-			s = await fs.promises.stat(full);
 		} catch (err) {
 			if (missing(err)) return;
 			throw err;
@@ -655,7 +656,6 @@ export class FileSystemAdapter {
 	async #reconcileMove(from: string, to: string) {
 		const entry = this.files[from];
 		const parent = parentOf(to);
-		if (!isHidden(to)) await this.#ensureParent(to);
 		if (entry && !HIDDEN(nameOf(to)) && (!parent || this.files[parent]?.type === "folder")) {
 			this.#rekey(from, to);
 			this.trigger("renamed", to, from);
