@@ -1445,9 +1445,14 @@ export class Workspace extends Events {
 		await leaf.openFile(file, { ...openViewState, active, eState });
 	}
 
+	// Stopgap until popout windows exist: a new tab in the main window. It is
+	// shown at once, as a popout window would be (a view such as terminal's
+	// starts only once visible), and takes focus only if the caller makes it
+	// active.
 	openPopoutLeaf(_data?: unknown) {
-		// Stopgap until popout windows exist: a new tab in the main window.
-		return this.getLeaf("tab");
+		const leaf = this.getLeaf("tab");
+		leaf.parent?.selectTab(leaf);
+		return leaf;
 	}
 
 	moveLeafToPopout(_leaf: WorkspaceLeaf, _data?: unknown): WorkspaceWindow {
