@@ -133,9 +133,10 @@ app.on("web-contents-created", (_evt, contents) => {
 // reload the page instead of running the close-tab and reload commands; no
 // item here takes a key the renderer's hotkeys use (Minimize leaves Cmd+M to
 // Quick LaTeX's inline math). The Edit roles stay because text fields and
-// <webview> guests undo, copy and paste through them. Quit closes each window
-// through its before-close flush (lifecycle.ts). Windows and Linux get no menu
-// bar.
+// <webview> guests undo, copy and paste through them. View keeps the default
+// menu's zoom (Cmd+0, Cmd+Plus, Cmd+-), which zooms the whole app as
+// Obsidian's does, and full screen. Quit closes each window through its
+// before-close flush (lifecycle.ts). Windows and Linux get no menu bar.
 function setApplicationMenu() {
 	if (process.platform !== "darwin") return Menu.setApplicationMenu(null);
 	Menu.setApplicationMenu(
@@ -155,7 +156,18 @@ function setApplicationMenu() {
 					{ role: "selectAll" },
 				],
 			},
-			{ label: "View", submenu: [{ role: "toggleDevTools" }] },
+			{
+				label: "View",
+				submenu: [
+					{ role: "toggleDevTools" },
+					{ type: "separator" },
+					{ role: "resetZoom" },
+					{ role: "zoomIn" },
+					{ role: "zoomOut" },
+					{ type: "separator" },
+					{ role: "togglefullscreen" },
+				],
+			},
 			{ role: "window", submenu: [{ label: "Minimize", click: (_item, win) => win?.minimize() }, { role: "zoom" }, { type: "separator" }, { role: "front" }] },
 		]),
 	);
