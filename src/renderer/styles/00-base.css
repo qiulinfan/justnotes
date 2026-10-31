@@ -9,17 +9,54 @@ body {
 	--font-ui-small: 13px;
 	--font-ui-medium: 15px;
 	--font-text-size: 16px;
+	--font-smallest: 0.8em;
+	--font-smaller: 0.875em;
+	--font-small: 0.933em;
+	--font-thin: 100;
+	--font-extralight: 200;
+	--font-light: 300;
+	--font-normal: 400;
+	--font-medium: 500;
+	--font-semibold: 600;
+	--font-bold: 700;
+	--font-extrabold: 800;
+	--font-black: 900;
 	--line-height-normal: 1.5;
+	--line-height-tight: 1.3;
+	--code-size: var(--font-smaller);
 	--radius-s: 4px;
 	--radius-m: 8px;
 	--radius-l: 12px;
+	--border-width: 1px;
+	--size-2-1: 2px;
+	--size-2-2: 4px;
+	--size-2-3: 6px;
 	--size-4-1: 4px;
 	--size-4-2: 8px;
 	--size-4-3: 12px;
 	--size-4-4: 16px;
+	--size-4-5: 20px;
+	--size-4-6: 24px;
+	--size-4-8: 32px;
+	--size-4-9: 36px;
+	--size-4-12: 48px;
+	--size-4-16: 64px;
+	--size-4-18: 72px;
 	--icon-size: 18px;
-	--icon-s: 16px;
 	--icon-xs: 14px;
+	--icon-s: 16px;
+	--icon-m: 18px;
+	--icon-l: 18px;
+	--icon-xl: 32px;
+	--icon-color: var(--text-muted);
+	--icon-color-hover: var(--text-normal);
+	--cursor: default;
+	--cursor-link: pointer;
+	/* Obsidian leaves these undocumented; the values are this app's look. */
+	--input-height: 30px;
+	--search-clear-button-color: var(--text-faint);
+	--search-clear-button-size: 14px;
+	--nav-item-color-active: var(--text-normal);
 	--ribbon-width: 44px;
 	--file-line-width: 750px;
 	--header-height: 40px;
@@ -30,18 +67,39 @@ body {
 	--interactive-accent: hsl(var(--accent-h), var(--accent-s), var(--accent-l));
 	--interactive-accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 4%));
 	--text-on-accent: white;
+	--text-on-accent-inverted: black;
 	--text-accent: var(--interactive-accent);
+	--text-accent-hover: var(--interactive-accent-hover);
 	--text-error: #e93147;
 	--text-success: #08b94e;
 	--text-warning: #e0ac00;
-	--color-red: #e93147;
-	--color-green: #08b94e;
-	--color-yellow: #e0ac00;
-	--color-blue: #086ddd;
-	--color-orange: #ec7500;
-	--color-purple: #7852ee;
+	--text-highlight-bg: rgba(255, 208, 0, 0.4);
+	--text-highlight-bg-active: rgba(255, 128, 0, 0.4);
+	--modal-background: var(--background-primary);
+	/* Each colour also exists as its channels, set per theme below, which
+	   plugin CSS tints with: rgba(var(--color-purple-rgb), 0.14). */
+	--color-red: rgb(var(--color-red-rgb));
+	--color-orange: rgb(var(--color-orange-rgb));
+	--color-yellow: rgb(var(--color-yellow-rgb));
+	--color-green: rgb(var(--color-green-rgb));
+	--color-cyan: rgb(var(--color-cyan-rgb));
+	--color-blue: rgb(var(--color-blue-rgb));
+	--color-purple: rgb(var(--color-purple-rgb));
+	--color-pink: rgb(var(--color-pink-rgb));
 	--shadow-s: 0 1px 2px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(0, 0, 0, 0.1);
 	--shadow-l: 0 8px 32px rgba(0, 0, 0, 0.25);
+	/* Stacking layers, lowest first. Host overlays sit on them too, so a
+	   plugin overlay on a layer stacks against them as in Obsidian. */
+	--layer-cover: 5;
+	--layer-sidedock: 10;
+	--layer-status-bar: 15;
+	--layer-popover: 30;
+	--layer-slides: 45;
+	--layer-modal: 50;
+	--layer-notice: 60;
+	--layer-menu: 65;
+	--layer-tooltip: 70;
+	--layer-dragged-item: 80;
 	--h1-size: 1.8em;
 	--h2-size: 1.6em;
 	--h3-size: 1.4em;
@@ -59,6 +117,7 @@ body.theme-light {
 	--background-modifier-active-hover: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.15);
 	--background-modifier-border: #e0e0e0;
 	--background-modifier-border-hover: #d4d4d4;
+	--background-modifier-border-focus: #bdbdbd;
 	--background-modifier-form-field: #ffffff;
 	--background-modifier-error: #e93147;
 	--background-modifier-success: #08b94e;
@@ -71,6 +130,14 @@ body.theme-light {
 	--interactive-hover: #f0f0f0;
 	--code-background: #fafafa;
 	--titlebar-background: #f6f6f6;
+	--color-red-rgb: 233, 49, 71;
+	--color-orange-rgb: 236, 117, 0;
+	--color-yellow-rgb: 224, 172, 0;
+	--color-green-rgb: 8, 185, 78;
+	--color-cyan-rgb: 0, 191, 188;
+	--color-blue-rgb: 8, 109, 221;
+	--color-purple-rgb: 120, 82, 238;
+	--color-pink-rgb: 213, 57, 132;
 }
 
 body.theme-dark {
@@ -82,6 +149,7 @@ body.theme-dark {
 	--background-modifier-active-hover: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.15);
 	--background-modifier-border: #363636;
 	--background-modifier-border-hover: #444444;
+	--background-modifier-border-focus: #555555;
 	--background-modifier-form-field: #262626;
 	--background-modifier-error: #e93147;
 	--background-modifier-success: #08b94e;
@@ -94,6 +162,14 @@ body.theme-dark {
 	--interactive-hover: #303030;
 	--code-background: #2a2a2a;
 	--titlebar-background: #262626;
+	--color-red-rgb: 251, 70, 76;
+	--color-orange-rgb: 233, 151, 63;
+	--color-yellow-rgb: 224, 222, 113;
+	--color-green-rgb: 68, 207, 110;
+	--color-cyan-rgb: 83, 223, 221;
+	--color-blue-rgb: 2, 122, 255;
+	--color-purple-rgb: 168, 130, 255;
+	--color-pink-rgb: 250, 153, 205;
 }
 
 * {
@@ -160,6 +236,13 @@ button.mod-warning {
 	background: var(--background-modifier-error);
 	color: white;
 	border-color: transparent;
+}
+
+/* Keyboard focus shows Obsidian's ring, not the system accent one. */
+button:focus-visible,
+.clickable-icon:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 3px var(--background-modifier-border-focus);
 }
 
 input[type="text"],

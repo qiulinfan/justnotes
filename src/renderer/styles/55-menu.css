@@ -1,7 +1,7 @@
 /* Menus: .menu > .menu-scroll > .menu-group, separated by .menu-separator */
 .menu {
 	position: fixed;
-	z-index: 300;
+	z-index: var(--layer-menu);
 	background: var(--background-secondary);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);

@@ -98,7 +98,7 @@
 
 .suggestion-container {
 	position: fixed;
-	z-index: 200;
+	z-index: var(--layer-menu);
 	background: var(--background-primary);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);

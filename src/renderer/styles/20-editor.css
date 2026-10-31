@@ -3,6 +3,13 @@
 	height: 100%;
 }
 
+/* CodeMirror stacks its find panel at 300 and its tooltips at 500. Keep those
+   inside every editor, plugins' too, so the host's menus, notices, tooltips
+   and modals on Obsidian's lower layers still cover them. */
+.cm-editor {
+	isolation: isolate;
+}
+
 .markdown-source-view .cm-editor {
 	height: 100%;
 	font-family: var(--font-text);
@@ -63,6 +70,16 @@
 	background: var(--background-secondary);
 	color: var(--text-normal);
 	border-color: var(--background-modifier-border) !important;
+}
+
+/* Find: matches take Obsidian's highlight colours, the current one its
+   active colour. */
+.markdown-source-view.mod-cm6 .cm-searchMatch {
+	background: var(--text-highlight-bg);
+}
+
+.markdown-source-view.mod-cm6 .cm-searchMatch-selected {
+	background: var(--text-highlight-bg-active);
 }
 
 /* Markdown tokens, scoped to Obsidian's editor classes as in Obsidian, so a
@@ -134,7 +151,7 @@
 }
 
 .markdown-source-view.mod-cm6 .cm-highlight {
-	background: var(--text-highlight-bg, rgba(255, 208, 0, 0.4));
+	background: var(--text-highlight-bg);
 	color: var(--text-normal);
 }
 

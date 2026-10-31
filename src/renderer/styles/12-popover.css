@@ -1,7 +1,7 @@
 /* Hover popovers (page preview): above the workspace, below modals and menus. */
 .popover.hover-popover {
 	position: fixed;
-	z-index: 30;
+	z-index: var(--layer-popover);
 	width: 450px;
 	max-width: calc(100vw - 16px);
 	max-height: 420px;

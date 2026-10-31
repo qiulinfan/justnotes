@@ -2,34 +2,19 @@
    through --callout-color and --callout-icon as in Obsidian, so theme and
    snippet rules for .callout[data-callout="..."] apply. */
 body {
-	--callout-default: var(--color-blue-rgb, 8, 109, 221);
-	--callout-info: var(--color-blue-rgb, 8, 109, 221);
-	--callout-summary: var(--color-cyan-rgb, 0, 191, 188);
-	--callout-todo: var(--color-blue-rgb, 8, 109, 221);
-	--callout-tip: var(--color-cyan-rgb, 0, 191, 188);
-	--callout-success: var(--color-green-rgb, 8, 185, 78);
-	--callout-question: var(--color-orange-rgb, 236, 117, 0);
-	--callout-warning: var(--color-orange-rgb, 236, 117, 0);
-	--callout-fail: var(--color-red-rgb, 233, 49, 71);
-	--callout-error: var(--color-red-rgb, 233, 49, 71);
-	--callout-bug: var(--color-red-rgb, 233, 49, 71);
-	--callout-example: var(--color-purple-rgb, 120, 82, 238);
+	--callout-default: var(--color-blue-rgb);
+	--callout-info: var(--color-blue-rgb);
+	--callout-summary: var(--color-cyan-rgb);
+	--callout-todo: var(--color-blue-rgb);
+	--callout-tip: var(--color-cyan-rgb);
+	--callout-success: var(--color-green-rgb);
+	--callout-question: var(--color-orange-rgb);
+	--callout-warning: var(--color-orange-rgb);
+	--callout-fail: var(--color-red-rgb);
+	--callout-error: var(--color-red-rgb);
+	--callout-bug: var(--color-red-rgb);
+	--callout-example: var(--color-purple-rgb);
 	--callout-quote: 158, 158, 158;
-}
-
-body.theme-dark {
-	--callout-default: var(--color-blue-rgb, 2, 122, 255);
-	--callout-info: var(--color-blue-rgb, 2, 122, 255);
-	--callout-summary: var(--color-cyan-rgb, 83, 223, 221);
-	--callout-todo: var(--color-blue-rgb, 2, 122, 255);
-	--callout-tip: var(--color-cyan-rgb, 83, 223, 221);
-	--callout-success: var(--color-green-rgb, 68, 207, 110);
-	--callout-question: var(--color-orange-rgb, 233, 151, 63);
-	--callout-warning: var(--color-orange-rgb, 233, 151, 63);
-	--callout-fail: var(--color-red-rgb, 251, 70, 76);
-	--callout-error: var(--color-red-rgb, 251, 70, 76);
-	--callout-bug: var(--color-red-rgb, 251, 70, 76);
-	--callout-example: var(--color-purple-rgb, 168, 130, 255);
 }
 
 .callout {
