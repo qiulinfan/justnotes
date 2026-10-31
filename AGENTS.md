@@ -163,8 +163,8 @@ plain style. Development notes belong in this file.
   WebM/Opus as Obsidian's desktop recordings (MP4, then Ogg, only where WebM
   is not recorded), named `Recording YYYYMMDDHHmmss.webm`, saved through
   `importFile` into the attachment folder for the active note and embedded
-  at its cursor on a line of its own (Obsidian's docs say at the end of the
-  note); with no note open it opens in a tab. Media players
+  at the end of the note on a line of its own, as Obsidian's docs say (the
+  cursor stays); with no note open it opens in a tab. Media players
   (`createMediaPlayer` in `markdown.ts`, used by embeds in both views and by
   the `audio`/`video` views of `media-view.ts`, registered at boot for
   Obsidian's extensions) turn a video file without a picture into an audio
