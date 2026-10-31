@@ -3,6 +3,13 @@
 	height: 100%;
 }
 
+/* CodeMirror stacks its find panel at 300 and its tooltips at 500. Keep those
+   inside every editor, plugins' too, so the host's menus, notices, tooltips
+   and modals on Obsidian's lower layers still cover them. */
+.cm-editor {
+	isolation: isolate;
+}
+
 .markdown-source-view .cm-editor {
 	height: 100%;
 	font-family: var(--font-text);
