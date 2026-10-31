@@ -105,7 +105,7 @@ pre:hover > .copy-code-button {
 }
 
 .markdown-rendered mark {
-	background-color: rgba(255, 208, 0, 0.4);
+	background-color: var(--text-highlight-bg);
 	color: inherit;
 }
 
@@ -291,7 +291,7 @@ section.footnotes {
 }
 
 .markdown-rendered .token:is(.property, .attr-name, .class-name, .builtin) {
-	color: var(--code-property, #00bfbc);
+	color: var(--code-property, var(--color-cyan));
 }
 
 .markdown-rendered .token:is(.tag, .deleted, .selector) {
@@ -311,7 +311,7 @@ section.footnotes {
 }
 
 .markdown-rendered .token:is(.keyword, .atrule, .important) {
-	color: var(--code-keyword, #d53984);
+	color: var(--code-keyword, var(--color-pink));
 }
 
 .markdown-rendered .token.function {
