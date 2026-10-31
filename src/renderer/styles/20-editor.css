@@ -59,82 +59,152 @@
 	background: transparent;
 }
 
-.cm-header {
-	font-weight: 700;
-}
-
-.cm-header-1 {
-	font-size: var(--h1-size);
-}
-
-.cm-header-2 {
-	font-size: var(--h2-size);
-}
-
-.cm-header-3 {
-	font-size: var(--h3-size);
-}
-
-.cm-header-4 {
-	font-size: var(--h4-size);
-}
-
-.cm-header-5 {
-	font-size: var(--h5-size);
-}
-
-.cm-strong {
-	font-weight: 700;
-}
-
-.cm-em {
-	font-style: italic;
-}
-
-.cm-strikethrough {
-	text-decoration: line-through;
-}
-
-.cm-link,
-.cm-url {
-	color: var(--text-accent);
-}
-
-.cm-inline-code {
-	font-family: var(--font-monospace);
-	font-size: 0.875em;
-	background: var(--code-background);
-	border-radius: var(--radius-s);
-}
-
-.cm-formatting,
-.cm-meta {
-	color: var(--text-faint);
-}
-
-.cm-quote {
-	color: var(--text-muted);
-}
-
 .cm-panels {
 	background: var(--background-secondary);
 	color: var(--text-normal);
 	border-color: var(--background-modifier-border) !important;
 }
 
-.tok-keyword {
-	color: var(--color-purple);
+/* Markdown tokens, scoped to Obsidian's editor classes as in Obsidian, so a
+   plugin's own CodeMirror editor stays unstyled unless it opts in. */
+.markdown-source-view.mod-cm6 .cm-header {
+	font-weight: 700;
 }
 
-.tok-string {
-	color: var(--color-green);
+.markdown-source-view.mod-cm6 .cm-header-1 {
+	font-size: var(--h1-size);
 }
 
-.tok-comment {
-	color: var(--text-faint);
+.markdown-source-view.mod-cm6 .cm-header-2 {
+	font-size: var(--h2-size);
+}
+
+.markdown-source-view.mod-cm6 .cm-header-3 {
+	font-size: var(--h3-size);
+}
+
+.markdown-source-view.mod-cm6 .cm-header-4 {
+	font-size: var(--h4-size);
+}
+
+.markdown-source-view.mod-cm6 .cm-header-5 {
+	font-size: var(--h5-size);
+}
+
+.markdown-source-view.mod-cm6 .cm-header-6 {
+	font-size: var(--h6-size);
+}
+
+.markdown-source-view.mod-cm6 .cm-strong {
+	font-weight: 700;
+}
+
+.markdown-source-view.mod-cm6 .cm-em {
 	font-style: italic;
 }
 
-.tok-number {
-	color: var(--color-orange);
+.markdown-source-view.mod-cm6 .cm-strikethrough {
+	text-decoration: line-through;
+}
+
+.markdown-source-view.mod-cm6 .cm-link,
+.markdown-source-view.mod-cm6 .cm-url,
+.markdown-source-view.mod-cm6 .cm-hmd-internal-link {
+	color: var(--link-color, var(--text-accent));
+}
+
+.markdown-source-view.mod-cm6 .cm-inline-code {
+	font-family: var(--font-monospace);
+	font-size: 0.875em;
+	background: var(--code-background);
+	border-radius: var(--radius-s);
+}
+
+.markdown-source-view.mod-cm6 .cm-formatting,
+.markdown-source-view.mod-cm6 .cm-meta {
+	color: var(--text-faint);
+}
+
+.markdown-source-view.mod-cm6 .cm-formatting-header {
+	color: var(--heading-formatting, var(--text-faint));
+}
+
+.markdown-source-view.mod-cm6 .cm-quote {
+	color: var(--blockquote-color, var(--text-muted));
+}
+
+.markdown-source-view.mod-cm6 .cm-highlight {
+	background: var(--text-highlight-bg, rgba(255, 208, 0, 0.4));
+	color: var(--text-normal);
+}
+
+.markdown-source-view.mod-cm6 .cm-comment {
+	color: var(--code-comment, var(--text-faint));
+}
+
+.markdown-source-view.mod-cm6 .cm-math {
+	font-family: var(--font-monospace);
+	font-size: 0.9em;
+	color: var(--text-accent);
+}
+
+.markdown-source-view.mod-cm6 .cm-hmd-frontmatter {
+	font-family: var(--font-monospace);
+	font-size: 0.875em;
+	color: var(--text-muted);
+}
+
+.markdown-source-view.mod-cm6 .cm-footref {
+	color: var(--text-accent);
+	font-size: var(--font-smaller, 0.875em);
+}
+
+.markdown-source-view.mod-cm6 .cm-hashtag {
+	color: var(--tag-color, var(--text-accent));
+}
+
+/* Code inside fenced blocks, with CodeMirror 5's token classes. */
+.markdown-source-view.mod-cm6 .cm-hmd-codeblock {
+	font-family: var(--font-monospace);
+	color: var(--code-normal, var(--text-normal));
+}
+
+.markdown-source-view.mod-cm6 .cm-keyword {
+	color: var(--code-keyword, var(--color-purple));
+}
+
+.markdown-source-view.mod-cm6 .cm-string,
+.markdown-source-view.mod-cm6 .cm-string-2 {
+	color: var(--code-string, var(--color-green));
+}
+
+.markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-comment {
+	color: var(--code-comment, var(--text-faint));
+	font-style: italic;
+}
+
+.markdown-source-view.mod-cm6 .cm-number,
+.markdown-source-view.mod-cm6 .cm-atom {
+	color: var(--code-value, var(--color-orange));
+}
+
+.markdown-source-view.mod-cm6 .cm-def,
+.markdown-source-view.mod-cm6 .cm-variable-2 {
+	color: var(--code-function, var(--color-yellow));
+}
+
+.markdown-source-view.mod-cm6 .cm-property,
+.markdown-source-view.mod-cm6 .cm-attribute {
+	color: var(--code-property, var(--color-blue));
+}
+
+.markdown-source-view.mod-cm6 .cm-operator,
+.markdown-source-view.mod-cm6 .cm-bracket {
+	color: var(--code-operator, var(--text-muted));
+}
+
+.markdown-source-view.mod-cm6 .cm-tag,
+.markdown-source-view.mod-cm6 .cm-builtin,
+.markdown-source-view.mod-cm6 .cm-type {
+	color: var(--code-tag, var(--color-red));
 }

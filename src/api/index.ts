@@ -22,7 +22,6 @@ export * from "./util";
 export * from "./vault";
 export * from "./view";
 export * from "./workspace";
-export { editorLivePreviewField as livePreviewState } from "./editor";
 
 import { apiVersion } from "./util";
 

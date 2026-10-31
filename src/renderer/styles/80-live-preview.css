@@ -1,10 +1,5 @@
-/* Live Preview */
-.cm-math {
-	font-family: var(--font-monospace);
-	font-size: 0.9em;
-	color: var(--text-accent);
-}
-
+/* Live Preview. Variable names are Obsidian's, so themes and snippets can
+   restyle these elements; the fallbacks are this app's defaults. */
 .markdown-source-view .math-inline {
 	display: inline-block;
 	vertical-align: middle;
@@ -25,56 +20,361 @@
 	font-size: 0.85em;
 }
 
-.HyperMD-header {
+.markdown-source-view.mod-cm6 .HyperMD-header {
 	padding-top: 0.4em;
 }
 
-.HyperMD-quote {
-	border-left: 3px solid var(--interactive-accent);
-	padding-left: 12px !important;
-	color: var(--text-muted);
+/* Quotes: one bar per level, in Live Preview where the > marks are hidden. */
+.markdown-source-view.mod-cm6.is-live-preview .HyperMD-quote {
+	--quote-bar: linear-gradient(var(--blockquote-border-color, var(--interactive-accent)), var(--blockquote-border-color, var(--interactive-accent)));
+	background: var(--quote-bar) 6px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat;
+	padding-left: 18px !important;
+	color: var(--blockquote-color, var(--text-muted));
 }
 
-.HyperMD-codeblock {
+.markdown-source-view.mod-cm6.is-live-preview .HyperMD-quote-2 {
+	background:
+		var(--quote-bar) 6px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat,
+		var(--quote-bar) 20px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat;
+	padding-left: 32px !important;
+}
+
+.markdown-source-view.mod-cm6.is-live-preview .HyperMD-quote-3 {
+	background:
+		var(--quote-bar) 6px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat,
+		var(--quote-bar) 20px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat,
+		var(--quote-bar) 34px 0 / var(--blockquote-border-thickness, 3px) 100% no-repeat;
+	padding-left: 46px !important;
+}
+
+/* Fenced code: a box over its lines, the language at the top right. */
+.markdown-source-view.mod-cm6 .HyperMD-codeblock {
 	font-family: var(--font-monospace);
-	font-size: 0.875em;
+	font-size: var(--code-size, 0.875em);
 	background: var(--code-background);
+	padding-left: 16px !important;
+	padding-right: 16px !important;
 }
 
-.list-bullet {
+.markdown-source-view.mod-cm6 .HyperMD-codeblock-begin {
+	position: relative;
+	border-top-left-radius: var(--radius-s);
+	border-top-right-radius: var(--radius-s);
+}
+
+.markdown-source-view.mod-cm6 .HyperMD-codeblock-end {
+	border-bottom-left-radius: var(--radius-s);
+	border-bottom-right-radius: var(--radius-s);
+}
+
+.markdown-source-view.mod-cm6 .code-block-flair {
+	position: absolute;
+	top: 0;
+	right: 12px;
+	font-family: var(--font-interface);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	user-select: none;
+}
+
+/* The bullet character stays in the text, drawn over as a dot. */
+.markdown-source-view.mod-cm6 .list-bullet {
+	position: relative;
+	color: transparent;
+}
+
+.markdown-source-view.mod-cm6 .list-bullet::after {
+	content: "";
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: var(--list-bullet-size, 5px);
+	height: var(--list-bullet-size, 5px);
+	border-radius: var(--list-bullet-radius, 50%);
+	background: var(--list-marker-color, var(--text-faint));
+	transform: translate(-50%, -50%);
+}
+
+.markdown-source-view.mod-cm6 .task-list-label {
 	display: inline-block;
-	width: 1.1em;
-	color: var(--text-muted);
-}
-
-.task-list-item-checkbox {
-	margin: 0 6px 0 0;
-	vertical-align: middle;
 	cursor: pointer;
 }
 
-.cm-hr {
+.markdown-source-view.mod-cm6 .task-list-item-checkbox {
+	appearance: none;
+	position: relative;
+	top: -1px;
+	width: var(--checkbox-size, 15px);
+	height: var(--checkbox-size, 15px);
+	margin: 0 6px 0 0;
+	vertical-align: middle;
+	border: 1px solid var(--checkbox-border-color, var(--text-faint));
+	border-radius: var(--checkbox-radius, 4px);
+	cursor: pointer;
+}
+
+.markdown-source-view.mod-cm6 .task-list-item-checkbox:checked {
+	background: var(--checkbox-color, var(--interactive-accent));
+	border-color: var(--checkbox-color, var(--interactive-accent));
+}
+
+.markdown-source-view.mod-cm6 .task-list-item-checkbox:checked::after {
+	content: "";
+	position: absolute;
+	left: 4.5px;
+	top: 1.5px;
+	width: 4px;
+	height: 8px;
+	border: solid var(--checkbox-marker-color, var(--text-on-accent));
+	border-width: 0 2px 2px 0;
+	transform: rotate(45deg);
+}
+
+.markdown-source-view.mod-cm6 .HyperMD-task-line:not([data-task=" "]) {
+	text-decoration: var(--checklist-done-decoration, line-through);
+	color: var(--checklist-done-color, var(--text-muted));
+}
+
+.markdown-source-view.mod-cm6 .cm-hr {
 	display: inline-block;
 	width: 100%;
 	border: none;
-	border-top: 1px solid var(--background-modifier-border);
+	border-top: var(--hr-thickness, 1px) solid var(--hr-color, var(--background-modifier-border));
 	margin: 0;
 	vertical-align: middle;
 }
 
-.cm-image-embed {
+.markdown-source-view.mod-cm6 .image-embed {
+	display: inline-block;
+	max-width: 100%;
+}
+
+.markdown-source-view.mod-cm6 .image-embed img,
+.markdown-source-view.mod-cm6 .cm-html-embed img {
 	max-width: 100%;
 	border-radius: var(--radius-s);
 	vertical-align: bottom;
 }
 
-.cm-link-rendered,
-.cm-hmd-internal-link {
-	color: var(--text-accent);
+.markdown-source-view.mod-cm6 .cm-underline[data-href] {
 	cursor: pointer;
 }
 
-.cm-link-rendered:hover,
-.cm-hmd-internal-link:hover {
+.markdown-source-view.mod-cm6 .cm-underline[data-href]:hover {
 	text-decoration: underline;
+}
+
+.markdown-source-view.mod-cm6 .cm-underline.is-unresolved {
+	opacity: var(--link-unresolved-opacity, 0.7);
+}
+
+/* Tags as pills. */
+.markdown-source-view.mod-cm6 .cm-hashtag {
+	background: var(--tag-background, hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.1));
+	color: var(--tag-color, var(--text-accent));
+	font-size: var(--tag-size, 0.875em);
+	padding: var(--tag-padding-y, 0.1em) 0;
+}
+
+.markdown-source-view.mod-cm6 .cm-hashtag-begin {
+	border-radius: var(--tag-radius, 2em) 0 0 var(--tag-radius, 2em);
+	padding-left: var(--tag-padding-x, 0.6em);
+}
+
+.markdown-source-view.mod-cm6 .cm-hashtag-end {
+	border-radius: 0 var(--tag-radius, 2em) var(--tag-radius, 2em) 0;
+	padding-right: var(--tag-padding-x, 0.6em);
+}
+
+.markdown-source-view.mod-cm6 [data-tag] {
+	cursor: pointer;
+}
+
+/* Rendered blocks: tables, callouts, code-block processors. */
+.markdown-source-view.mod-cm6 .cm-embed-block {
+	position: relative;
+}
+
+.markdown-source-view.mod-cm6 .cm-table-widget,
+.markdown-source-view.mod-cm6 .cm-callout,
+.markdown-source-view.mod-cm6 .cm-preview-code-block {
+	margin: 4px 0;
+	padding: 0 6px;
+}
+
+.markdown-source-view.mod-cm6 .cm-embed-block > div > :first-child {
+	margin-top: 0;
+}
+
+.markdown-source-view.mod-cm6 .cm-embed-block > div > :last-child {
+	margin-bottom: 0;
+}
+
+.markdown-source-view.mod-cm6 .edit-block-button {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	display: flex;
+	padding: 2px 4px;
+	border-radius: var(--radius-s);
+	color: var(--text-faint);
+	opacity: 0;
+	cursor: pointer;
+}
+
+.markdown-source-view.mod-cm6 .cm-embed-block:hover > .edit-block-button {
+	opacity: 1;
+}
+
+.markdown-source-view.mod-cm6 .edit-block-button:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.markdown-source-view.mod-cm6 .edit-block-button .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.markdown-source-view.mod-cm6 .cm-table-widget {
+	overflow-x: auto;
+}
+
+.markdown-source-view.mod-cm6 .cm-table-widget table {
+	border-collapse: collapse;
+}
+
+.markdown-source-view.mod-cm6 .cm-table-widget th,
+.markdown-source-view.mod-cm6 .cm-table-widget td {
+	border: var(--table-border-width, 1px) solid var(--table-border-color, var(--background-modifier-border));
+	padding: 4px 10px;
+	vertical-align: var(--table-cell-vertical-alignment, top);
+}
+
+.markdown-source-view.mod-cm6 .cm-table-widget th {
+	font-weight: var(--table-header-weight, 600);
+	background: var(--table-header-background, transparent);
+}
+
+/* A callout before the renderer knows callouts shows as a quote. */
+.markdown-source-view.mod-cm6 .cm-callout blockquote {
+	margin: 0;
+	padding-left: 12px;
+	border-left: var(--blockquote-border-thickness, 3px) solid var(--blockquote-border-color, var(--interactive-accent));
+}
+
+.markdown-source-view.mod-cm6 .cm-callout blockquote > :first-child {
+	margin-top: 0;
+}
+
+.markdown-source-view.mod-cm6 .cm-callout blockquote > :last-child {
+	margin-bottom: 0;
+}
+
+/* Properties above the note. */
+.markdown-source-view.mod-cm6 .metadata-container {
+	margin-bottom: 12px;
+	padding: var(--metadata-padding, 6px);
+	font-family: var(--font-interface);
+	font-size: var(--metadata-input-font-size, var(--font-ui-small));
+	cursor: text;
+}
+
+.markdown-source-view.mod-cm6 .metadata-properties-heading {
+	margin-bottom: 4px;
+	font-weight: 600;
+	color: var(--text-muted);
+}
+
+.markdown-source-view.mod-cm6 .metadata-property {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--metadata-gap, 8px);
+	padding: var(--metadata-property-padding, 2px 0);
+}
+
+.markdown-source-view.mod-cm6 .metadata-property-key {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-shrink: 0;
+	width: var(--metadata-label-width, 9em);
+	color: var(--metadata-label-text-color, var(--text-muted));
+}
+
+.markdown-source-view.mod-cm6 .metadata-property-icon {
+	display: inline-flex;
+	color: var(--text-faint);
+}
+
+.markdown-source-view.mod-cm6 .metadata-property-icon .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.markdown-source-view.mod-cm6 .metadata-property-value {
+	flex: 1;
+	min-width: 0;
+	color: var(--metadata-input-text-color, var(--text-normal));
+	overflow-wrap: anywhere;
+}
+
+.markdown-source-view.mod-cm6 .multi-select-container {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+
+.markdown-source-view.mod-cm6 .multi-select-pill {
+	padding: 0 8px;
+	border-radius: 2em;
+	background: var(--background-modifier-hover);
+}
+
+.markdown-source-view.mod-cm6 .metadata-error {
+	color: var(--text-error);
+}
+
+/* Fold chevrons show while the pointer is over the editor; folded ones
+   stay. */
+.markdown-source-view.mod-cm6 .cm-foldGutter .cm-gutterElement {
+	display: flex;
+	align-items: center;
+	padding: 0 2px;
+}
+
+.markdown-source-view.mod-cm6 .cm-fold-indicator {
+	display: flex;
+	color: var(--text-faint);
+	opacity: 0;
+	cursor: pointer;
+	transition: opacity 0.15s;
+}
+
+.markdown-source-view.mod-cm6 .cm-editor:hover .cm-fold-indicator,
+.markdown-source-view.mod-cm6 .cm-fold-indicator.is-collapsed {
+	opacity: 1;
+}
+
+.markdown-source-view.mod-cm6 .cm-fold-indicator:hover {
+	color: var(--text-normal);
+}
+
+.markdown-source-view.mod-cm6 .cm-fold-indicator .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.markdown-source-view.mod-cm6 .collapse-icon.is-collapsed .svg-icon {
+	transform: rotate(-90deg);
+}
+
+.markdown-source-view.mod-cm6 .cm-foldPlaceholder {
+	margin: 0 4px;
+	padding: 0 4px;
+	border: none;
+	border-radius: var(--radius-s);
+	background: var(--background-modifier-hover);
+	color: var(--text-muted);
+	cursor: pointer;
 }
