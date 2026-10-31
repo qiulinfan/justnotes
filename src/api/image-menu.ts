@@ -1,11 +1,18 @@
 import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import type { App } from "./app";
+import { relativeSrc } from "./attachments";
 import { resolveHtmlSrc } from "./markdown";
+import { getLinkpath } from "./metadata-utils";
+import { attempt, MoveModal, PromptModal } from "./ui/file-modals";
 import { Menu } from "./ui/menu";
+import type { TFile } from "./vault";
 
-// Double-clicking an image in a note offers zoom presets that rewrite the
-// image's size in the source: an HTML <img>'s `zoom` style (Typora's), a
-// wikilink or Markdown embed's width (from the image's natural width).
+// Double-clicking an image in a note opens the image menu: zoom presets that
+// rewrite the image's size in the source (an HTML <img>'s `zoom` style, as
+// Typora writes it, or a wikilink or Markdown embed's width from the image's
+// natural width), alignment (an <img> style; an embed becomes an <img>
+// first) and renaming or moving the image file, whose links follow.
 
 export const ZOOM_PRESETS = [100, 75, 67, 50, 33, 25];
 
@@ -114,39 +121,159 @@ export function currentZoom(text: string, kind: ImageKind, naturalWidth: number)
 	return width === null || !naturalWidth ? null : Math.round((width / naturalWidth) * 100);
 }
 
-// The menu of zoom presets and Reset at the pointer.
-export function showImageZoomMenu(evt: MouseEvent, current: number | null, pick: (zoom: number | null) => void) {
+export type ImageAlign = "left" | "center" | "right";
+
+// Alignment as a style both views and Obsidian render the same way: a block
+// image with auto margins on the side(s) it moves away from.
+const ALIGN_MARGIN: Record<ImageAlign, string> = { left: "0 auto 0 0", center: "0 auto", right: "0 0 0 auto" };
+const ALIGN_PROPS = /^(display|margin|margin-left|margin-right)\s*:/i;
+const STYLE_ATTR = /(\sstyle\s*=\s*)(?:(["'])(.*?)\2|([^\s"'>]+))/i;
+
+// An <img> tag aligned (null removes the alignment): its display and margin
+// declarations are replaced, the others and every attribute kept.
+export function setHtmlAlign(tag: string, align: ImageAlign | null): string {
+	const style = STYLE_ATTR.exec(tag);
+	const decls = (style ? (style[3] ?? style[4] ?? "") : "")
+		.split(";")
+		.map((d) => d.trim())
+		.filter(Boolean);
+	const kept = decls.filter((d) => !ALIGN_PROPS.test(d));
+	if (align) kept.push("display:block", `margin:${ALIGN_MARGIN[align]}`);
+	if (kept.length === decls.length && kept.every((d, i) => d === decls[i])) return tag;
+	const css = kept.length ? `${kept.join("; ")};` : "";
+	if (style) {
+		const at = style.index;
+		const end = at + style[0].length;
+		const quote = style[2] ?? '"';
+		return css ? `${tag.slice(0, at)}${style[1]}${quote}${css}${quote}${tag.slice(end)}` : tag.slice(0, at) + tag.slice(end);
+	}
+	const end = /\s*(\/?)>$/.exec(tag);
+	return end ? `${tag.slice(0, end.index)} style="${css}"${end[1] ? " />" : ">"}` : tag;
+}
+
+// The alignment an <img> tag's style shows; null for none (and for embeds).
+export function currentAlign(text: string, kind: ImageKind): ImageAlign | null {
+	if (kind !== "html") return null;
+	const margin = /(?:^|[\s;"'])margin\s*:\s*([^;"']*)/i.exec(STYLE_ATTR.exec(text)?.[0] ?? "")?.[1]?.trim();
+	return (Object.keys(ALIGN_MARGIN) as ImageAlign[]).find((a) => ALIGN_MARGIN[a] === margin) ?? null;
+}
+
+// A wikilink or Markdown image as an <img> tag (its size as width and
+// height attributes, its alt text or else `name` as alt), so it can carry an
+// alignment: embeds have no Obsidian syntax for one.
+export function embedAsHtml(text: string, kind: Exclude<ImageKind, "html">, src: string, name: string): string {
+	const alt = kind === "wikilink" ? text.slice(3, -2).split("|").slice(1).join("|") : text.slice(2, text.indexOf("]("));
+	const m = SIZE.exec(alt);
+	const rest = (m ? alt.slice(0, m.index) : alt).trim();
+	const size = m ? ` width="${m[1]}"${m[2] ? ` height="${m[2]}"` : ""}` : "";
+	return `<img src="${src.replace(/"/g, "%22")}" alt="${(rest || name).replace(/"/g, "&quot;")}"${size} />`;
+}
+
+// The vault file an image ref shows, as the views resolve it; null for a URL
+// or a missing file.
+export function imageFile(app: App, ref: ImageRef, sourcePath: string): TFile | null {
+	const dest = (path: string) => app.metadataCache.getFirstLinkpathDest(path, sourcePath);
+	if (ref.kind === "html") return resolveHtmlSrc(ref.target, dest);
+	let target = ref.target;
+	try {
+		target = decodeURI(target);
+	} catch {}
+	return /^[a-z][\w+.-]*:/i.test(target) ? null : dest(getLinkpath(target));
+}
+
+// Where the image menu acts: the note's app and path, and how to save the
+// note before a file operation reads its links.
+export interface ImageMenuHost {
+	app: App;
+	sourcePath(): string;
+	save?(): Promise<void>;
+}
+
+// The image menu for `ref` (positions in `view`'s document). A size or
+// alignment pick rewrites the ref as one undoable change, then `changed`
+// runs; rename and move go through fileManager.renameFile, so links (and
+// <img> srcs) follow.
+export function openImageMenu(evt: MouseEvent, host: ImageMenuHost, view: EditorView, ref: ImageRef, img: HTMLImageElement, changed?: () => void) {
+	const text = view.state.sliceDoc(ref.from, ref.to);
+	const sourcePath = host.sourcePath();
+	const file = imageFile(host.app, ref, sourcePath);
+	const rewrite = (next: (text: string) => string) => {
+		// The note may have changed while the menu was open.
+		if (view.state.sliceDoc(ref.from, ref.to) !== text) return;
+		const insert = next(text);
+		if (insert === text) return;
+		view.dispatch({ changes: { from: ref.from, to: ref.to, insert } });
+		changed?.();
+	};
+	const zoom = currentZoom(text, ref.kind, img.naturalWidth);
+	const aligned = currentAlign(text, ref.kind);
 	const menu = new Menu();
-	for (const zoom of ZOOM_PRESETS) {
+	for (const preset of ZOOM_PRESETS) {
 		menu.addItem((item) =>
 			item
-				.setTitle(`${zoom}%`)
-				.setChecked(current === zoom)
-				.onClick(() => pick(zoom)),
+				.setTitle(`${preset}%`)
+				.setChecked(zoom === preset)
+				.onClick(() => rewrite((t) => zoomImageSource(t, ref.kind, preset, img.naturalWidth))),
 		);
 	}
+	menu.addItem((item) =>
+		item
+			.setTitle("Reset size")
+			.setIcon("rotate-ccw")
+			.onClick(() => rewrite((t) => zoomImageSource(t, ref.kind, null, img.naturalWidth))),
+	);
+	menu.addSeparator();
+	const icons: Record<ImageAlign, string> = { left: "align-left", center: "align-center", right: "align-right" };
+	for (const align of ["left", "center", "right"] as ImageAlign[]) {
+		menu.addItem((item) =>
+			item
+				.setTitle(`Align ${align}`)
+				.setIcon(icons[align])
+				.setChecked(aligned === align)
+				.onClick(() =>
+					rewrite((t) => {
+						if (ref.kind === "html") return setHtmlAlign(t, align);
+						const src = file ? relativeSrc(sourcePath, file.path) : ref.target;
+						return setHtmlAlign(embedAsHtml(t, ref.kind, src, file?.basename ?? ""), align);
+					}),
+				),
+		);
+	}
+	menu.addItem((item) =>
+		item
+			.setTitle("Reset alignment")
+			.setIcon("rotate-ccw")
+			.setDisabled(!aligned)
+			.onClick(() => rewrite((t) => setHtmlAlign(t, null))),
+	);
 	menu.addSeparator();
 	menu.addItem((item) =>
 		item
-			.setTitle("Reset")
-			.setIcon("rotate-ccw")
-			.onClick(() => pick(null)),
+			.setTitle("Rename image...")
+			.setIcon("pencil")
+			.setDisabled(!file)
+			.onClick(async () => {
+				if (!file) return;
+				await host.save?.();
+				new PromptModal(host.app, "Rename image", file.basename, (name) => {
+					const base = name.toLowerCase().endsWith(`.${file.extension.toLowerCase()}`) ? name.slice(0, -file.extension.length - 1) : name;
+					const dir = file.parent && !file.parent.isRoot() ? `${file.parent.path}/` : "";
+					return attempt(() => host.app.fileManager.renameFile(file, `${dir}${base}.${file.extension}`));
+				}).open();
+			}),
+	);
+	menu.addItem((item) =>
+		item
+			.setTitle("Move image to...")
+			.setIcon("folder-input")
+			.setDisabled(!file)
+			.onClick(async () => {
+				if (!file) return;
+				await host.save?.();
+				new MoveModal(host.app, [file]).open();
+			}),
 	);
 	menu.showAtMouseEvent(evt);
-}
-
-// The zoom menu for the image `ref` (positions in `view`'s document); a
-// pick rewrites it as one undoable change, then `changed` runs.
-export function openZoomMenu(evt: MouseEvent, view: EditorView, ref: ImageRef, img: HTMLImageElement, changed?: () => void) {
-	const text = view.state.sliceDoc(ref.from, ref.to);
-	showImageZoomMenu(evt, currentZoom(text, ref.kind, img.naturalWidth), (zoom) => {
-		// The note may have changed while the menu was open.
-		if (view.state.sliceDoc(ref.from, ref.to) !== text) return;
-		const next = zoomImageSource(text, ref.kind, zoom, img.naturalWidth);
-		if (next === text) return;
-		view.dispatch({ changes: { from: ref.from, to: ref.to, insert: next } });
-		changed?.();
-	});
 }
 
 // The image Live Preview shows as its own widget (not one inside a rendered
@@ -165,11 +292,11 @@ function refAt(view: EditorView, pos: number): ImageRef | null {
 	return ref ? { ...ref, from: line.from + ref.from, to: line.from + ref.to } : null;
 }
 
-// Live Preview's image widgets: a double click opens the zoom menu. A press
+// Live Preview's image widgets: a double click opens the image menu. A press
 // on the image no longer puts the caret beside it at once, which would
 // reveal the source under the second click; a single click does that once
 // the double-click time has passed.
-export function imageZoom(): Extension {
+export function imageMenu(host: ImageMenuHost): Extension {
 	let pending: number | null = null;
 	return EditorView.domEventHandlers({
 		mousedown(evt, view) {
@@ -180,7 +307,7 @@ export function imageZoom(): Extension {
 			pending = null;
 			if (evt.detail >= 2) {
 				const ref = refAt(view, view.posAtDOM(img.parentElement!));
-				if (ref) openZoomMenu(evt, view, ref, img);
+				if (ref) openImageMenu(evt, host, view, ref, img);
 				return true;
 			}
 			const { clientX: x, clientY: y } = evt;

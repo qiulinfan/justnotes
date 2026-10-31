@@ -7,7 +7,7 @@ import type { Component } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import { Keymap } from "./keymap";
 import { locateFrontmatter } from "./frontmatter-edit";
-import { openZoomMenu, refForRenderedImage, renderedSrc } from "./image-zoom";
+import { openImageMenu, refForRenderedImage, renderedSrc } from "./image-menu";
 import { MarkdownPreviewRenderer, MarkdownRenderer, toggledTask } from "./markdown";
 import type { MarkdownView } from "./markdown-view";
 import { editorMetadataHost, MetadataEditor } from "./metadata-editor";
@@ -296,14 +296,14 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		this.metadataEditor = this.addChild(new MetadataEditor(host));
 		this.renderer.headerEl.appendChild(this.metadataEditor.containerEl);
 		this.registerEvent(this.app.vault.on("config-changed", () => this.#syncProperties()));
-		this.registerDomEvent(this.previewEl, "dblclick", (evt) => this.#zoomImage(evt));
+		this.registerDomEvent(this.previewEl, "dblclick", (evt) => this.#imageMenu(evt));
 	}
 
 	// A double click on an image the note itself shows (not one in an
-	// embedded note) opens the zoom menu, whose pick edits the editor's
-	// document, as a task tick does. The click answers what is rendered, so an
-	// image whose source has changed since is left alone.
-	#zoomImage(evt: MouseEvent) {
+	// embedded note) opens the image menu, whose size and alignment edit the
+	// editor's document, as a task tick does. The click answers what is
+	// rendered, so an image whose source has changed since is left alone.
+	#imageMenu(evt: MouseEvent) {
 		const img = (evt.target as Element | null)?.closest?.("img") as HTMLImageElement | null;
 		const section = img ? this.renderer.sections.find((s) => s.el?.contains(img)) : null;
 		if (!img || !section?.el || !this.view.file) return;
@@ -315,7 +315,8 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		if (!ref || cm.state.sliceDoc(base + ref.from, base + ref.to) !== text.slice(ref.from, ref.to)) return;
 		evt.preventDefault();
 		img.doc.getSelection()?.removeAllRanges();
-		openZoomMenu(evt, cm, { ...ref, from: base + ref.from, to: base + ref.to }, img, () => {
+		const host = { app: this.app, sourcePath: () => this.view.file?.path ?? "", save: () => this.view.save() };
+		openImageMenu(evt, host, cm, { ...ref, from: base + ref.from, to: base + ref.to }, img, () => {
 			this.set(this.view.editor.getValue(), false);
 			this.view.save().catch((err) => console.error(err));
 		});

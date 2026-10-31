@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { currentZoom, findImageRefs, setHtmlZoom, zoomImageSource } from "../src/api/image-zoom";
+import { currentAlign, currentZoom, embedAsHtml, findImageRefs, setHtmlAlign, setHtmlZoom, zoomImageSource } from "../src/api/image-menu";
 
 // What the zoom menu writes into the note.
 describe("setHtmlZoom", () => {
@@ -59,5 +59,33 @@ describe("findImageRefs", () => {
 			["markdown", "p q.png", '![alt](<p q.png> "t")'],
 			["markdown", "z.png", "![](z.png)"],
 		]);
+	});
+});
+
+describe("setHtmlAlign", () => {
+	test("writes a block image with auto margins, keeping zoom and attributes, and replaces an earlier alignment", () => {
+		const centered = setHtmlAlign('<img src="a b.png" alt="a b" style="zoom:50%;" />', "center");
+		expect(centered).toBe('<img src="a b.png" alt="a b" style="zoom:50%; display:block; margin:0 auto;" />');
+		expect(setHtmlAlign(centered, "right")).toBe('<img src="a b.png" alt="a b" style="zoom:50%; display:block; margin:0 0 0 auto;" />');
+		expect(setHtmlAlign('<img src="x.png">', "left")).toBe('<img src="x.png" style="display:block; margin:0 auto 0 0;">');
+	});
+
+	test("reset removes only the alignment, and an emptied style", () => {
+		expect(setHtmlAlign('<img src="x.png" style="zoom: 33%; display:block; margin:0 auto;">', null)).toBe('<img src="x.png" style="zoom: 33%;">');
+		expect(setHtmlAlign('<img src="x.png" style="display:block; margin:0 auto;" />', null)).toBe('<img src="x.png" />');
+		expect(setHtmlAlign('<img src="x.png" style="zoom:50%;">', null)).toBe('<img src="x.png" style="zoom:50%;">');
+	});
+
+	test("currentAlign reads it back for the menu's check", () => {
+		expect(currentAlign(setHtmlAlign('<img src="x.png">', "right"), "html")).toBe("right");
+		expect(currentAlign('<img src="x.png" style="margin-left:auto">', "html")).toBe(null);
+	});
+});
+
+describe("embedAsHtml", () => {
+	test("an embed becomes an <img> with its size and alt text, or the file name as alt", () => {
+		expect(embedAsHtml("![[red pic.png|300x200]]", "wikilink", "../red pic.png", "red pic")).toBe('<img src="../red pic.png" alt="red pic" width="300" height="200" />');
+		expect(embedAsHtml("![[x.png|a cat|300]]", "wikilink", "x.png", "x")).toBe('<img src="x.png" alt="a cat" width="300" />');
+		expect(embedAsHtml("![a cat](x%20y.png)", "markdown", "x y.png", "x y")).toBe('<img src="x y.png" alt="a cat" />');
 	});
 });

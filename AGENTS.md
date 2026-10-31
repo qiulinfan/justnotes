@@ -51,8 +51,8 @@ plain style. Development notes belong in this file.
     `markdown-preview.ts` (reading view), `markdown.ts` (MarkdownRenderer, post
     processors, code-block registry, the math grammar, MathJax/pdf.js/Prism/
     Mermaid loaders), `live-preview.ts` and `editor-*.ts` (CodeMirror 6),
-    `selection-scroll.ts` (drag-select scrolling), `image-zoom.ts` (the
-    image zoom menu), `editor-settings.ts`
+    `selection-scroll.ts` (drag-select scrolling), `image-menu.ts` (the
+    image double-click menu), `editor-settings.ts`
     (justnotes' own Editor tab), `attachments.ts` (pasted and dropped files),
     `vault.ts`, `metadata*.ts` (the cache; `metadata-types.ts`, the
     `metadataTypeManager`; `metadata-editor.ts` and `metadata-widgets.ts`,
@@ -705,14 +705,30 @@ plain style. Development notes belong in this file.
   align="center">`, `<div>`, `<details>`, ...) renders through
   `MarkdownRenderer`, sanitized like the reading view, as a block widget
   (`.cm-html-embed`) until the selection enters its lines.
-- Double-clicking an image (`image-zoom.ts`) opens a menu of zoom presets
-  (100, 75, 67, 50, 33, 25%) and Reset, which rewrite the image's source as
-  one undoable change on the editor's document: an `<img>`'s `zoom` style
-  (only its value, keeping its spacing, the other declarations and
-  attributes; a missing style is added before the tag's end; Reset removes
-  the zoom and an emptied style attribute), a wikilink's `|W` or a Markdown
-  image's `alt|W` (W from the image's `naturalWidth`, replacing a `WxH`;
-  Reset removes it). Live Preview handles its own image widgets
+- Double-clicking an image opens the image menu (`image-menu.ts`). Size:
+  presets (100, 75, 67, 50, 33, 25%) and Reset size rewrite an `<img>`'s
+  `zoom` style (only its value, keeping its spacing, the other declarations
+  and attributes; a missing style is added before the tag's end; reset
+  removes the zoom and an emptied style attribute), a wikilink's `|W` or a
+  Markdown image's `alt|W` (W from the image's `naturalWidth`, replacing a
+  `WxH`; reset removes it). Alignment (left, center, right, Reset
+  alignment) is an `<img>` style, `display:block; margin:0 auto` (center),
+  `margin:0 auto 0 0` (left), `margin:0 0 0 auto` (right), replacing any
+  display and margin declarations: the reading view, Live Preview and
+  Obsidian (which keeps inline styles) render it alike, while `<p
+  align="center">` would make Live Preview render an HTML block with no
+  image widget. Embeds have no alignment syntax in Obsidian, so aligning one
+  first turns it into an `<img>` (`embedAsHtml`: src relative to the note,
+  its size as width/height attributes, its alt text or else the file's
+  name as alt). Live Preview hides CodeMirror's widget buffers beside such
+  a block image (`80-live-preview.css`), which would add an empty line
+  above and below it. Size and alignment are one undoable change each on
+  the editor's document. Rename image... (the explorer's `PromptModal`, the
+  extension kept) and Move image to... (its `MoveModal`; both in
+  `ui/file-modals.ts`) save the note, then go through
+  `fileManager.renameFile`, so wikilinks, Markdown links and `<img>` srcs
+  follow (see Views, files and saving); they are disabled for an image that
+  is no vault file. Live Preview handles its own image widgets
   (`.image-embed` and `.cm-html-embed` images outside rendered blocks; the
   widget's `posAtDOM` finds the source): a press on one is taken from
   CodeMirror, and a single click reveals the source only after 300 ms, or
@@ -721,7 +737,8 @@ plain style. Development notes belong in this file.
   text by the URL each image loads and their order (`refForRenderedImage`),
   skips images of embedded notes and anything whose source changed since
   the render, edits like a task tick, re-renders and saves. Images inside
-  Live Preview's rendered blocks (callouts, tables, HTML blocks) get no menu.
+  Live Preview's rendered blocks (callouts, tables, HTML blocks) get no
+  menu.
 - The frontmatter is a block widget holding a `MetadataEditor` (also in the
   reading view's `mod-header`), unless "Properties in document"
   (`propertiesInDocument`) is `source` (YAML) or `hidden`; Live Preview
