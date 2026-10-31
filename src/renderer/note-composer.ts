@@ -1,3 +1,4 @@
+import type { CorePluginHost } from "../api/internal-plugins";
 import type { App } from "../api/app";
 import { Editor } from "../api/editor";
 import { MarkdownView } from "../api/markdown-view";
@@ -303,7 +304,7 @@ function extractHeading(app: App, editor: Editor, source: TFile, section: Headin
 
 // Obsidian's Note composer commands, with its ids, and its file and editor
 // menu items.
-export function installNoteComposer(app: App) {
+export function installNoteComposer(app: App, host: CorePluginHost) {
 	const editorCommand = (id: string, name: string, check: (editor: Editor, view: MarkdownView, run: boolean) => boolean) => {
 		const cmd = {
 			id,
@@ -313,10 +314,9 @@ export function installNoteComposer(app: App) {
 				return check(editor, view, !checking);
 			},
 		};
-		app.commands.addCommand(cmd);
-		app.commands.editorCommands[id] = cmd;
+		host.addEditorCommand(cmd);
 	};
-	app.commands.addCommand({
+	host.addCommand({
 		id: "note-composer:merge-file",
 		name: "Note composer: Merge current file with another file...",
 		checkCallback: (checking: boolean) => {
@@ -337,24 +337,28 @@ export function installNoteComposer(app: App) {
 		if (run) extractHeading(app, editor, view.file!, section);
 		return true;
 	});
-	app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile) => {
-		if (!(file instanceof TFile) || file.extension !== "md") return;
-		menu.addItem((item) =>
-			item
-				.setTitle("Merge entire file with...")
-				.setIcon("git-merge")
-				.setSection("action")
-				.onClick(() => mergeFile(app, file)),
-		);
-	});
-	app.workspace.on("editor-menu", (menu: Menu, editor: Editor, view: unknown) => {
-		if (!(view instanceof MarkdownView) || !view.file || !editor.somethingSelected()) return;
-		menu.addItem((item) =>
-			item
-				.setTitle("Extract current selection...")
-				.setIcon("scissors")
-				.setSection("action")
-				.onClick(() => extractSelection(app, editor, view.file!)),
-		);
-	});
+	host.registerEvent(
+		app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile) => {
+			if (!(file instanceof TFile) || file.extension !== "md") return;
+			menu.addItem((item) =>
+				item
+					.setTitle("Merge entire file with...")
+					.setIcon("git-merge")
+					.setSection("action")
+					.onClick(() => mergeFile(app, file)),
+			);
+		}),
+	);
+	host.registerEvent(
+		app.workspace.on("editor-menu", (menu: Menu, editor: Editor, view: unknown) => {
+			if (!(view instanceof MarkdownView) || !view.file || !editor.somethingSelected()) return;
+			menu.addItem((item) =>
+				item
+					.setTitle("Extract current selection...")
+					.setIcon("scissors")
+					.setSection("action")
+					.onClick(() => extractSelection(app, editor, view.file!)),
+			);
+		}),
+	);
 }

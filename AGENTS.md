@@ -76,11 +76,22 @@ plain style. Development notes belong in this file.
   `plugins.initialize`, then the layout restore and `layout-ready`. Plugins
   see a resolved cache and the core plugins' options in `onload`, as in
   Obsidian, and so miss the first `resolved` event.
-- Core plugins follow the vault's `core-plugins.json` and read their options
+- Core plugins follow the vault's `core-plugins.json`, with the Core plugins
+  settings page's toggles applied over it (localStorage `enabled-core-plugins`,
+  `{enabled, disabled}` like the community overlay), and read their options
   from `<configDir>/<id>.json`, never writing either: their settings are set in
   Obsidian. Enabled instances exist only for those `IMPLEMENTED` in
   `internal-plugins.ts`; a disabled one adds no commands, ribbon button or
-  pane. Their commands keep Obsidian's ids (`backlink:open`,
+  pane. Each implemented plugin has an installer (`installers()` in
+  `core-plugins.ts`, signature `(app, host)`) that registers everything through
+  its `CorePluginHost` (`addCommand`, `addEditorCommand`, `addRibbonIcon`,
+  `addStatusBarItem`, `registerView`, `registerEvent`, `register`, ...), so a
+  toggle takes effect live: `disable()` unloads the host, `enable()` runs the
+  installer again (`host.userEnabled` is true then: panes join the sidebar,
+  Daily notes skips its autorun). Never register a core plugin's feature on
+  `app` directly, or turning it off leaves it behind. Pane plugins close
+  their leaves when turned off; views registered through the host become
+  placeholders. Files and Search are shown always on. Their commands keep Obsidian's ids (`backlink:open`,
   `backlink:toggle-backlinks`, `outgoing-links:open`, `outline:open`,
   `graph:open`, `graph:open-local`, `tag-pane:open`, `daily-notes`, `daily-notes:goto-prev`/`-next`,
   `insert-template`, `insert-current-date`/`-time`,
@@ -115,8 +126,8 @@ plain style. Development notes belong in this file.
   lacks. `properties` is the All properties pane
   (`all-properties`, `properties:open`): names with type and note count,
   unfolding to their notes; its menu sets the type or renames the property in
-  every note (each note's YAML changed only at that key). Not there yet: the other core plugins (bookmarks,
-  ...), the Tags view's Mod-click to add a tag to the search, links to an
+  every note (each note's YAML changed only at that key). Not there yet: the other core plugins,
+  the Tags view's Mod-click to add a tag to the search, links to an
   extracted heading (`[[Note#Heading]]`) are not redirected to the new note.
 - Graph view (`graph-data.ts` for options, queries and nodes, tested;
   `graph-renderer.ts` for the canvas; `graph-view.ts` for the views): a
@@ -256,7 +267,8 @@ plain style. Development notes belong in this file.
   `core-plugins.json`, `types.json`). justnotes state lives in localStorage through
   `app.saveLocalStorage` (keys prefixed with the vault id): `justnotes-layout`
   (the layout, in `workspace.json`'s shape, with leaf ids), `enabled-plugins`
-  (the Settings toggles, applied over `community-plugins.json`), `custom-css`
+  (the Settings toggles, applied over `community-plugins.json`),
+  `enabled-core-plugins` (the Core plugins toggles, over `core-plugins.json`), `custom-css`
   (theme and snippets), `justnotes-expanded` (explorer folders),
   `property-types` (property type changes made in justnotes, layered over
   `types.json`; an empty type unassigns one). The language

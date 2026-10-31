@@ -1,3 +1,4 @@
+import type { CorePluginHost } from "../api/internal-plugins";
 // The canvas core plugin: the view of .canvas files (JSON Canvas), with
 // Obsidian's `view.canvas` object that plugins reach for (QuickAdd's capture
 // reads `canvas.selection`, a node's `text` and `file`, calls `setText`,
@@ -1106,17 +1107,21 @@ async function followRename(app: App, file: TAbstractFile, oldPath: string) {
 	}
 }
 
-export function installCanvas(app: App) {
-	app.viewRegistry.registerView("canvas", (leaf) => new CanvasView(leaf));
-	app.viewRegistry.registerExtensions(["canvas"], "canvas");
-	app.commands.addCommand({ id: "canvas:new-file", name: "Canvas: Create new canvas", icon: "layout-dashboard", callback: () => createCanvas(app) });
-	app.workspace.leftRibbon.addRibbonItemButton("canvas:new-file", "layout-dashboard", "Create new canvas", () => {
+export function installCanvas(app: App, host: CorePluginHost) {
+	host.registerView("canvas", (leaf) => new CanvasView(leaf));
+	host.registerExtensions(["canvas"], "canvas");
+	host.addCommand({ id: "canvas:new-file", name: "Canvas: Create new canvas", icon: "layout-dashboard", callback: () => createCanvas(app) });
+	host.addRibbonIcon("canvas:new-file", "layout-dashboard", "Create new canvas", () => {
 		createCanvas(app).catch((err) => new Notice(err instanceof Error ? err.message : String(err)));
 	});
-	app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile) => {
-		if (file instanceof TFolder) menu.addItem((item) => item.setTitle("New canvas").setIcon("layout-dashboard").setSection("action-primary").onClick(() => createCanvas(app, file)));
-	});
-	app.vault.on("rename", (file: TAbstractFile, oldPath: string) => {
-		followRename(app, file, oldPath).catch((err) => console.error(err));
-	});
+	host.registerEvent(
+		app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile) => {
+			if (file instanceof TFolder) menu.addItem((item) => item.setTitle("New canvas").setIcon("layout-dashboard").setSection("action-primary").onClick(() => createCanvas(app, file)));
+		}),
+	);
+	host.registerEvent(
+		app.vault.on("rename", (file: TAbstractFile, oldPath: string) => {
+			followRename(app, file, oldPath).catch((err) => console.error(err));
+		}),
+	);
 }

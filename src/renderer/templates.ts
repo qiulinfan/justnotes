@@ -1,3 +1,4 @@
+import type { CorePluginHost } from "../api/internal-plugins";
 import type { App } from "../api/app";
 import { Editor } from "../api/editor";
 import { FuzzySuggestModal } from "../api/ui/suggest";
@@ -151,7 +152,7 @@ class TemplateModal extends FuzzySuggestModal<TFile> {
 }
 
 // Obsidian's Templates commands, with its ids. They need a note being edited.
-export function registerTemplateCommands(app: App) {
+export function registerTemplateCommands(app: App, host: CorePluginHost) {
 	const command = (id: string, name: string, run: (editor: Editor, view: any) => void) => {
 		const cmd = {
 			id,
@@ -162,8 +163,7 @@ export function registerTemplateCommands(app: App) {
 				return true;
 			},
 		};
-		app.commands.addCommand(cmd);
-		app.commands.editorCommands[id] = cmd;
+		host.addEditorCommand(cmd);
 	};
 	command("insert-template", "Templates: Insert template", (editor, view) => {
 		const folder = templatesFolder(app);

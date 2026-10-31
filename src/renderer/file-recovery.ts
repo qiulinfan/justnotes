@@ -1,3 +1,4 @@
+import type { CorePluginHost } from "../api/internal-plugins";
 import type { App } from "../api/app";
 import { Modal } from "../api/ui/modal";
 import { Notice } from "../api/ui/notice";
@@ -144,22 +145,28 @@ class FileRecovery {
 		return (Number.isFinite(days) && days > 0 ? days : 7) * DAY;
 	}
 
-	install() {
+	install(host: CorePluginHost) {
 		const { vault, workspace } = this.app;
 		const watch = (file: TAbstractFile | null) => {
 			if (file instanceof TFile && RECOVERABLE.has(file.extension)) this.schedule(file);
 		};
-		vault.on("modify", watch);
+		host.registerEvent(vault.on("modify", watch));
 		// The text as it was opened, before any edit.
-		workspace.on("file-open", watch);
-		vault.on("rename", (file: TAbstractFile, oldPath: string) => {
-			if (!(file instanceof TFile)) return;
-			this.#last.delete(oldPath);
-			this.store.rename(oldPath, file.path).catch((err) => console.error(err));
-		});
+		host.registerEvent(workspace.on("file-open", watch));
+		host.registerEvent(
+			vault.on("rename", (file: TAbstractFile, oldPath: string) => {
+				if (!(file instanceof TFile)) return;
+				this.#last.delete(oldPath);
+				this.store.rename(oldPath, file.path).catch((err) => console.error(err));
+			}),
+		);
 		const prune = () => this.store.prune(Date.now() - this.keep).catch((err) => console.error(err));
 		prune();
-		window.setInterval(prune, 60 * MINUTE);
+		host.registerInterval(window.setInterval(prune, 60 * MINUTE));
+		host.register(() => {
+			for (const timer of this.#timers.values()) clearTimeout(timer);
+			this.#timers.clear();
+		});
 	}
 
 	async #lastOf(path: string) {
@@ -337,10 +344,10 @@ class FileRecoveryModal extends Modal {
 // Obsidian's File recovery: snapshots of edited notes kept outside the vault
 // (file-recovery.json's intervalMinutes and keepDays), and a modal to browse
 // and restore them.
-export function installFileRecovery(app: App) {
+export function installFileRecovery(app: App, host: CorePluginHost) {
 	const recovery = new FileRecovery(app);
-	recovery.install();
-	app.commands.addCommand({
+	recovery.install(host);
+	host.addCommand({
 		id: "file-recovery:open",
 		name: "File recovery: Open saved snapshots",
 		callback: () => new FileRecoveryModal(app, recovery, app.workspace.getActiveFile()?.path ?? null).open(),

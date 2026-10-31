@@ -1,5 +1,6 @@
 import type { App } from "./app";
 import { setIcon } from "./icons";
+import { ALWAYS_ON, CORE_PLUGIN_INFO, implementedCorePlugins } from "./internal-plugins";
 import type { Hotkey } from "./keymap";
 import { type PluginManifest, SettingTab } from "./plugin";
 import { Modal } from "./ui/modal";
@@ -48,7 +49,7 @@ export class SettingModal extends Modal {
 		this.searchResultsEl.hide();
 		this.#groupsEl = this.tabHeadersEl.createDiv("vertical-tab-header-group-container");
 		this.tabContentContainer = this.contentEl.createDiv("vertical-tab-content-container");
-		this.settingTabs = [new HotkeysTab(app), new CommunityPluginsTab(app)];
+		this.settingTabs = [new HotkeysTab(app), new CorePluginsTab(app), new CommunityPluginsTab(app)];
 		const escape = this.scope.keys.find((h) => h.key === "Escape");
 		if (escape) this.scope.unregister(escape);
 		this.scope.register([], "Escape", () => {
@@ -306,6 +307,45 @@ export class SettingModal extends Modal {
 	#reveal(name: string) {
 		const names = this.tabContentContainer.findAll(".setting-item-name");
 		names.find((el) => el.getText() === name)?.scrollIntoView({ block: "center" });
+	}
+}
+
+// One toggle per core plugin justnotes implements. The choice is justnotes'
+// own (an overlay over core-plugins.json, which stays as Obsidian wrote it)
+// and applies at once: the plugin's commands, buttons, panes and status bar
+// items come and go without a restart.
+class CorePluginsTab extends SettingTab {
+	constructor(app: App) {
+		super(app);
+		this.id = "core-plugins";
+		this.name = "Core plugins";
+		this.icon = "box";
+	}
+
+	display() {
+		this.containerEl.empty();
+		const group = new SettingGroup(this.containerEl).addClass("mod-list", "mod-no-icon");
+		const internal = this.app.internalPlugins;
+		const ids = implementedCorePlugins().sort((a, b) => (CORE_PLUGIN_INFO[a]?.name ?? a).localeCompare(CORE_PLUGIN_INFO[b]?.name ?? b));
+		for (const id of ids) {
+			const plugin = internal.getPluginById(id);
+			if (!plugin) continue;
+			const info = CORE_PLUGIN_INFO[id];
+			const setting = new Setting(group.listEl).setName(info?.name ?? id);
+			setting.settingEl.setAttr("data-plugin-id", id);
+			if (ALWAYS_ON.has(id)) {
+				setting.setDesc(`${info?.description ?? ""} Part of justnotes' window, always on.`.trim());
+				setting.addToggle((toggle) => toggle.setValue(true).setDisabled(true));
+				continue;
+			}
+			if (info?.description) setting.setDesc(info.description);
+			setting.addToggle((toggle) =>
+				toggle.setValue(plugin.enabled).onChange((on) => {
+					if (on) plugin.enable(true);
+					else plugin.disable(true);
+				}),
+			);
+		}
 	}
 }
 

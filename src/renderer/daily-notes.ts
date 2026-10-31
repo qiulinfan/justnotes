@@ -1,3 +1,4 @@
+import type { CorePluginHost } from "../api/internal-plugins";
 import type { App } from "../api/app";
 import { Notice } from "../api/ui/notice";
 import { moment, normalizePath } from "../api/util";
@@ -88,8 +89,8 @@ function adjacent(app: App, file: TFile, step: -1 | 1) {
 }
 
 // Obsidian's Daily notes commands and ribbon button, with its ids.
-export function installDailyNotes(app: App) {
-	app.commands.addCommand({ id: "daily-notes", name: "Daily notes: Open today's daily note", callback: () => openDailyNote(app) });
+export function installDailyNotes(app: App, host: CorePluginHost) {
+	host.addCommand({ id: "daily-notes", name: "Daily notes: Open today's daily note", callback: () => openDailyNote(app) });
 	const go = (step: -1 | 1) => (checking: boolean) => {
 		const file = app.workspace.getActiveFile();
 		if (!file || !dailyNoteDate(options(app), file.path)) return false;
@@ -99,8 +100,8 @@ export function installDailyNotes(app: App) {
 		else new Notice(step < 0 ? "No earlier daily note." : "No later daily note.");
 		return true;
 	};
-	app.commands.addCommand({ id: "daily-notes:goto-prev", name: "Daily notes: Open previous daily note", checkCallback: go(-1) });
-	app.commands.addCommand({ id: "daily-notes:goto-next", name: "Daily notes: Open next daily note", checkCallback: go(1) });
-	app.workspace.leftRibbon.addRibbonItemButton("daily-notes", "calendar-days", "Open today's daily note", () => openDailyNote(app));
-	if (options(app).autorun) app.workspace.onLayoutReady(() => openDailyNote(app));
+	host.addCommand({ id: "daily-notes:goto-prev", name: "Daily notes: Open previous daily note", checkCallback: go(-1) });
+	host.addCommand({ id: "daily-notes:goto-next", name: "Daily notes: Open next daily note", checkCallback: go(1) });
+	host.addRibbonIcon("daily-notes", "calendar-days", "Open today's daily note", () => openDailyNote(app));
+	if (options(app).autorun && !host.userEnabled) app.workspace.onLayoutReady(() => openDailyNote(app));
 }

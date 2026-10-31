@@ -1,3 +1,4 @@
+import type { CorePluginHost } from "../api/internal-plugins";
 import type { App } from "../api/app";
 import { MarkdownView } from "../api/markdown-view";
 import { debounce } from "../api/util";
@@ -19,8 +20,8 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
 
 // The status bar's count for the active note, or for its selection while
 // one is made, as Obsidian's Word count shows it.
-export function installWordCount(app: App) {
-	const el = app.statusBar.createDiv("status-bar-item plugin-word-count");
+export function installWordCount(app: App, host: CorePluginHost) {
+	const el = host.addStatusBarItem("plugin-word-count");
 	const update = debounce(
 		() => {
 			const view = app.workspace.getActiveViewOfType(MarkdownView);
@@ -35,11 +36,10 @@ export function installWordCount(app: App) {
 		200,
 		true,
 	);
-	app.workspace.on("active-leaf-change", update);
-	app.workspace.on("file-open", update);
-	app.workspace.on("editor-change", update);
-	app.workspace.on("layout-change", update);
-	document.addEventListener("selectionchange", () => update());
-	app.workspace.on("window-open", (_win: unknown, win: Window) => win.document.addEventListener("selectionchange", () => update()));
+	for (const name of ["active-leaf-change", "file-open", "editor-change", "layout-change"]) host.registerEvent(app.workspace.on(name, update));
+	const onSelection = () => update();
+	host.registerDomEvent(document, "selectionchange", onSelection);
+	host.registerEvent(app.workspace.on("window-open", (_win: unknown, win: Window) => host.registerDomEvent(win.document, "selectionchange", onSelection)));
+	host.register(() => update.cancel());
 	update();
 }
