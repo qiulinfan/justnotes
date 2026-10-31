@@ -25,6 +25,20 @@ const MIN_CONTENT_SCALE = 0.5;
 // in a code block, in math or in a list or quote divides nothing. Empty
 // slides are dropped; a note with no text is one empty slide.
 export function slideSources(markdown: string): string[] {
+	return slideRanges(markdown).map((slide) => slide.text);
+}
+
+// The slide a presentation started from an editor opens at: the one holding
+// the cursor's line. A line on a rule, or in a dropped empty slide, belongs
+// to the next slide.
+export function slideIndexAt(markdown: string, line: number): number {
+	const slides = slideRanges(markdown);
+	const index = slides.findIndex((slide) => line < slide.end);
+	return index < 0 ? slides.length - 1 : index;
+}
+
+// Each slide's text and the line that ends it (its rule, or the line count).
+function slideRanges(markdown: string): { text: string; end: number }[] {
 	const lines = markdown.split(/\r?\n/);
 	const fm = locateFrontMatter(markdown);
 	// Blank the frontmatter instead of cutting it, so its lines keep their
@@ -36,14 +50,14 @@ export function slideSources(markdown: string): string[] {
 	const breaks = renderMarkdownSections(lines.join("\n"))
 		.sections.filter((s) => s.lineStart === s.lineEnd && s.html.startsWith("<hr") && /^ {0,3}-[ \t]*-[ \t]*-[ \t-]*$/.test(lines[s.lineStart]))
 		.map((s) => s.lineStart);
-	const slides: string[] = [];
+	const slides: { text: string; end: number }[] = [];
 	let start = 0;
 	for (const line of [...breaks, lines.length]) {
 		const text = lines.slice(start, line).join("\n").trim();
-		if (text) slides.push(text);
+		if (text) slides.push({ text, end: line });
 		start = line + 1;
 	}
-	return slides.length ? slides : [""];
+	return slides.length ? slides : [{ text: "", end: lines.length }];
 }
 
 // The scale that fits content of a natural size into a box, never above 1;
@@ -81,6 +95,8 @@ export class Presentation {
 	#component = new Component();
 	#resize: AppResizeObserver;
 	#restoreFocus: Element | null = null;
+	// The slide shown first.
+	#start = 0;
 	#prevEl: HTMLElement;
 	#nextEl: HTMLElement;
 	#numberEl: HTMLElement;
@@ -93,8 +109,9 @@ export class Presentation {
 	#win: Window | null = null;
 	#onWindowGone = () => this.close();
 
-	constructor(app: App, file: TFile, sources: string[], leaf: WorkspaceLeaf | null = null) {
+	constructor(app: App, file: TFile, sources: string[], leaf: WorkspaceLeaf | null = null, start = 0) {
 		this.app = app;
+		this.#start = start;
 		this.file = file;
 		this.leaf = leaf;
 		const doc = activeDocument;
@@ -147,7 +164,7 @@ export class Presentation {
 		this.#win?.addEventListener("pagehide", this.#onWindowGone);
 		this.#component.load();
 		this.app.keymap.pushScope(this.#scope);
-		this.go(0);
+		this.go(this.#start);
 		this.#layout();
 		// Fullscreen as in Obsidian; where the window refuses (no user
 		// gesture) the presentation still covers the whole window.
@@ -229,12 +246,16 @@ export class Presentation {
 	}
 }
 
-// The note's text as its open view has it, unsaved edits included.
+// The note's text as its open view has it, unsaved edits included. Started
+// from the note's editor, it opens at the slide holding the cursor, as in
+// Obsidian.
 export async function startPresentation(app: App, file: TFile, leaf?: WorkspaceLeaf) {
 	const leaves = [...(leaf ? [leaf] : []), ...app.workspace.getLeavesOfType("markdown")];
 	const shown = leaves.find((l) => l.view instanceof MarkdownView && l.view.file === file) ?? null;
-	const text = shown ? (shown.view as MarkdownView).getViewData() : await app.vault.cachedRead(file);
-	const presentation = new Presentation(app, file, slideSources(text), shown);
+	const view = shown?.view as MarkdownView | undefined;
+	const text = view ? view.getViewData() : await app.vault.cachedRead(file);
+	const start = view && shown === leaf && view.getMode() === "source" ? slideIndexAt(text, view.editor.getCursor().line) : 0;
+	const presentation = new Presentation(app, file, slideSources(text), shown, start);
 	presentation.open();
 	return presentation;
 }

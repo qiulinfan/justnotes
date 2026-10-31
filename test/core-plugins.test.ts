@@ -8,7 +8,7 @@ import { dailyNoteDate, dailyNotePath } from "../src/renderer/daily-notes";
 import { lineDiff, snapshotDue } from "../src/renderer/file-recovery";
 import { findMentions, headingAt, headingTree, mentionSkips, outlineMatches } from "../src/renderer/link-panes";
 import { addText, composeText, headingSection, mergeText, noteName, sectionReplacement } from "../src/renderer/note-composer";
-import { contentScale, slideSources } from "../src/renderer/slides";
+import { contentScale, slideIndexAt, slideSources } from "../src/renderer/slides";
 import { sortTags, type TagNode, tagTree } from "../src/renderer/tag-pane";
 import { fillTemplate, templateEdits } from "../src/renderer/templates";
 import { countWords } from "../src/renderer/word-count";
@@ -228,6 +228,15 @@ describe("slides", () => {
 	test("empty slides are dropped; a note with no text is one empty slide", () => {
 		expect(slideSources("A\n\n---\n\n---\n\nB\n\n---\n")).toEqual(["A", "B"]);
 		expect(slideSources("---\ntags: x\n---\n")).toEqual([""]);
+	});
+
+	test("started from an editor, the slide holding the cursor's line shows first", () => {
+		const note = ["---", "title: Talk", "---", "# One", "", "---", "", "---", "## Two", "text", "", "---", "Three"].join("\n");
+		// Frontmatter and the first slide's lines open the first slide.
+		expect([0, 3, 4].map((line) => slideIndexAt(note, line))).toEqual([0, 0, 0]);
+		// A rule, and the empty slide after it, belong to the next slide.
+		expect([5, 6, 7, 10].map((line) => slideIndexAt(note, line))).toEqual([1, 1, 1, 1]);
+		expect([11, 12, 40].map((line) => slideIndexAt(note, line))).toEqual([2, 2, 2]);
 	});
 
 	test("content larger than its slide shrinks to fit, never grows, and scrolls past the minimum scale", () => {

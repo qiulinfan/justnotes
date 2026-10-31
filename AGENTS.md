@@ -142,7 +142,9 @@ plain style. Development notes belong in this file.
   active note, or the note of a More options or tab menu, from its open
   view's text: slides are the text between top-level `---` rules
   (`slideSources`; not the frontmatter, a setext heading, or a rule in code,
-  math, a list or a quote; empty slides dropped), each rendered with
+  math, a list or a quote; empty slides dropped), starting at the slide
+  holding the cursor when started from the note's editor (`slideIndexAt`; a
+  rule line belongs to the next slide), each rendered with
   `MarkdownRenderer.render` into reveal.js's markup (`.slides-container` >
   `.reveal` > `.slides` > `section.slide`, `aside.controls` with
   `.navigate-left`/`-right`, `.slide-number`, `.progress`; the close button,
