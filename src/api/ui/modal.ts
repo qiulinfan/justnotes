@@ -1,4 +1,5 @@
 import type { App } from "../app";
+import { setIcon } from "../icons";
 import { Scope } from "../keymap";
 
 export class Modal {
@@ -9,9 +10,10 @@ export class Modal {
 	titleEl: HTMLElement;
 	contentEl: HTMLElement;
 	shouldRestoreSelection = true;
+	isOpen = false;
 	#onCloseCallback: (() => any) | null = null;
 	#restoreFocus: Element | null = null;
-	isOpen = false;
+	#ranges: Range[] = [];
 
 	constructor(app: App) {
 		this.app = app;
@@ -20,11 +22,14 @@ export class Modal {
 			this.close();
 			return false;
 		});
-		this.containerEl = createDiv("modal-container mod-dim");
+		this.containerEl = createDiv("modal-container");
 		const bg = this.containerEl.createDiv("modal-bg");
 		bg.addEventListener("click", () => this.close());
 		this.modalEl = this.containerEl.createDiv("modal");
-		const close = this.modalEl.createDiv("modal-close-button");
+		// Obsidian 1.14 calls it modal-header-button; older plugins look for
+		// modal-close-button (terminal clicks it to close its own modals).
+		const close = this.modalEl.createDiv("modal-close-button modal-header-button mod-raised clickable-icon");
+		setIcon(close, "x");
 		close.addEventListener("click", () => this.close());
 		const header = this.modalEl.createDiv("modal-header");
 		this.titleEl = header.createDiv("modal-title");
@@ -35,9 +40,18 @@ export class Modal {
 		if (this.isOpen) return;
 		this.isOpen = true;
 		this.#restoreFocus = document.activeElement;
+		const selection = window.getSelection();
+		this.#ranges = [];
+		if (this.shouldRestoreSelection && selection) {
+			for (let i = 0; i < selection.rangeCount; i++) this.#ranges.push(selection.getRangeAt(i).cloneRange());
+		}
 		document.body.appendChild(this.containerEl);
+		this.containerEl.addClass("mod-dim");
 		this.app.keymap.pushScope(this.scope);
 		this.onOpen();
+		// Keys the modal does not handle must not keep editing the note behind it.
+		const active = document.activeElement;
+		if (this.isOpen && active instanceof HTMLElement && !this.containerEl.contains(active)) active.blur();
 	}
 
 	close() {
@@ -45,9 +59,27 @@ export class Modal {
 		this.isOpen = false;
 		this.app.keymap.popScope(this.scope);
 		this.containerEl.detach();
+		this.containerEl.removeClass("mod-dim");
 		this.onClose();
 		this.#onCloseCallback?.();
-		if (this.shouldRestoreSelection && this.#restoreFocus instanceof HTMLElement) this.#restoreFocus.focus();
+		if (this.shouldRestoreSelection) this.#restore();
+	}
+
+	#restore() {
+		const el = this.#restoreFocus;
+		if (!(el instanceof HTMLElement) || !el.isConnected) return;
+		el.focus();
+		// CodeMirror restores its own selection on focus; saved DOM ranges
+		// could point into lines it has redrawn since.
+		if (el.closest(".cm-editor")) return;
+		const selection = window.getSelection();
+		if (!selection || !this.#ranges.every((r) => r.startContainer.isConnected && r.endContainer.isConnected)) return;
+		selection.removeAllRanges();
+		for (const range of this.#ranges) selection.addRange(range);
+	}
+
+	onHistoryBack() {
+		this.close();
 	}
 
 	onOpen(): void | Promise<void> {}

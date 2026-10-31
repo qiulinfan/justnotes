@@ -1,0 +1,56 @@
+/* The hover tooltip: .tooltip[.mod-top|.mod-left|.mod-right] > .tooltip-arrow;
+   bottom placement has no class. */
+.tooltip {
+	position: fixed;
+	z-index: 1100;
+	max-width: 300px;
+	padding: 5px 10px;
+	border-radius: var(--radius-s);
+	background: rgba(24, 24, 24, 0.94);
+	color: #e6e6e6;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	text-align: center;
+	pointer-events: none;
+	box-shadow: var(--shadow-s);
+}
+
+.tooltip-arrow {
+	position: absolute;
+	width: 0;
+	height: 0;
+	border: 5px solid transparent;
+	left: 50%;
+	margin-left: -5px;
+	bottom: 100%;
+	border-bottom-color: rgba(24, 24, 24, 0.94);
+}
+
+.tooltip.mod-top .tooltip-arrow {
+	bottom: auto;
+	top: 100%;
+	border-bottom-color: transparent;
+	border-top-color: rgba(24, 24, 24, 0.94);
+}
+
+.tooltip.mod-left .tooltip-arrow,
+.tooltip.mod-right .tooltip-arrow {
+	top: 50%;
+	bottom: auto;
+	margin-left: 0;
+	margin-top: -5px;
+	border-bottom-color: transparent;
+}
+
+.tooltip.mod-right .tooltip-arrow {
+	left: auto;
+	right: 100%;
+	border-right-color: rgba(24, 24, 24, 0.94);
+}
+
+.tooltip.mod-left .tooltip-arrow {
+	left: 100%;
+	border-left-color: rgba(24, 24, 24, 0.94);
+}

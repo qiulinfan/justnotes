@@ -104,6 +104,11 @@ function renderInstructions(el: HTMLElement, instructions: Instruction[]) {
 	}
 }
 
+// A limit of 0 or less means no limit.
+function limited<T>(values: T[], limit: number) {
+	return limit > 0 ? values.slice(0, limit) : values;
+}
+
 export abstract class SuggestModal<T> extends Modal {
 	limit = 100;
 	emptyStateText = "No results found.";
@@ -111,14 +116,27 @@ export abstract class SuggestModal<T> extends Modal {
 	resultContainerEl: HTMLElement;
 	instructionsEl: HTMLElement;
 	chooser: Suggestions<T>;
+	#request = 0;
 
 	constructor(app: App) {
 		super(app);
 		this.containerEl.addClass("mod-suggestion");
-		this.modalEl.addClass("prompt");
+		// Obsidian's prompt replaces the modal's header and content.
+		this.modalEl.className = "prompt";
 		this.modalEl.empty();
-		const inputWrap = this.modalEl.createDiv("prompt-input-container");
-		this.inputEl = inputWrap.createEl("input", { cls: "prompt-input", type: "text" });
+		const inputWrap = this.modalEl.createDiv("prompt-input-container mod-raised");
+		this.inputEl = inputWrap.createEl("input", {
+			cls: "prompt-input",
+			type: "text",
+			attr: { autocapitalize: "off", spellcheck: "false", enterkeyhint: "done" },
+		});
+		inputWrap.createDiv("prompt-input-cta");
+		const clear = inputWrap.createDiv("search-input-clear-button");
+		clear.addEventListener("click", () => {
+			this.inputEl.value = "";
+			this.inputEl.focus();
+			this.onInput();
+		});
 		this.resultContainerEl = this.modalEl.createDiv("prompt-results");
 		this.instructionsEl = this.modalEl.createDiv("prompt-instructions");
 		this.chooser = new Suggestions<T>(this, this.resultContainerEl, this.scope);
@@ -138,8 +156,11 @@ export abstract class SuggestModal<T> extends Modal {
 		this.onInput();
 	}
 
+	// Results of a slow earlier query must not replace newer ones.
 	async onInput() {
-		const values = (await this.getSuggestions(this.inputEl.value)).slice(0, this.limit);
+		const request = ++this.#request;
+		const values = limited(await this.getSuggestions(this.inputEl.value), this.limit);
+		if (request !== this.#request || !this.isOpen) return;
 		if (values.length === 0) {
 			this.chooser.setSuggestions([]);
 			this.onNoSuggestion();
@@ -204,9 +225,10 @@ export abstract class PopoverSuggest<T> {
 	suggestions: Suggestions<T>;
 	isOpen = false;
 
+	// `scope` is the parent of the popover's own scope, as in Obsidian.
 	constructor(app: App, scope?: Scope) {
 		this.app = app;
-		this.scope = scope ?? new Scope(app.scope);
+		this.scope = new Scope(scope ?? app.scope);
 		this.suggestEl = createDiv("suggestion-container");
 		const list = this.suggestEl.createDiv("suggestion");
 		this.suggestions = new Suggestions<T>(this, list, this.scope);
@@ -229,6 +251,10 @@ export abstract class PopoverSuggest<T> {
 		this.isOpen = false;
 		this.app.keymap.popScope(this.scope);
 		this.suggestEl.detach();
+	}
+
+	onHistoryBack() {
+		this.close();
 	}
 
 	reposition(rect: { left: number; right: number; top: number; bottom: number }) {
@@ -275,7 +301,7 @@ export abstract class EditorSuggest<T> extends PopoverSuggest<T> {
 			this.close();
 			return true;
 		}
-		this.showSuggestions(values.slice(0, this.limit));
+		this.showSuggestions(limited(values, this.limit));
 		return true;
 	}
 
@@ -303,13 +329,17 @@ export abstract class AbstractInputSuggest<T> extends PopoverSuggest<T> {
 	limit = 100;
 	textInputEl: HTMLInputElement | HTMLDivElement;
 	#onSelect: ((value: T, evt: MouseEvent | KeyboardEvent) => any) | null = null;
+	#request = 0;
 
 	constructor(app: App, textInputEl: HTMLInputElement | HTMLDivElement) {
 		super(app);
 		this.textInputEl = textInputEl;
 		textInputEl.addEventListener("input", () => this.#update());
 		textInputEl.addEventListener("focus", () => this.#update());
-		textInputEl.addEventListener("blur", () => this.close());
+		textInputEl.addEventListener("blur", () => {
+			this.#request++;
+			this.close();
+		});
 	}
 
 	getValue() {
@@ -323,8 +353,12 @@ export abstract class AbstractInputSuggest<T> extends PopoverSuggest<T> {
 		else el.textContent = value;
 	}
 
+	// Results that arrive after a newer query, or after the input lost focus,
+	// are dropped.
 	async #update() {
-		const values = (await this.getSuggestions(this.getValue())).slice(0, this.limit);
+		const request = ++this.#request;
+		const values = limited(await this.getSuggestions(this.getValue()), this.limit);
+		if (request !== this.#request) return;
 		if (values.length === 0) return this.close();
 		this.suggestions.setSuggestions(values);
 		this.open();

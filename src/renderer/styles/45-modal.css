@@ -32,26 +32,21 @@
 .modal-close-button {
 	position: absolute;
 	top: 12px;
-	right: 14px;
-	width: 22px;
-	height: 22px;
-	cursor: pointer;
-	border-radius: var(--radius-s);
+	right: 12px;
+	padding: 3px;
+	z-index: 1;
 }
 
-.modal-close-button::before {
-	content: "×";
-	font-size: 20px;
-	line-height: 20px;
-	color: var(--text-muted);
-	display: block;
-	text-align: center;
+.modal-close-button .svg-icon {
+	width: var(--icon-s);
+	height: var(--icon-s);
 }
 
 .modal-title {
 	font-size: 18px;
 	font-weight: 600;
 	margin-bottom: 12px;
+	padding-right: 28px;
 }
 
 .modal-title:empty {
@@ -66,8 +61,64 @@
 .modal-button-container {
 	display: flex;
 	justify-content: flex-end;
+	align-items: center;
+	flex-wrap: wrap;
 	gap: 8px;
 	margin-top: 16px;
+}
+
+/* ConfirmationModal: a checkbox and secondary buttons sit apart, on the left;
+   the spacer keeps the other buttons on the right. */
+.modal-button-container::before {
+	content: "";
+	flex: 1;
+}
+
+.modal-button-container .mod-checkbox,
+.modal-button-container .mod-secondary {
+	order: -1;
+}
+
+.modal-button-container .mod-checkbox {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.modal.mod-secret .modal-header {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.modal.mod-secret .modal-title {
+	margin-bottom: 0;
+}
+
+.keychain-list-results .suggestion-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.suggestion-secret-key .suggestion-content {
+	flex: 1;
+	min-width: 0;
+	font-family: var(--font-monospace);
+}
+
+.suggestion-secret-key .suggestion-aux {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.suggestion-secret-text {
+	font-family: var(--font-monospace);
+	color: var(--text-muted);
 }
 
 .prompt-modal-input {

@@ -5,24 +5,42 @@
 }
 
 .prompt {
-	padding: 0;
+	position: relative;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-l);
+	box-shadow: var(--shadow-l);
 	width: 640px;
-}
-
-.prompt .modal-close-button {
-	display: none;
+	max-width: 90vw;
+	max-height: 85vh;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
 }
 
 .prompt-input-container {
+	position: relative;
+	display: flex;
+	align-items: center;
 	padding: 10px;
 	border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .prompt-input {
-	width: 100%;
+	flex: 1;
+	min-width: 0;
 	font-size: 16px !important;
 	border: none !important;
 	background: transparent !important;
+}
+
+.prompt-input-cta:empty {
+	display: none;
+}
+
+.prompt-input-container .search-input-clear-button {
+	position: static;
+	transform: none;
 }
 
 .prompt-results {

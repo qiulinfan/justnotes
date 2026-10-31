@@ -1,26 +1,64 @@
-/* Settings */
+/* Settings window: .modal.mod-settings.mod-sidebar-layout whose content is the
+   .vertical-tabs-container (nav on the left, the tab or page on the right). */
 .modal.mod-settings {
 	width: 900px;
 	height: 80vh;
 	padding: 0;
 }
 
-.mod-settings .modal-content {
-	height: 100%;
-	overflow: hidden;
+.mod-settings .modal-header {
+	display: none;
 }
 
-.vertical-tabs-container {
+.mod-settings .modal-content.vertical-tabs-container {
 	display: flex;
 	height: 100%;
+	overflow: hidden;
 }
 
 .vertical-tab-header {
 	width: 220px;
 	flex-shrink: 0;
 	background: var(--background-secondary);
-	padding: 16px 8px;
+	padding: 12px 8px;
 	overflow-y: auto;
+	outline: none;
+}
+
+.setting-search-container {
+	padding: 0 2px 8px;
+}
+
+.setting-search-container .search-input-container input {
+	width: 100%;
+}
+
+.setting-search-result {
+	padding: 5px 10px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+}
+
+.setting-search-result:hover {
+	background: var(--background-modifier-hover);
+}
+
+.setting-search-result-name {
+	font-size: var(--font-ui-small);
+}
+
+.setting-search-result-path,
+.setting-search-empty {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.setting-search-empty {
+	padding: 5px 10px;
+}
+
+.vertical-tab-header-group + .vertical-tab-header-group {
+	margin-top: 12px;
 }
 
 .vertical-tab-header-group-title {
@@ -31,6 +69,9 @@
 }
 
 .vertical-tab-nav-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
 	padding: 5px 10px;
 	border-radius: var(--radius-s);
 	font-size: var(--font-ui-small);
@@ -46,18 +87,104 @@
 	color: var(--text-on-accent);
 }
 
+.vertical-tab-nav-item-icon {
+	display: flex;
+}
+
+.vertical-tab-nav-item-icon .svg-icon {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+.vertical-tab-nav-item-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* The chevron is for the phone layout. */
+.vertical-tab-nav-item-chevron {
+	display: none;
+}
+
+/* Plugins also build .vertical-tab-content-container > .vertical-tab-content
+   in their own modals, so these rules are not scoped to the settings window. */
 .vertical-tab-content-container {
 	flex: 1;
+	min-width: 0;
 	overflow-y: auto;
+}
+
+.vertical-tab-content {
 	padding: 24px 32px;
+}
+
+/* Sub-pages */
+.setting-page-titlebar {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: -8px 0 16px -8px;
+}
+
+.setting-page-titlebar:empty {
+	display: none;
+}
+
+.setting-page-title {
+	font-size: var(--font-ui-medium);
+	font-weight: 600;
+}
+
+/* Groups and rows */
+.setting-group {
+	--setting-items-padding-x: 16px;
+	--setting-items-padding-y: 12px;
+	margin-bottom: 28px;
+}
+
+.setting-group > .setting-item-heading {
+	border: none;
+	padding: 0 0 8px;
+}
+
+.setting-group > .setting-item-heading .setting-item-name:empty {
+	flex: 1;
+}
+
+.setting-group-search {
+	margin-bottom: 8px;
+	outline: none;
+}
+
+.setting-group-search:empty {
+	display: none;
+}
+
+.setting-group-search .search-input-container input {
+	width: 100%;
+}
+
+.setting-items {
+	background: var(--background-primary-alt);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding: 0 var(--setting-items-padding-x);
+}
+
+.setting-items:empty {
+	display: none;
 }
 
 .setting-item {
 	display: flex;
 	align-items: center;
 	gap: 16px;
-	padding: 12px 0;
+	padding: var(--setting-items-padding-y, 12px) 0;
 	border-top: 1px solid var(--background-modifier-border);
+	outline: none;
 }
 
 .setting-item:first-child {
@@ -70,8 +197,11 @@
 	padding-top: 24px;
 }
 
+/* Info and control share the row's spare space; the control never shrinks
+   below its content, so a wide one narrows the text instead. Plugins that
+   want a full-width control rely on nothing else capping it. */
 .setting-item-info {
-	flex: 1;
+	flex: 1 1 auto;
 	min-width: 0;
 }
 
@@ -85,11 +215,28 @@
 	padding-top: 2px;
 }
 
+.setting-item-description:empty {
+	display: none;
+}
+
+.setting-item-description a {
+	color: var(--text-accent);
+}
+
 .setting-item-control {
 	display: flex;
+	flex: 1 1 auto;
 	align-items: center;
+	justify-content: flex-end;
 	gap: 8px;
-	flex-shrink: 0;
+}
+
+.setting-item-control select {
+	max-width: 400px;
+}
+
+.setting-item-control button {
+	white-space: nowrap;
 }
 
 .setting-item-control textarea {
@@ -101,12 +248,152 @@
 	opacity: 0.5;
 }
 
+.setting-item.is-invalid input,
+.setting-item.is-invalid textarea {
+	border-color: var(--text-error);
+}
+
+/* The validation message takes a line of its own below the controls. */
+.setting-item.is-invalid > .setting-item-control {
+	flex-wrap: wrap;
+}
+
+.setting-item-error {
+	flex-basis: 100%;
+	text-align: right;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-error);
+}
+
+.setting-item.mod-navigable,
+.setting-item.mod-action {
+	cursor: pointer;
+}
+
+.setting-item.mod-navigable:hover,
+.setting-item.mod-action:hover:not(.is-disabled) {
+	background: var(--background-modifier-hover);
+	margin: 0 calc(-1 * var(--setting-items-padding-x, 0px));
+	padding-left: var(--setting-items-padding-x, 0px);
+	padding-right: var(--setting-items-padding-x, 0px);
+}
+
+.setting-item-value {
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.setting-item-value:empty {
+	display: none;
+}
+
+.setting-item-status.mod-warning,
+.setting-item-control .clickable-icon.mod-warning {
+	display: flex;
+	color: var(--text-warning);
+}
+
+.setting-item-status .svg-icon,
+.setting-item-chevron .svg-icon {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+.setting-item-chevron {
+	display: flex;
+	color: var(--text-muted);
+}
+
+.setting-item.mod-empty-state .setting-item-name {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+/* Lists */
+.setting-group.mod-list .setting-item {
+	padding-top: 8px;
+	padding-bottom: 8px;
+}
+
+.setting-group.mod-no-icon .setting-item-icon {
+	display: none;
+}
+
+.extra-setting-button.mod-drag-handle {
+	cursor: grab;
+	touch-action: none;
+}
+
+.setting-item.is-dragging {
+	opacity: 0.6;
+}
+
+.setting-command-hotkeys {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+
+.setting-hotkey {
+	font-size: var(--font-ui-smaller);
+	padding: 2px 8px;
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+}
+
+.setting-hotkey.mod-empty {
+	color: var(--text-faint);
+	border-style: dashed;
+}
+
+.setting-secret-value {
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.u-muted {
+	color: var(--text-muted);
+}
+
+.u-small {
+	font-size: var(--font-ui-smaller);
+}
+
+.u-numeric {
+	font-variant-numeric: tabular-nums;
+}
+
+/* Components */
+button.mod-destructive {
+	color: var(--text-error);
+}
+
+button.mod-destructive.mod-cta {
+	background: var(--background-modifier-error);
+	color: white;
+	border-color: transparent;
+}
+
+.extra-setting-button.is-disabled {
+	opacity: 0.4;
+}
+
+.extra-setting-button:focus-visible,
+.checkbox-container:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+}
+
 .checkbox-container {
+	display: inline-block;
 	width: 40px;
 	height: 22px;
 	border-radius: 11px;
 	background: var(--background-modifier-border-hover);
 	position: relative;
+	flex-shrink: 0;
 	cursor: pointer;
 	transition: background 0.15s;
 }
@@ -136,6 +423,109 @@
 	left: 20px;
 }
 
-.extra-setting-button.is-disabled {
-	opacity: 0.4;
+.checkbox-container.is-disabled {
+	cursor: default;
+	opacity: 0.5;
+}
+
+/* The slider paints its track from --slider-fill-ratio; its value shows inline. */
+.slider-value {
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.slider-value:empty {
+	display: none;
+}
+
+input[type="range"].slider {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 160px;
+	height: 16px;
+	margin: 0;
+	background: transparent;
+}
+
+input[type="range"].slider::-webkit-slider-runnable-track {
+	height: 4px;
+	border-radius: 2px;
+	background: linear-gradient(
+		to right,
+		var(--interactive-accent) calc(var(--slider-fill-ratio, 0) * 100%),
+		var(--background-modifier-border-hover) calc(var(--slider-fill-ratio, 0) * 100%)
+	);
+}
+
+input[type="range"].slider::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 14px;
+	height: 14px;
+	margin-top: -5px;
+	border-radius: 50%;
+	background: var(--interactive-accent);
+	cursor: ew-resize;
+}
+
+input[type="range"].slider:disabled {
+	opacity: 0.5;
+}
+
+/* Search inputs: the clear button shows once the placeholder is gone. */
+.search-input-container {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	min-width: 0;
+}
+
+.search-input-container input {
+	padding-right: 24px;
+}
+
+.search-input-container input::-webkit-search-cancel-button {
+	-webkit-appearance: none;
+	display: none;
+}
+
+.setting-search-container .search-input-container,
+.setting-group-search .search-input-container {
+	display: flex;
+	width: 100%;
+}
+
+.search-input-clear-button {
+	position: absolute;
+	right: 6px;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 14px;
+	height: 14px;
+	cursor: pointer;
+	background: var(--text-faint);
+	-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.search-input-clear-button:hover {
+	background: var(--text-muted);
+}
+
+input:placeholder-shown ~ .search-input-clear-button {
+	display: none;
+}
+
+.setting-progress-bar {
+	width: 160px;
+	height: 6px;
+	border-radius: 3px;
+	background: var(--background-modifier-border);
+	overflow: hidden;
+}
+
+.setting-progress-bar-inner {
+	height: 100%;
+	background: var(--interactive-accent);
 }
