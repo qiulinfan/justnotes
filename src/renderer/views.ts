@@ -9,6 +9,9 @@ import { ItemView } from "../api/view";
 import type { WorkspaceLeaf } from "../api/workspace";
 
 export class EmptyView extends ItemView {
+	// A "New tab" is replaced by the next file opened in it.
+	navigation = true;
+
 	getViewType() {
 		return "empty";
 	}
@@ -69,6 +72,12 @@ export class FileExplorerView extends ItemView {
 		});
 		for (const name of ["create", "delete", "rename"]) this.registerEvent(this.app.vault.on(name, () => this.#refresh()));
 		this.registerEvent(this.app.workspace.on("file-open", () => this.#markActive()));
+		// The explorer's file actions also appear in a note's tab and More options menus.
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile, source: string) => {
+				if (source === "more-options" || source === "tab-header") this.#addFileItems(menu, file);
+			}),
+		);
 		this.#expanded = new Set(this.app.loadLocalStorage("justnotes-expanded") ?? []);
 		this.#render();
 	}
@@ -135,19 +144,22 @@ export class FileExplorerView extends ItemView {
 					.onClick(() => this.app.workspace.getLeaf("tab").openFile(file)),
 			);
 		}
-		if (!(file instanceof TFolder && file.isRoot())) {
-			menu.addItem((i) => i.setTitle("Rename...").setIcon("pencil").setSection("action").onClick(() => renameFile(this.app, file)));
-			menu.addItem((i) =>
-				i
-					.setTitle("Delete")
-					.setIcon("trash-2")
-					.setWarning(true)
-					.setSection("danger")
-					.onClick(() => this.app.fileManager.trashFile(file)),
-			);
-		}
+		this.#addFileItems(menu, file);
 		this.app.workspace.trigger("file-menu", menu, file, "file-explorer-context-menu", this.leaf);
 		menu.showAtMouseEvent(evt);
+	}
+
+	#addFileItems(menu: Menu, file: TAbstractFile) {
+		if (file instanceof TFolder && file.isRoot()) return;
+		menu.addItem((i) => i.setTitle("Rename...").setIcon("pencil").setSection("action").onClick(() => renameFile(this.app, file)));
+		menu.addItem((i) =>
+			i
+				.setTitle("Delete")
+				.setIcon("trash-2")
+				.setWarning(true)
+				.setSection("danger")
+				.onClick(() => this.app.fileManager.trashFile(file)),
+		);
 	}
 }
 
