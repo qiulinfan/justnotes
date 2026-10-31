@@ -1065,6 +1065,9 @@ function enhance(root: HTMLElement, job: RenderJob) {
 		if (fold && !fold.firstChild) setIcon(fold, "lucide-chevron-down");
 	}
 	for (const embed of root.findAllSelf("span.internal-embed:not(.is-loaded)") as HTMLElement[]) {
+		// A .base embed is left as it is for the bases post processor to mount.
+		const target = job.app.metadataCache.getFirstLinkpathDest(parseLinktext(embed.getAttribute("src") ?? "").path, job.sourcePath);
+		if (target?.extension === "base") continue;
 		const child = job.parent.addChild(new EmbedChild(embed, job));
 		// The render waits for the embeds that load now; the others load with their owner.
 		if (child.loading) job.promises.push(child.loading);
