@@ -1153,7 +1153,7 @@ async function embedPdf(embed: HTMLElement, file: TFile, subpath: string, job: R
 			for (const entry of entries) {
 				if (!entry.isIntersecting) continue;
 				observer.unobserve(entry.target);
-				renderPdfPage(doc, entry.target as HTMLElement).catch((err) => console.error(err));
+				renderPdfPage(lib, doc, entry.target as HTMLElement).catch((err) => console.error(err));
 			}
 		},
 		{ root: viewer, rootMargin: "200px 0px" },
@@ -1170,14 +1170,21 @@ async function embedPdf(embed: HTMLElement, file: TFile, subpath: string, job: R
 	if (page > 1) requestAnimationFrame(() => (viewer.scrollTop = pages[page - 1].offsetTop - pages[0].offsetTop));
 }
 
-async function renderPdfPage(doc: any, pageEl: HTMLElement) {
+// A page is a canvas plus pdf.js's text layer, so its text can be selected.
+async function renderPdfPage(lib: any, doc: any, pageEl: HTMLElement) {
 	const page = await doc.getPage(Number(pageEl.dataset.page));
-	const width = page.getViewport({ scale: 1 }).width;
-	const viewport = page.getViewport({ scale: (Math.max(pageEl.clientWidth, 200) / width) * window.devicePixelRatio });
+	const css = page.getViewport({ scale: Math.max(pageEl.clientWidth, 200) / page.getViewport({ scale: 1 }).width });
+	// Placeholders take the first page's shape; a page of another size keeps its own.
+	pageEl.style.aspectRatio = `${css.width} / ${css.height}`;
+	const viewport = page.getViewport({ scale: css.scale * window.devicePixelRatio });
 	const canvas = pageEl.createEl("canvas");
 	canvas.width = Math.floor(viewport.width);
 	canvas.height = Math.floor(viewport.height);
 	await page.render({ canvasContext: canvas.getContext("2d")!, canvas, viewport }).promise;
+	const text = pageEl.createDiv("textLayer");
+	// pdf.js sizes its spans from the variables its own viewer CSS would set.
+	text.setCssProps({ "--total-scale-factor": String(css.scale), "--scale-round-x": "1px", "--scale-round-y": "1px" });
+	await new lib.TextLayer({ textContentSource: page.streamTextContent(), container: text, viewport: css }).render();
 }
 
 // Mermaid fences are a built-in code-block processor, registered last so a
