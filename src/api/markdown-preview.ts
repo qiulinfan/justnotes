@@ -205,11 +205,12 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		return this.#data;
 	}
 
+	// A different file (`clear`) starts at the top.
 	set(data: string, clear: boolean) {
 		this.#data = data;
 		if (clear) {
 			this.#scroll = 0;
-			this.#pendingScroll = null;
+			this.#pendingScroll = 0;
 		}
 		if (!this.#shown) return;
 		if (clear) this.rerender(true);
