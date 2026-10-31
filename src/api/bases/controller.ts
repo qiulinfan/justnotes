@@ -65,6 +65,7 @@ export class QueryController extends Component {
 		this.source = source;
 		this.containerEl = containerEl;
 		containerEl.addClass("bases-container");
+		containerEl.addEventListener("click", (evt) => this.#openTag(evt));
 		this.#toolbar = new BasesToolbar(this, containerEl.createDiv("bases-header"));
 		this.#messageEl = containerEl.createDiv("bases-message");
 		this.#viewEl = containerEl.createDiv("bases-view");
@@ -232,6 +233,22 @@ export class QueryController extends Component {
 		this.#messageEl.empty();
 		const messages = this.document.error ? [this.document.error] : this.errors;
 		for (const text of messages) this.#messageEl.createDiv({ cls: "bases-message-item mod-warning", text });
+	}
+
+	// A tag in any view searches the vault for it: through the global search
+	// core plugin when there is one, else the search pane.
+	#openTag(evt: MouseEvent) {
+		const tag = (evt.target as HTMLElement).closest("a.tag")?.textContent;
+		if (!tag) return;
+		evt.preventDefault();
+		const search = (this.app.internalPlugins.getPluginById("global-search") as { instance?: { openGlobalSearch?(q: string): void } } | null)?.instance;
+		if (search?.openGlobalSearch) return search.openGlobalSearch(`tag:${tag}`);
+		const leaf = this.app.workspace.getLeavesOfType("search")[0];
+		const input = (leaf?.view as { inputEl?: HTMLInputElement } | undefined)?.inputEl;
+		if (!leaf || !input) return;
+		this.app.workspace.revealLeaf(leaf);
+		input.value = tag;
+		input.dispatchEvent(new Event("input"));
 	}
 
 	#currentRun() {

@@ -6,7 +6,7 @@ import { parseYaml, stringifyYaml } from "../util";
 import { type BasesViewConfig, groupByOf, limitOf, viewData } from "./config";
 import type { QueryController } from "./controller";
 import { parseExpression } from "./expression";
-import type { BasesPropertyId } from "./property";
+import { type BasesPropertyId, normalizePropertyId, parsePropertyId } from "./property";
 import { ErrorValue } from "./values";
 import { type BasesAllOptions, type BasesOptions, getBasesViewType, listBasesViewTypes } from "./view";
 
@@ -292,4 +292,36 @@ class FormulaModal extends Modal {
 
 export function openFormulaEditor(controller: QueryController) {
 	if (!controller.document.error) new FormulaModal(controller).open();
+}
+
+// The display name of a property, kept in the base's `properties`.
+class RenameModal extends Modal {
+	#input: HTMLInputElement;
+
+	constructor(controller: QueryController, id: BasesPropertyId) {
+		super(controller.app);
+		this.setTitle("Property display name");
+		const config = controller.configs[controller.viewIndex];
+		this.#input = this.contentEl.createEl("input", { type: "text", cls: "prompt-modal-input", value: config.getDisplayName(id) });
+		this.#input.addEventListener("keydown", (evt) => {
+			if (evt.key !== "Enter") return;
+			evt.preventDefault();
+			// Reuse the key the base already has for this property; a new note
+			// property is written by its bare name, as Obsidian does.
+			const { type, name } = parsePropertyId(id);
+			const keys = Object.keys(controller.document.config.properties ?? {});
+			const key = keys.find((k) => normalizePropertyId(k) === id) ?? (type === "note" ? name : id);
+			controller.setBaseKey(["properties", key, "displayName"], this.#input.value.trim() || undefined);
+			this.close();
+		});
+	}
+
+	onOpen() {
+		this.#input.focus();
+		this.#input.select();
+	}
+}
+
+export function openRenameProperty(controller: QueryController, id: BasesPropertyId) {
+	if (!controller.document.error && controller.configs[controller.viewIndex]) new RenameModal(controller, id).open();
 }

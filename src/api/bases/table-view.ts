@@ -6,6 +6,7 @@ import { BatchRenderer } from "./batches";
 import { summariesOf, viewData } from "./config";
 import type { QueryController } from "./controller";
 import type { BasesEntry } from "./entry";
+import { openRenameProperty } from "./options";
 import { frontmatterOf } from "./file-fields";
 import { propertyType } from "./frontmatter";
 import { type BasesPropertyId, parsePropertyId } from "./property";
@@ -167,7 +168,8 @@ export class TableView extends BasesView {
 		});
 		if (i > 0) menu.addItem((item) => item.setTitle("Move left").setIcon("arrow-left").setSection("move").onClick(() => move(i - 1)));
 		if (i >= 0 && i < order.length - 1) menu.addItem((item) => item.setTitle("Move right").setIcon("arrow-right").setSection("move").onClick(() => move(i + 1)));
-		menu.addItem((item) => item.setTitle("Hide property").setIcon("eye-off").setSection("move").onClick(() => this.#set("order", order.filter((p) => p !== id))));
+		menu.addItem((item) => item.setTitle("Rename").setIcon("pencil").setSection("edit").onClick(() => openRenameProperty(this.#controller, id)));
+		menu.addItem((item) => item.setTitle("Hide property").setIcon("eye-off").setSection("edit").onClick(() => this.#set("order", order.filter((p) => p !== id))));
 		menu.showAtMouseEvent(evt);
 	}
 
