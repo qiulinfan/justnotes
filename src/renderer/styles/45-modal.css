@@ -67,6 +67,60 @@
 	margin-top: 16px;
 }
 
+/* ConfirmationModal: a checkbox and secondary buttons sit apart, on the left;
+   the spacer keeps the other buttons on the right. */
+.modal-button-container::before {
+	content: "";
+	flex: 1;
+}
+
+.modal-button-container .mod-checkbox,
+.modal-button-container .mod-secondary {
+	order: -1;
+}
+
+.modal-button-container .mod-checkbox {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.modal.mod-secret .modal-header {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.modal.mod-secret .modal-title {
+	margin-bottom: 0;
+}
+
+.keychain-list-results .suggestion-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.suggestion-secret-key .suggestion-content {
+	flex: 1;
+	min-width: 0;
+	font-family: var(--font-monospace);
+}
+
+.suggestion-secret-key .suggestion-aux {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.suggestion-secret-text {
+	font-family: var(--font-monospace);
+	color: var(--text-muted);
+}
+
 .prompt-modal-input {
 	width: 100%;
 }

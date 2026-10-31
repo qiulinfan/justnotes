@@ -17,19 +17,47 @@ export interface PluginManifest {
 	isDesktopOnly?: boolean;
 }
 
+// A settings tab renders from getSettingDefinitions() when that returns
+// items (Obsidian 1.13); display() is the imperative fallback. Rendering
+// belongs to the settings window, app.setting.
 export abstract class SettingTab {
 	app: App;
 	containerEl: HTMLElement;
 	id = "";
 	name = "";
-	icon = "settings";
+	// Unset by default, as in Obsidian: the sidebar then shows no icon.
+	icon = "";
+	settingItems: import("./ui/setting-definitions").SettingDefinitionItem[] = [];
 
 	constructor(app: App) {
 		this.app = app;
 		this.containerEl = createDiv("vertical-tab-content");
 	}
 
-	abstract display(): void;
+	getSettingDefinitions(): SettingTab["settingItems"] {
+		return [];
+	}
+
+	// Re-reads the definitions and redraws the tab if it is on screen.
+	update() {
+		this.settingItems = this.getSettingDefinitions();
+		this.app.setting.redrawTab(this);
+	}
+
+	getControlValue(key: string): unknown {
+		return this.app.vault.getConfig(key);
+	}
+
+	setControlValue(key: string, value: unknown): void | Promise<void> {
+		this.app.vault.setConfig(key, value);
+	}
+
+	// Re-evaluates visible/disabled predicates in place.
+	refreshDomState() {
+		this.app.setting.refreshTabDomState(this);
+	}
+
+	display() {}
 
 	hide() {
 		this.containerEl.empty();
@@ -44,6 +72,17 @@ export abstract class PluginSettingTab extends SettingTab {
 		this.plugin = plugin;
 		this.id = plugin.manifest.id;
 		this.name = plugin.manifest.name;
+	}
+
+	getControlValue(key: string): unknown {
+		return (this.plugin as Plugin & { settings?: Record<string, unknown> }).settings?.[key];
+	}
+
+	async setControlValue(key: string, value: unknown) {
+		const plugin = this.plugin as Plugin & { settings?: Record<string, unknown> };
+		plugin.settings ??= {};
+		plugin.settings[key] = value;
+		await plugin.saveData(plugin.settings);
 	}
 }
 
