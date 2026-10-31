@@ -3,6 +3,7 @@ import { syntaxTree } from "@codemirror/language";
 import { type ChangeSpec, EditorSelection, type EditorState, type SelectionRange, type Text, type TransactionSpec } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 import type { Editor, EditorPosition, EditorTransaction } from "./editor";
+import { listEdit } from "./editor-lists";
 
 // Position and transaction helpers shared by Editor and the commands. They
 // live here so they stay out of the obsidian module's exports.
@@ -74,10 +75,12 @@ export function selectedLines(state: EditorState) {
 // command is one undo step.
 export type StateEdit = (state: EditorState) => TransactionSpec | null;
 
-export function runEdit(editor: Editor, edit: StateEdit) {
+// `list`: the edit changes list markup, so ordered lists are renumbered after it.
+export function runEdit(editor: Editor, edit: StateEdit, list = false) {
 	const spec = edit(editor.cm.state);
 	if (!spec) return false;
-	editor.cm.dispatch({ ...spec, scrollIntoView: true, annotations: isolateHistory.of("full") });
+	const annotations = list ? [isolateHistory.of("full"), listEdit.of(true)] : isolateHistory.of("full");
+	editor.cm.dispatch({ ...spec, scrollIntoView: true, annotations });
 	return true;
 }
 
@@ -320,14 +323,21 @@ export const toggleBulletList: StateEdit = (state) => {
 	});
 };
 
-// The same for numbered lists, numbering the selected lines from 1.
+// The same for numbered lists, numbering the selected lines from 1 at each
+// level of indentation (a nested `2.` right under its parent's text would
+// read as more of that text).
 export const toggleNumberedList: StateEdit = (state) => {
 	const all = everyLine(state, (text) => isNumbered(lineParts(text)));
-	return editLines(state, (text, i) => {
+	const counters: { indent: string; count: number }[] = [];
+	return editLines(state, (text) => {
 		const p = lineParts(text);
+		while (counters.length && counters[counters.length - 1].indent.length > p.indent.length) counters.pop();
+		const top = counters[counters.length - 1];
+		if (top?.indent === p.indent) top.count++;
+		else counters.push({ indent: p.indent, count: 1 });
 		const start = p.indent.length;
 		const end = start + p.marker.length + p.space.length;
-		return [{ from: start, to: end, insert: all ? "" : `${i + 1}. ` }];
+		return [{ from: start, to: end, insert: all ? "" : `${counters[counters.length - 1].count}. ` }];
 	});
 };
 

@@ -23,6 +23,7 @@ import {
 	toggleMarkup,
 	toggleNumberedList,
 } from "../api/editor-commands";
+import { indentListItems, outdentListItems } from "../api/editor-lists";
 import { TagSuggest } from "../api/editor-suggests";
 import type { Command, Modifier } from "../api/keymap";
 import { clickableTokenAt, searchTag } from "../api/live-preview";
@@ -105,6 +106,8 @@ function registerEditorCommands(app: App) {
 	};
 	const edit = (id: string, name: string, change: StateEdit, hotkey?: [Modifier[], string]) =>
 		editorCommand(id, name, (editor) => runEdit(editor, change), hotkey);
+	const listCommand = (id: string, name: string, change: StateEdit, hotkey?: [Modifier[], string]) =>
+		editorCommand(id, name, (editor) => runEdit(editor, change, true), hotkey);
 	const cm = (id: string, name: string, command: (view: EditorView) => boolean, hotkey?: [Modifier[], string]) =>
 		editorCommand(id, name, (editor) => command(editor.cm), hotkey);
 	const suggest = (editor: Editor, view: any) => app.workspace.editorSuggest.trigger(editor, view?.file ?? null, true);
@@ -133,15 +136,17 @@ function registerEditorCommands(app: App) {
 		suggest(editor, view);
 	});
 
-	edit("toggle-checklist-status", "Toggle checkbox status", toggleChecklistStatus, [["Mod"], "l"]);
-	edit("cycle-list-checklist", "Cycle bullet/checkbox", cycleListChecklist);
-	edit("toggle-bullet-list", "Toggle bullet list", toggleBulletList);
-	edit("toggle-numbered-list", "Toggle numbered list", toggleNumberedList);
+	listCommand("toggle-checklist-status", "Toggle checkbox status", toggleChecklistStatus, [["Mod"], "l"]);
+	listCommand("cycle-list-checklist", "Cycle bullet/checkbox", cycleListChecklist);
+	listCommand("toggle-bullet-list", "Toggle bullet list", toggleBulletList);
+	listCommand("toggle-numbered-list", "Toggle numbered list", toggleNumberedList);
 	edit("toggle-blockquote", "Toggle blockquote", toggleBlockquote);
 	edit("set-heading-0", "Remove heading", setHeading(0));
 	for (let level = 1; level <= 6; level++) edit(`set-heading-${level}`, `Set as heading ${level}`, setHeading(level));
-	cm("indent-list", "Indent list", indentMore);
-	cm("unindent-list", "Unindent list", indentLess);
+	// On list items these move the items with their children; elsewhere
+	// they indent the selected lines.
+	cm("indent-list", "Indent list", (view) => indentListItems(view) || indentMore(view));
+	cm("unindent-list", "Unindent list", (view) => outdentListItems(view) || indentLess(view));
 	edit("insert-callout", "Insert callout", insertCallout);
 	edit("insert-codeblock", "Insert code block", insertCodeBlock);
 	edit("insert-mathblock", "Insert math block", insertMathBlock);
