@@ -37,11 +37,13 @@ const CORE_PLUGINS = [
 	"webviewer",
 ];
 
-// The core plugins justnotes backs with its own features. daily-notes and
-// templates only expose their options, which other plugins (periodic notes,
-// QuickAdd, Templater) read to do the work themselves. Anything else stays
-// disabled, so plugins that probe it take their fallbacks.
-const IMPLEMENTED = new Set(["file-explorer", "global-search", "switcher", "command-palette", "daily-notes", "templates"]);
+// The core plugins whose instances justnotes backs with its own features.
+// daily-notes and templates only expose their options, which other plugins
+// (periodic notes, QuickAdd, Templater) read to do the work themselves.
+// Anything else stays disabled, so plugins that probe it take their fallbacks:
+// that includes switcher and command-palette, which justnotes has as commands
+// but whose instances would have none of Obsidian's members.
+const IMPLEMENTED = new Set(["file-explorer", "global-search", "daily-notes", "templates"]);
 
 export interface InternalPluginInstance {
 	id: string;

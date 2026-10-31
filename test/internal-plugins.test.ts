@@ -33,10 +33,12 @@ describe("app.internalPlugins", () => {
 	});
 
 	test("a core plugin justnotes does not implement stays disabled even when the vault enables it", async () => {
-		const internal = new InternalPlugins(appWithConfig({ ".obsidian/core-plugins.json": { "page-preview": true, bookmarks: true } }));
+		// The quick switcher exists in justnotes as a command, but its instance has
+		// none of Obsidian's members.
+		const internal = new InternalPlugins(appWithConfig({ ".obsidian/core-plugins.json": { "page-preview": true, switcher: true } }));
 		await internal.initialize();
 		expect(internal.getEnabledPluginById("page-preview")).toBeNull();
-		expect(internal.getPluginById("bookmarks")?.enabled).toBe(false);
+		expect(internal.getPluginById("switcher")?.enabled).toBe(false);
 	});
 
 	test("a core plugin the vault disables is reported disabled", async () => {
