@@ -4,7 +4,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { bracketMatching, codeFolding, foldGutter, HighlightStyle, indentOnInput, indentUnit, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range, type StateCommand } from "@codemirror/state";
 import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { IterMode, NodeProp, type SyntaxNode } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
@@ -411,18 +411,23 @@ const codeHighlight = HighlightStyle.define([
 ]);
 
 // Enter on an empty quote line steps out one quote level, as in Typora,
-// instead of CodeMirror's default of continuing the quote.
-function exitEmptyQuote(view: EditorView) {
-	const { state } = view;
+// instead of CodeMirror's default of continuing the quote. Text typed right
+// below a line of the quote's text would continue that paragraph (a
+// CommonMark lazy continuation line) and show inside the quote again, so a
+// blank line at the outer level goes between them. Leaving the last level
+// keeps the indentation of a list item the quote is in.
+export const exitEmptyQuote: StateCommand = ({ state, dispatch }) => {
 	const sel = state.selection;
 	if (sel.ranges.length !== 1 || !sel.main.empty) return false;
 	const line = state.doc.lineAt(sel.main.head);
 	if (sel.main.head !== line.to || !/^\s*(>\s*)+$/.test(line.text)) return false;
 	const outer = line.text.replace(/>\s*$/, "").trimEnd();
-	const insert = outer ? `${outer} ` : "";
-	view.dispatch({ changes: { from: line.from, to: line.to, insert }, selection: { anchor: line.from + insert.length }, userEvent: "input" });
+	const above = line.number > 1 ? state.doc.line(line.number - 1).text : "";
+	const next = outer ? `${outer} ` : line.text.slice(0, line.text.search(/\S/));
+	const insert = /[^\s>]/.test(above) ? `${outer}\n${next}` : next;
+	dispatch(state.update({ changes: { from: line.from, to: line.to, insert }, selection: { anchor: line.from + insert.length }, userEvent: "input" }));
 	return true;
-}
+};
 
 // Tab indents list items and selections, and otherwise inserts one indent
 // unit at the cursor, as Obsidian does.
