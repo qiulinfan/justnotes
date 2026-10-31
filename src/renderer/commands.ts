@@ -53,17 +53,6 @@ export function registerCoreCommands(app: App) {
 		const file = await app.fileManager.createNewMarkdownFile(app.fileManager.getNewFileParent(""));
 		await app.workspace.getLeaf(false).openFile(file);
 	});
-	app.commands.addCommand({
-		id: "editor:save-file",
-		name: "Save current file",
-		hotkeys: [{ modifiers: ["Mod"], key: "s" }],
-		checkCallback: (checking) => {
-			const view = app.workspace.getActiveViewOfType(MarkdownView);
-			if (!view) return false;
-			if (!checking) view.save();
-			return true;
-		},
-	});
 	registerEditorCommands(app);
 }
 
