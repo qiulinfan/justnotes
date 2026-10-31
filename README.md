@@ -37,12 +37,15 @@ vault 就是一个放 Markdown 文件的文件夹. 已有的 Obsidian vault 可�
 
 ## 现在能用的
 
-- Live Preview: 标题, 粗体斜体, 链接, `[[wikilink]]`, 图片, 任务列表, 引用, 行内和块级公式 (MathJax).
-- 全文搜索 (`⌘⇧F`), 直接读文件, 没有索引.
+- Live Preview: 标题, 粗体斜体, 链接, `[[wikilink]]`, 图片, 任务列表, 引用, callout, 表格, 行内和块级公式 (MathJax), mermaid, 嵌入 (笔记, 标题段落, PDF, base) 和插件的代码块.
+- 空的 `>` 行按 Enter 退出一层引用, 像 Typora.
+- 阅读视图 (`⌘E`). 链接悬停预览: 阅读视图里直接悬停, Live Preview 里按住 `⌘`.
+- 全文搜索 (`⌘⇧F`), 直接读文件, 没有索引. `tag:#标签` 按标签搜 (正文和 frontmatter, 含子标签).
+- Bases: `.base` 文件和 `base` 代码块, 表格, 卡片和列表视图, 排序, 分组, 筛选, 公式, 在表格里改属性.
 - 命令面板 (`⌘P`), 快速切换 (`⌘O`), 设置 (`⌘,`). vault 里 `.obsidian/hotkeys.json` 的快捷键会生效.
-- 测过的 Obsidian 插件: Copy Location, Quick LaTeX, Completr, YOLO Completion Only.
+- 测过的 Obsidian 插件: Copy Location, Quick LaTeX, Completr, YOLO Completion Only, Background, kgdistiller, LaTeX Live, Git, omp, QuickAdd, Terminal.
 
-还没有的: 阅读视图, 反向链接, 日记和模板这类核心插件, 自动上传到云盘.
+还没有的: 反向链接, 日记和模板这类核心插件, Canvas, 在属性面板里改属性, 弹出窗口 (会开成标签页), 拖动标签页, 自动上传到云盘.
 
 justnotes 只读 `.obsidian/` 里的配置, 不会写, 所以和 Obsidian 交替打开同一个 vault 没问题.
 
