@@ -85,8 +85,8 @@ ipcMain.handle("justnotes:obsidian-urls", (evt) => {
 // takes the URL, as Obsidian does. Only a vault once opened with --vault or
 // the folder picker opens this way: a vault's window runs its community
 // plugins, and a link must not run the code of a folder the user never chose.
-// Resolves false when no such vault holds the file, and the sender says it is
-// not in this vault.
+// Resolves false when no such vault holds the file, and the sender says so in
+// a notice.
 ipcMain.handle("justnotes:open-in-vault", (evt, url: string, target: string) => {
 	const vault = vaultOf(target, knownVaults());
 	if (!vault || vaultWindows.get(vault)?.webContents === evt.sender) return false;
