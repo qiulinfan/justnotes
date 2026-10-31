@@ -1035,14 +1035,27 @@ function calloutIcon(callout: HTMLElement) {
 	return fromCss || CALLOUT_ICONS[callout.dataset.callout ?? ""] || CALLOUT_ICONS.note;
 }
 
+// A media path in raw HTML as editors such as Typora write it: relative to the
+// note, perhaps with backslashes, a leading "./" or %-escapes, or an absolute
+// path from another machine, which still finds the file by its name. What
+// `resolve` returns for it; null for URLs. Live Preview resolves its HTML
+// images the same way.
+export function resolveHtmlSrc<T>(src: string, resolve: (linkpath: string) => T | null): T | null {
+	const drive = /^[a-z]:[\\/]/i.test(src);
+	if ((SCHEME.test(src) && !drive) || src.startsWith("#") || src.startsWith("//")) return null;
+	let path = src.slice(drive ? 2 : 0).replace(/\\/g, "/").replace(/^\.\//, "");
+	try {
+		path = decodeURIComponent(path);
+	} catch {}
+	return resolve(path) ?? (path.includes("/") ? resolve(path.slice(path.lastIndexOf("/") + 1)) : null);
+}
+
 // Sanitized HTML for the page. Raw HTML may point at vault files relative to
 // the note; those sources become resource URLs before anything loads.
 function toDom(html: string, app: App, sourcePath: string) {
 	return sanitizeHTML(html, (fragment) => {
 		for (const el of Array.from(fragment.querySelectorAll("img[src], video[src], audio[src], source[src], iframe[src]"))) {
-			const src = el.getAttribute("src")!;
-			if (SCHEME.test(src) || src.startsWith("/") || src.startsWith("#")) continue;
-			const file = app.metadataCache.getFirstLinkpathDest(decodeLink(src), sourcePath);
+			const file = resolveHtmlSrc(el.getAttribute("src")!, (path) => app.metadataCache.getFirstLinkpathDest(path, sourcePath));
 			if (file) el.setAttribute("src", app.vault.getResourcePath(file));
 		}
 	});

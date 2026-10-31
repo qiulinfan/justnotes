@@ -6,7 +6,7 @@ import type { App } from "./app";
 import type { Component } from "./events";
 import { setIcon } from "./icons";
 import { Keymap } from "./keymap";
-import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, renderMath } from "./markdown";
+import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, renderMath, resolveHtmlSrc } from "./markdown";
 import { getLinkpath } from "./metadata-utils";
 import { parseYaml } from "./util";
 
@@ -259,9 +259,9 @@ class ImageWidget extends WidgetType {
 	}
 }
 
-// Typora-style `<img src="Assets/x.png" style="zoom:50%">`: the src is a path
-// relative to the note (backslashes allowed) or a URL; other attributes
-// carry over except event handlers.
+// Typora-style `<img src="Assets/x.png" style="zoom:50%">`: the src is a URL
+// or a path the renderer's resolveHtmlSrc finds; other attributes carry over
+// except event handlers.
 const HTML_ATTR = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
 const IMG_ATTRS = new Set(["alt", "title", "width", "height", "style", "align", "class"]);
 
@@ -275,15 +275,7 @@ function htmlImage(tag: string, resolveImage: (link: string) => string | null): 
 		else if (IMG_ATTRS.has(name)) attrs.push([name, value]);
 	}
 	if (!src) return null;
-	let url: string | null = src;
-	if (!SCHEME.test(src)) {
-		let path = src.replace(/\\/g, "/").replace(/^\.\//, "");
-		try {
-			path = decodeURIComponent(path);
-		} catch {}
-		// An absolute path from another machine still finds the file by name.
-		url = resolveImage(path) ?? (path.includes("/") ? resolveImage(path.slice(path.lastIndexOf("/") + 1)) : null);
-	}
+	const url = resolveHtmlSrc(src, resolveImage) ?? (SCHEME.test(src) ? src : null);
 	return url ? new HtmlImageWidget(url, attrs) : null;
 }
 
