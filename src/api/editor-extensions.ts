@@ -13,13 +13,15 @@ import { IterMode, NodeProp, type NodePropSource, type Parser, type SyntaxNode }
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import { type BlockContext, type Element, type LeafBlock, type LeafBlockParser, type Line, type MarkdownConfig, parseCode, parser as commonmark } from "@lezer/markdown";
 import type { App } from "./app";
+import { importFile } from "./attachments";
 import { DragManager } from "./drag-manager";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
 import { setIcon } from "./icons";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
 import { inlineMathEnd, mathBlockClose } from "./markdown";
+import { parseLinktext } from "./metadata-utils";
 import type { MarkdownView } from "./markdown-view";
-import { debounce, moment } from "./util";
+import { debounce } from "./util";
 import { TFile } from "./vault";
 
 // Obsidian syntax that lezer-markdown does not know. Nodes for Obsidian-only
@@ -685,27 +687,17 @@ function followVault(view: MarkdownView) {
 // Obsidian's own paste and drop handling, after plugins had their turn:
 // files become attachments next to the note, and a URL pasted over
 // selected text links that text.
-const EMBEDDABLE = /^(png|jpe?g|gif|svg|webp|bmp|avif|mp3|wav|m4a|ogg|flac|mp4|webm|ogv|mov|mkv|pdf)$/i;
 const URL_ONLY = /^[a-z][\w+.-]*:\/\/\S+$/i;
 
 async function attach(view: MarkdownView, files: File[], pasted: boolean) {
 	const { app } = view;
 	const sourcePath = view.file?.path ?? "";
-	const webUtils = require("electron").webUtils;
 	const links: string[] = [];
 	for (const file of files) {
 		// A file dragged from inside the vault is linked, not copied.
-		const disk: string | undefined = webUtils?.getPathForFile?.(file);
-		const base = app.vault.adapter.basePath;
-		let target: TFile | null = disk?.startsWith(`${base}/`) ? app.vault.getFileByPath(disk.slice(base.length + 1)) : null;
-		if (!target) {
-			const ext = /\.([^.]+)$/.exec(file.name)?.[1] ?? file.type.split("/")[1]?.replace("jpeg", "jpg") ?? "bin";
-			const name = pasted && file.type.startsWith("image/") ? `Pasted image ${moment().format("YYYYMMDDHHmmss")}.${ext}` : file.name;
-			const path = await app.fileManager.getAvailablePathForAttachment(name, sourcePath);
-			target = await app.vault.createBinary(path, await file.arrayBuffer());
-		}
-		const link = app.fileManager.generateMarkdownLink(target, sourcePath);
-		links.push(EMBEDDABLE.test(target.extension) ? `!${link}` : link);
+		// generateMarkdownLink embeds files that are no notes, as Obsidian's does.
+		const target = await importFile(app, file, sourcePath, pasted);
+		links.push(app.fileManager.generateMarkdownLink(target, sourcePath));
 	}
 	view.editor.replaceSelection(links.join("\n"), "input.paste");
 }
@@ -732,27 +724,39 @@ function pasteDefault(view: MarkdownView, evt: ClipboardEvent) {
 	return true;
 }
 
-// Notes and attachments dragged from the explorer are linked where they are
-// dropped, anywhere over the editor. Such a drag carries no data the browser
-// could drop, so the editor accepts it in dragover; a drop on the text has
-// been through the plugins' editor-drop and dropDefault first.
+// Notes and attachments dragged from the explorer, and links dragged from
+// rendered Markdown or the link panes, are linked where they are dropped,
+// anywhere over the editor. Such a drag carries no data the browser could
+// drop, so the editor accepts it in dragover; a drop on the text has been
+// through the plugins' editor-drop and dropDefault first.
 function linkDraggedFiles(view: MarkdownView) {
-	const dragged = () => DragManager.files(view.app.dragManager.draggable).filter((f): f is TFile => f instanceof TFile);
+	const { app } = view;
+	const links = (): string[] => {
+		const drag = app.dragManager.draggable;
+		const sourcePath = view.file?.path ?? "";
+		if (drag?.type === "link" && drag.linktext) {
+			const { path, subpath } = parseLinktext(drag.linktext);
+			const dest = path ? app.metadataCache.getFirstLinkpathDest(path, drag.sourcePath ?? "") : app.vault.getFileByPath(drag.sourcePath ?? "");
+			return [dest ? app.fileManager.generateMarkdownLink(dest, sourcePath, subpath) : `[[${drag.linktext}]]`];
+		}
+		return DragManager.files(drag)
+			.filter((f): f is TFile => f instanceof TFile)
+			.map((f) => app.fileManager.generateMarkdownLink(f, sourcePath));
+	};
 	return ViewPlugin.define((cm) => {
 		const onDragOver = (evt: DragEvent) => {
-			if (evt.defaultPrevented || !dragged().length) return;
+			if (evt.defaultPrevented || !links().length) return;
 			evt.preventDefault();
 			if (evt.dataTransfer) evt.dataTransfer.dropEffect = "link";
-			view.app.dragManager.setAction("Insert link here");
+			app.dragManager.setAction("Insert link here");
 		};
 		const onDrop = (evt: DragEvent) => {
-			const files = dragged();
-			if (evt.defaultPrevented || !files.length) return;
+			const text = links();
+			if (evt.defaultPrevented || !text.length) return;
 			evt.preventDefault();
 			const pos = cm.posAtCoords({ x: evt.clientX, y: evt.clientY }, false);
 			cm.dispatch({ selection: { anchor: pos } });
-			const sourcePath = view.file?.path ?? "";
-			view.editor.replaceSelection(files.map((f) => view.app.fileManager.generateMarkdownLink(f, sourcePath)).join("\n"), "input.drop");
+			view.editor.replaceSelection(text.join("\n"), "input.drop");
 			cm.focus();
 		};
 		cm.dom.addEventListener("dragover", onDragOver);

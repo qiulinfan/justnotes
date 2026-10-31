@@ -3,8 +3,11 @@
 // reads `canvas.selection`, a node's `text` and `file`, calls `setText`,
 // `getData` and `requestSave`), and its commands and menus.
 import type { App } from "../api/app";
+import { importFile } from "../api/attachments";
+import { DragManager } from "../api/drag-manager";
 import { setIcon, setTooltip } from "../api/icons";
 import { Scope } from "../api/keymap";
+import { parseLinktext } from "../api/metadata-utils";
 import { Menu } from "../api/ui/menu";
 import { Modal } from "../api/ui/modal";
 import { Notice } from "../api/ui/notice";
@@ -21,6 +24,8 @@ import {
 	facingSides,
 	intersects,
 	contains,
+	dropLayout,
+	fitSize,
 	mergeCanvas,
 	nearestSide,
 	type NodeSide,
@@ -29,16 +34,18 @@ import {
 	randomId,
 	type Rect,
 	renameInCanvas,
+	type Size,
 	sidePoint,
 	stringifyCanvas,
 } from "./canvas-data";
-import { CanvasEdge, CanvasFileNode, CanvasGroupNode, CanvasLinkNode, type CanvasNode, CanvasTextNode, createNode } from "./canvas-nodes";
+import { AUDIO, CanvasEdge, CanvasFileNode, CanvasGroupNode, CanvasLinkNode, type CanvasNode, CanvasTextNode, createNode, IMAGE, VIDEO } from "./canvas-nodes";
 
 export { CanvasEdge, CanvasFileNode, CanvasGroupNode, CanvasLinkNode, type CanvasNode, CanvasTextNode };
 
 const NEW_CANVAS = "{}";
 const TEXT_SIZE = { width: 250, height: 60 };
 const FILE_SIZE = { width: 400, height: 400 };
+const AUDIO_SIZE = { width: 400, height: 100 };
 const MIN_SIZE = { width: 50, height: 30 };
 const GRID = 20;
 const MIN_ZOOM = -3.3;
@@ -54,6 +61,9 @@ const COLORS: [string, string][] = [
 ];
 const MEDIA = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "avif", "mp3", "wav", "m4a", "ogg", "flac", "mp4", "webm", "ogv", "mov", "mkv", "pdf"]);
 const SVG = "http://www.w3.org/2000/svg";
+// What a button of the card menu carries when dragged onto the canvas.
+const CARD_TYPE = "application/x-justnotes-canvas-card";
+const URL_ONLY = /^[a-z][\w+.-]*:\/\/\S+$/i;
 
 type Item = CanvasNode | CanvasEdge;
 
@@ -111,6 +121,8 @@ export class Canvas {
 		this.wrapperEl.addEventListener("dblclick", (evt) => this.#onDoubleClick(evt));
 		this.wrapperEl.addEventListener("wheel", (evt) => this.#onWheel(evt), { passive: false });
 		this.wrapperEl.addEventListener("contextmenu", (evt) => this.#onContextMenu(evt));
+		this.wrapperEl.addEventListener("dragover", (evt) => this.#onDragOver(evt));
+		this.wrapperEl.addEventListener("drop", (evt) => this.#onDrop(evt));
 		// Focusing a card's editor near the edge would scroll the wrapper; the
 		// viewport alone places the canvas.
 		this.wrapperEl.addEventListener("scroll", () => {
@@ -343,6 +355,28 @@ export class Canvas {
 		return all.find((n) => !(n instanceof CanvasGroupNode) && at(n)) ?? all.find(at) ?? null;
 	}
 
+	// Selecting a card moves it to the front, as in Obsidian: last in its layer
+	// (groups stay under the other cards) and last in the file's node list,
+	// which the next save writes. Cards already in front are not moved, so a
+	// click on one leaves its element (a playing video) alone.
+	bringToFront(nodes: CanvasNode[]) {
+		const all = [...this.nodes.values()];
+		const raise = all.filter((n) => nodes.includes(n));
+		const inFront = (layer: CanvasNode[]) => {
+			const moved = layer.filter((n) => raise.includes(n));
+			return moved.every((n, i) => layer[layer.length - moved.length + i] === n);
+		};
+		const groups = all.filter((n) => n instanceof CanvasGroupNode);
+		const others = all.filter((n) => !(n instanceof CanvasGroupNode));
+		if (inFront(groups) && inFront(others)) return;
+		for (const node of raise) {
+			this.nodes.delete(node.id);
+			this.nodes.set(node.id, node);
+			const before = node instanceof CanvasGroupNode ? this.edgesEl : ([...this.edges.values()][0]?.labelElement ?? this.selectionEl);
+			this.canvasEl.insertBefore(node.nodeEl, before);
+		}
+	}
+
 	// Moving a group moves what lies inside it.
 	#withContents(nodes: CanvasNode[]) {
 		const out = new Set(nodes);
@@ -510,17 +544,31 @@ export class Canvas {
 
 	#buildCardMenu() {
 		const menu = this.wrapperEl.createDiv("canvas-card-menu");
-		const button = (icon: string, title: string, run: () => void) => {
-			const el = menu.createDiv({ cls: "canvas-card-menu-button", attr: { "aria-label": title } });
+		// A button adds its card in the middle of the view, or, dragged onto
+		// the canvas, where it is dropped.
+		const button = (kind: string, icon: string, title: string) => {
+			const el = menu.createDiv({ cls: "canvas-card-menu-button", attr: { "aria-label": title, draggable: "true" } });
 			setIcon(el, icon);
 			setTooltip(el, title, { placement: "top" });
-			el.addEventListener("click", () => run());
+			el.addEventListener("click", () => this.#addCard(kind));
 			el.addEventListener("pointerdown", (evt) => evt.stopPropagation());
 			el.addEventListener("dblclick", (evt) => evt.stopPropagation());
+			el.addEventListener("dragstart", (evt) => {
+				if (!evt.dataTransfer) return;
+				evt.dataTransfer.setData(CARD_TYPE, kind);
+				evt.dataTransfer.effectAllowed = "copy";
+			});
 		};
-		button("sticky-note", "Add card", () => this.createTextNode({ pos: this.#centered(TEXT_SIZE), focus: true }));
-		button("file-text", "Add note from vault", () => this.#pickFile((f) => f.extension === "md"));
-		button("image", "Add media from vault", () => this.#pickFile((f) => MEDIA.has(f.extension.toLowerCase())));
+		button("text", "sticky-note", "Add card");
+		button("note", "file-text", "Add note from vault");
+		button("media", "image", "Add media from vault");
+	}
+
+	// A card of the menu's `kind`, centred on `at` (else the middle of the view).
+	#addCard(kind: string, at?: Point) {
+		if (kind === "note") this.#pickFile((f) => f.extension === "md", at);
+		else if (kind === "media") this.#pickFile((f) => MEDIA.has(f.extension.toLowerCase()), at);
+		else this.createTextNode({ pos: at ? { x: at.x - TEXT_SIZE.width / 2, y: at.y - TEXT_SIZE.height / 2 } : this.#centered(TEXT_SIZE), focus: true });
 	}
 
 	#pickFile(filter: (file: TFile) => boolean, at?: Point) {
@@ -574,6 +622,7 @@ export class Canvas {
 				this.select(node);
 			} else if (!this.selection.has(node)) this.selectOnly(node);
 			else reselect = node;
+			this.bringToFront([...this.selection].filter((i): i is CanvasNode => !(i instanceof CanvasEdge)));
 			// Text inside a card is not selected by dragging it.
 			if (!target.closest("input, textarea, video, audio")) evt.preventDefault();
 			const nodes = this.#withContents([...this.selection].filter((i): i is CanvasNode => !(i instanceof CanvasEdge)));
@@ -772,6 +821,129 @@ export class Canvas {
 		}
 	}
 
+	// ---- drops ----
+
+	// What a drag over the canvas would add: files, folders or a link dragged
+	// inside the app (app.dragManager), a card from the card menu, files from
+	// the OS, or text and URLs from another app. A drag over the card being
+	// edited goes to its editor.
+	#dropKind(evt: DragEvent): "drag" | "card" | "files" | "text" | null {
+		if (this.view.broken || this.editing?.nodeEl.contains(evt.target as Node)) return null;
+		const drag = this.app.dragManager.draggable;
+		if (drag) return drag.type === "link" || DragManager.files(drag).length ? "drag" : null;
+		const types = evt.dataTransfer?.types ?? [];
+		if (types.includes(CARD_TYPE)) return "card";
+		if (types.includes("Files")) return "files";
+		if (types.includes("text/uri-list") || types.includes("text/plain")) return "text";
+		return null;
+	}
+
+	#onDragOver(evt: DragEvent) {
+		const kind = this.#dropKind(evt);
+		if (!kind || evt.defaultPrevented) return;
+		evt.preventDefault();
+		if (evt.dataTransfer) evt.dataTransfer.dropEffect = kind === "drag" ? "link" : "copy";
+		if (kind === "drag") this.app.dragManager.setAction("Add to canvas");
+	}
+
+	#onDrop(evt: DragEvent) {
+		const kind = this.#dropKind(evt);
+		if (!kind || evt.defaultPrevented) return;
+		evt.preventDefault();
+		const at = this.posFromEvt(evt);
+		this.wrapperEl.focus({ preventScroll: true });
+		const failed = (err: unknown) => {
+			console.error(err);
+			new Notice(`Could not add to the canvas: ${err instanceof Error ? err.message : err}`);
+		};
+		const data = evt.dataTransfer;
+		if (kind === "drag") this.#dropDragged(at).catch(failed);
+		else if (kind === "card") this.#addCard(data?.getData(CARD_TYPE) ?? "text", at);
+		else if (kind === "files") this.#dropOsFiles([...(data?.files ?? [])], at).catch(failed);
+		else this.#dropText(data?.getData("text/uri-list") ?? "", data?.getData("text/plain") ?? "", at);
+	}
+
+	// Files dragged from the explorer, a search result or a link pane become
+	// file cards; a folder adds the files directly in it. A dragged link adds
+	// a card for the file (and heading or block) it points to; an unresolved
+	// one, a text card holding the link.
+	async #dropDragged(at: Point) {
+		const drag = this.app.dragManager.draggable;
+		if (drag?.type === "link" && drag.linktext) {
+			const { path, subpath } = parseLinktext(drag.linktext);
+			const sourcePath = drag.sourcePath ?? "";
+			const file = path ? this.app.metadataCache.getFirstLinkpathDest(path, sourcePath) : this.app.vault.getFileByPath(sourcePath);
+			if (file) await this.addFiles([file], at, subpath);
+			else this.selectOnly(this.createTextNode({ pos: { x: at.x - TEXT_SIZE.width / 2, y: at.y - TEXT_SIZE.height / 2 }, text: `[[${drag.linktext}]]` }));
+			return;
+		}
+		const files = new Set<TFile>();
+		for (const item of DragManager.files(drag)) {
+			if (item instanceof TFile) files.add(item);
+			else if (item instanceof TFolder) for (const child of sortedFiles(item)) files.add(child);
+		}
+		await this.addFiles([...files], at);
+	}
+
+	// Files dropped from the OS are copied into the attachment folder for
+	// this canvas (app.json's attachmentFolderPath); a file already in the
+	// vault is used where it is.
+	async #dropOsFiles(dropped: File[], at: Point) {
+		const sourcePath = this.view.file?.path ?? "";
+		const files: TFile[] = [];
+		for (const file of dropped) {
+			try {
+				files.push(await importFile(this.app, file, sourcePath));
+			} catch (err) {
+				console.error(err);
+				new Notice(`Could not import ${file.name}: ${err instanceof Error ? err.message : err}`);
+			}
+		}
+		await this.addFiles(files, at);
+	}
+
+	// A URL becomes a link card; other text a text card.
+	#dropText(uriList: string, plain: string, at: Point) {
+		const url = uriList.split(/\r?\n/).find((line) => line && !line.startsWith("#"))?.trim() ?? (URL_ONLY.test(plain.trim()) ? plain.trim() : "");
+		if (url) {
+			const node = this.addNode({ id: randomId(), type: "link", url, x: Math.round(at.x - FILE_SIZE.width / 2), y: Math.round(at.y - FILE_SIZE.height / 2), ...FILE_SIZE });
+			this.selectOnly(node);
+			return;
+		}
+		if (!plain.trim()) return;
+		const size = textCardSize(plain);
+		this.selectOnly(this.createTextNode({ pos: { x: at.x - size.width / 2, y: at.y - size.height / 2 }, size, text: plain }));
+	}
+
+	// File cards for `files` laid out around `at`, sized for what they show
+	// (media keep their aspect ratio), added as one undo step and selected.
+	async addFiles(files: TFile[], at: Point, subpath?: string) {
+		if (!files.length) return [];
+		const sizes = await Promise.all(files.map((f) => this.#fileCardSize(f)));
+		const rects = dropLayout(at, sizes, GRID);
+		this.checkpoint();
+		const added = files.map((file, i) => {
+			const { x, y, width, height } = rects[i];
+			const data: AllCanvasNodeData = { id: randomId(), type: "file", file: file.path, x, y, width, height };
+			if (subpath) data.subpath = subpath;
+			const node = createNode(this, data);
+			this.nodes.set(node.id, node);
+			return node;
+		});
+		this.#placeElements();
+		this.requestSave();
+		this.selection = new Set(added);
+		this.#markSelection();
+		return added;
+	}
+
+	async #fileCardSize(file: TFile): Promise<Size> {
+		const ext = file.extension.toLowerCase();
+		if (IMAGE.has(ext) || VIDEO.has(ext)) return fitSize(await mediaSize(this.app.vault.getResourcePath(file), VIDEO.has(ext)), FILE_SIZE);
+		if (AUDIO.has(ext)) return AUDIO_SIZE;
+		return FILE_SIZE;
+	}
+
 	// ---- menus ----
 
 	#onContextMenu(evt: MouseEvent) {
@@ -957,6 +1129,47 @@ function promptText(app: App, title: string, value: string): Promise<string | nu
 	modal.onClose = () => resolve(answer);
 	modal.open();
 	return promise;
+}
+
+// The files directly in a folder, in name order.
+function sortedFiles(folder: TFolder): TFile[] {
+	return folder.children.filter((c): c is TFile => c instanceof TFile).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+// A media file's own size, or null when it does not load within a few
+// seconds.
+async function mediaSize(src: string, video: boolean): Promise<Size | null> {
+	let resolve: (size: Size | null) => void = () => {};
+	const promise = new Promise<Size | null>((r) => {
+		resolve = r;
+	});
+	const timer = setTimeout(() => resolve(null), 3000);
+	const done = (size: Size | null) => {
+		clearTimeout(timer);
+		resolve(size);
+	};
+	if (video) {
+		const el = document.createElement("video");
+		el.preload = "metadata";
+		el.onloadedmetadata = () => done({ width: el.videoWidth, height: el.videoHeight });
+		el.onerror = () => done(null);
+		el.src = src;
+	} else {
+		const img = new Image();
+		img.onload = () => done({ width: img.naturalWidth, height: img.naturalHeight });
+		img.onerror = () => done(null);
+		img.src = src;
+	}
+	return promise;
+}
+
+// A text card wide and tall enough for dropped text, roughly: short text
+// takes a small card, longer text a wider one, up to a height that scrolls.
+function textCardSize(text: string): Size {
+	const width = text.length > 60 || text.includes("\n") ? FILE_SIZE.width : TEXT_SIZE.width;
+	const perLine = Math.floor((width - 40) / 8);
+	const lines = text.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil(line.length / perLine)), 0);
+	return { width, height: Math.min(600, Math.max(TEXT_SIZE.height, lines * 26 + 28)) };
 }
 
 class FilePickModal extends FuzzySuggestModal<TFile> {
