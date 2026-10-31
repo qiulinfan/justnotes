@@ -364,6 +364,9 @@ interface TextDoc {
 	// The text on disk the document's last write replaced, and when that write
 	// was, until the document takes in a change.
 	prior?: { text: string; at: number };
+	// Set while the document holds lines that a change it took for a capture
+	// lacks, until a write saves them.
+	keptCapture?: boolean;
 	// The views showing it, once they have loaded.
 	views: Set<TextFileView>;
 }
@@ -430,14 +433,20 @@ function addsLines(from: string, text: string) {
 // Merged against the write, such a change would undo it. Within a second of
 // the write, a change is taken for one when it only adds lines to the
 // replaced text, keeps the write's edits without a conflict when merged with
-// them, and is no version of the file the document has had. Rewrites remove
-// or change lines, a change made from the write holds every line of it, and
-// a revert (git discarding changes, a plugin restoring a version) brings back
-// a version the document has had. A revert to a version from before the
-// document was opened (an earlier session, or the note closed in every pane
-// and opened again) passes for a capture when the text the write replaced is
-// that version with lines removed or emptied; the write's own edits, changed
-// and added lines included, then survive it.
+// them, and is no version of the file the document has had. A rewrite
+// removes or changes lines of the replaced text, a change made from the write
+// holds every line of it, and a revert (git discarding changes, a plugin
+// restoring a version) brings back a version the document has had. Two kinds
+// of change pass for a capture all the same. A rewrite of only lines the
+// write inserted (a formatter tidying the line just typed) is byte for byte a
+// capture of the replaced text inserting the rewritten lines, so those lines
+// are kept as written beside their rewrite; the write that saves them leaves
+// no prior, so a writer rewriting them again (a formatter run on every write)
+// is taken as written. A revert to a version from before the document was
+// opened (an earlier session, or the note closed in every pane and opened
+// again) passes when the text the write replaced is that version with lines
+// removed or emptied; the write's own edits, changed and added lines
+// included, then survive it.
 function mergeBase(doc: TextDoc, text: string) {
 	const prior = doc.prior;
 	if (!prior || Date.now() - prior.at > 1000 || !addsLines(prior.text, text) || doc.seen.has(digest(text))) return doc.base;
@@ -615,7 +624,12 @@ export abstract class TextFileView extends EditableFileView {
 		if (data === null) return;
 		if (doc) {
 			setBase(doc, data);
-			doc.prior = prior === null ? undefined : { text: prior, at: Date.now() };
+			// A write that saves lines kept from a capture leaves no prior: a
+			// change right after it that passes for a capture is most likely a
+			// writer redoing its rewrite of those lines, and taking it for one
+			// would keep them once more with every save.
+			doc.prior = prior === null || doc.keptCapture ? undefined : { text: prior, at: Date.now() };
+			doc.keptCapture = false;
 		} else this.#adopt(file, data);
 	}
 
@@ -635,7 +649,9 @@ export abstract class TextFileView extends EditableFileView {
 	// result has edits the file lacks, which the caller saves.
 	#takeIn(doc: TextDoc, text: string) {
 		const ours = this.getViewData();
-		const merge = mergeText(mergeBase(doc, text), ours, text);
+		const base = mergeBase(doc, text);
+		const merge = mergeText(base, ours, text);
+		doc.keptCapture = merge.text !== text && (doc.keptCapture || base !== doc.base);
 		setBase(doc, text);
 		doc.prior = undefined;
 		for (const view of doc.views) view.data = merge.text;

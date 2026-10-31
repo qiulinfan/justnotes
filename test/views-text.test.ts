@@ -249,6 +249,33 @@ describe("TextFileView saves", () => {
 		});
 	}
 
+	// A formatter that tidies the note on every write of it (a plugin on the
+	// vault's modify event) rewrites the line the save added, which passes for
+	// a capture inserting the tidied line: the view keeps both and saves them.
+	// The formatter's rewrite of that write must be taken as written, or the
+	// note gains a line with every save.
+	test("a formatter run on every write does not make the note grow with each save", async () => {
+		const { vault, view, file, full } = await editedNote("# Tasks\n- [ ] one\n");
+		const runs: Promise<unknown>[] = [];
+		const formatter = vault.on("modify", (modified: unknown) => {
+			if (modified === file) runs.push(vault.process(file, (text) => text.replace(/ {2,}/g, " ")));
+		});
+		view.text = "# Tasks\n- [ ] one\n- [ ]  two\n";
+		view.requestSave();
+		const after: string[] = [];
+		for (let round = 0; round < 4; round++) {
+			// The view takes in the formatter's last write and saves what it then
+			// has; the formatter tidies that write.
+			await view.save();
+			await Promise.all(runs.splice(0));
+			after.push(fs.readFileSync(full, "utf8"));
+		}
+		vault.offref(formatter);
+		await Promise.all(runs);
+		expect(after[3]).toBe(after[2]);
+		expect(view.text).toBe(after[3]);
+	});
+
 	// git discarding the note's changes, or a plugin restoring a version, right
 	// after the last of several saves. When the saves before the last one only
 	// removed lines, that version is the text the last save replaced with lines
