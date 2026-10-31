@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { getElectron } from "./dom";
 import { FileManager } from "./file-manager";
@@ -9,7 +10,7 @@ import { Plugins } from "./plugins";
 import { type SecretBackend, SecretStorage } from "./secret-storage";
 import { SettingModal } from "./setting-modal";
 import { Notice } from "./ui/notice";
-import { normalizePath } from "./util";
+import { debounce, normalizePath } from "./util";
 import { type TFile, Vault } from "./vault";
 import { ViewRegistry } from "./view";
 import { type PaneType, Workspace } from "./workspace";
@@ -79,6 +80,139 @@ export class RenderContext {
 	hoverPopover: any = null;
 }
 
+// The theme and CSS snippets in the config folder, applied like Obsidian's.
+// appearance.json (cssTheme, enabledCssSnippets) is read as the default and
+// never written: choices made in justnotes persist in localStorage. The styles
+// stay last in <head>, after plugin styles, so they override them.
+export class CustomCss {
+	app: App;
+	snippets: string[] = [];
+	enabledSnippets = new Set<string>();
+	theme = "";
+	themes: Record<string, { name: string; version?: string; author?: string }> = {};
+	csscache = new Map<string, string>();
+	styleEl = createEl("style", { attr: { "data-justnotes": "theme" } });
+	extraStyleEls: HTMLStyleElement[] = [];
+	requestLoadSnippets = debounce(() => this.readSnippets(), 100, true);
+	requestLoadTheme = debounce(() => this.readThemes(), 100, true);
+
+	constructor(app: App) {
+		this.app = app;
+	}
+
+	getSnippetsFolder() {
+		return `${this.app.vault.configDir}/snippets`;
+	}
+
+	getSnippetPath(name: string) {
+		return `${this.getSnippetsFolder()}/${name}.css`;
+	}
+
+	getThemeFolder() {
+		return `${this.app.vault.configDir}/themes`;
+	}
+
+	getThemePath(name: string) {
+		return `${this.getThemeFolder()}/${name}`;
+	}
+
+	async load() {
+		let appearance: { cssTheme?: string; enabledCssSnippets?: string[] } = {};
+		try {
+			appearance = JSON.parse(await this.app.vault.adapter.read(`${this.app.vault.configDir}/appearance.json`));
+		} catch {}
+		const saved = this.app.loadLocalStorage("custom-css");
+		this.enabledSnippets = new Set(saved?.enabledSnippets ?? appearance.enabledCssSnippets ?? []);
+		this.theme = saved?.theme ?? appearance.cssTheme ?? "";
+		await Promise.all([this.readSnippets(), this.readThemes()]);
+		for (const [folder, reload] of [
+			[this.getSnippetsFolder(), this.requestLoadSnippets],
+			[this.getThemeFolder(), this.requestLoadTheme],
+		] as const) {
+			try {
+				const watcher = fs.watch(this.app.vault.adapter.getFullPath(folder), { recursive: true }, () => reload());
+				watcher.on("error", () => watcher.close());
+			} catch {}
+		}
+	}
+
+	async readSnippets() {
+		const read = await this.#readCss(this.getSnippetsFolder(), (name) => name.endsWith(".css"));
+		this.snippets = [...read.keys()].map((name) => name.slice(0, -4)).sort();
+		for (const el of this.extraStyleEls) el.remove();
+		this.extraStyleEls = this.snippets
+			.filter((name) => this.enabledSnippets.has(name))
+			.map((name) => createEl("style", { text: read.get(`${name}.css`), attr: { "data-justnotes": `snippet:${name}` } }));
+		this.#applyStyles();
+	}
+
+	async readThemes() {
+		const adapter = this.app.vault.adapter;
+		this.themes = {};
+		try {
+			for (const dir of (await adapter.list(this.getThemeFolder())).folders) {
+				try {
+					const manifest = JSON.parse(await adapter.read(`${dir}/manifest.json`));
+					this.themes[manifest.name ?? dir.split("/").pop()] = manifest;
+				} catch {}
+			}
+		} catch {}
+		let css = "";
+		if (this.theme && this.themes[this.theme]) {
+			const path = `${this.getThemePath(this.theme)}/theme.css`;
+			try {
+				css = await adapter.read(path);
+				this.csscache.set(path, css);
+			} catch {}
+		}
+		this.styleEl.textContent = css;
+		this.#applyStyles();
+	}
+
+	setCssEnabledStatus(name: string, enabled: boolean) {
+		if (enabled) this.enabledSnippets.add(name);
+		else this.enabledSnippets.delete(name);
+		this.#save();
+		this.requestLoadSnippets();
+	}
+
+	setTheme(name: string) {
+		this.theme = name;
+		this.#save();
+		this.requestLoadTheme();
+	}
+
+	// Inserts plugin styles before the theme and snippets.
+	insertPluginStyle(style: HTMLStyleElement) {
+		document.head.insertBefore(style, this.styleEl.isConnected ? this.styleEl : (this.extraStyleEls.find((el) => el.isConnected) ?? null));
+	}
+
+	#save() {
+		this.app.saveLocalStorage("custom-css", { enabledSnippets: [...this.enabledSnippets], theme: this.theme });
+	}
+
+	async #readCss(folder: string, wanted: (name: string) => boolean) {
+		const read = new Map<string, string>();
+		try {
+			for (const path of (await this.app.vault.adapter.list(folder)).files) {
+				const name = path.split("/").pop()!;
+				if (!wanted(name)) continue;
+				try {
+					const css = await this.app.vault.adapter.read(path);
+					this.csscache.set(path, css);
+					read.set(name, css);
+				} catch {}
+			}
+		} catch {}
+		return read;
+	}
+
+	#applyStyles() {
+		document.head.append(this.styleEl, ...this.extraStyleEls);
+		this.app.workspace.trigger("css-change");
+	}
+}
+
 interface AppDom {
 	appContainerEl: HTMLElement;
 	readonly horizontalMainContainerEl: HTMLElement;
@@ -110,6 +244,7 @@ export class App {
 	// is no command-line transport yet.
 	cliHandlers = new Map<string, { description: string; flags: CliFlags | null; handler: CliHandler; pluginId: string }>();
 	renderContext = new RenderContext();
+	customCss: CustomCss;
 	secretStorage: SecretStorage;
 	isMobile = false;
 	lastEvent: UIEvent | null = null;
@@ -133,6 +268,10 @@ export class App {
 		this.internalPlugins = new InternalPlugins(this);
 		this.setting = new SettingModal(this);
 		this.secretStorage = new SecretStorage(ipcSecretBackend(this.appId));
+		// Read straight from the config folder, so it can start before the vault
+		// is scanned.
+		this.customCss = new CustomCss(this);
+		void this.customCss.load();
 		this.statusBar = createDiv("status-bar");
 		this.dom = {
 			appContainerEl: createDiv("app-container"),

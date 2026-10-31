@@ -199,8 +199,8 @@ export class Plugins {
 	async #loadStyles(manifest: PluginManifest) {
 		try {
 			const css = await this.app.vault.adapter.read(`${manifest.dir}/styles.css`);
-			const style = document.head.createEl("style", { attr: { "data-plugin": manifest.id } });
-			style.textContent = css;
+			const style = createEl("style", { text: css, attr: { "data-plugin": manifest.id } });
+			this.app.customCss.insertPluginStyle(style);
 			this.#styles.set(manifest.id, style);
 		} catch {}
 	}
