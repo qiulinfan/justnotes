@@ -154,6 +154,11 @@
 	color: var(--text-muted);
 }
 
+.markdown-source-view.mod-cm6 .cm-footref {
+	color: var(--text-accent);
+	font-size: var(--font-smaller, 0.875em);
+}
+
 .markdown-source-view.mod-cm6 .cm-hashtag {
 	color: var(--tag-color, var(--text-accent));
 }

@@ -149,7 +149,8 @@
 	max-width: 100%;
 }
 
-.markdown-source-view.mod-cm6 .image-embed img {
+.markdown-source-view.mod-cm6 .image-embed img,
+.markdown-source-view.mod-cm6 .cm-html-embed img {
 	max-width: 100%;
 	border-radius: var(--radius-s);
 	vertical-align: bottom;
@@ -324,4 +325,48 @@
 
 .markdown-source-view.mod-cm6 .metadata-error {
 	color: var(--text-error);
+}
+
+/* Fold chevrons show while the pointer is over the editor; folded ones
+   stay. */
+.markdown-source-view.mod-cm6 .cm-foldGutter .cm-gutterElement {
+	display: flex;
+	align-items: center;
+	padding: 0 2px;
+}
+
+.markdown-source-view.mod-cm6 .cm-fold-indicator {
+	display: flex;
+	color: var(--text-faint);
+	opacity: 0;
+	cursor: pointer;
+	transition: opacity 0.15s;
+}
+
+.markdown-source-view.mod-cm6 .cm-editor:hover .cm-fold-indicator,
+.markdown-source-view.mod-cm6 .cm-fold-indicator.is-collapsed {
+	opacity: 1;
+}
+
+.markdown-source-view.mod-cm6 .cm-fold-indicator:hover {
+	color: var(--text-normal);
+}
+
+.markdown-source-view.mod-cm6 .cm-fold-indicator .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.markdown-source-view.mod-cm6 .collapse-icon.is-collapsed .svg-icon {
+	transform: rotate(-90deg);
+}
+
+.markdown-source-view.mod-cm6 .cm-foldPlaceholder {
+	margin: 0 4px;
+	padding: 0 4px;
+	border: none;
+	border-radius: var(--radius-s);
+	background: var(--background-modifier-hover);
+	color: var(--text-muted);
+	cursor: pointer;
 }

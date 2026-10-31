@@ -75,6 +75,12 @@ describe("Obsidian syntax", () => {
 		expect(texts("#start and #nested/tag, a#mid, #123, `#code`", "hashtag")).toEqual(["#start", "#nested/tag"]);
 	});
 
+	test("footnote references are their own nodes, not reference links", () => {
+		const doc = "Text[^1] and [^long-id].\n\n[^1]: definition";
+		expect(texts(doc, "footref")).toEqual(["[^1]", "[^long-id]", "[^1]"]);
+		expect(texts(doc, "Link")).toEqual([]);
+	});
+
 	test("wikilinks and embeds split into target, pipe and alias", () => {
 		const parsed = nodes("[[Note#Head|shown]] ![[img.png|300]]");
 		expect(parsed.filter(([n]) => n === "internal-link" || n === "internal-embed")).toEqual([

@@ -79,6 +79,13 @@ describe("line classes", () => {
 		expect(lineClass(decos, doc, 1)).toBe("HyperMD-quote HyperMD-quote-2");
 	});
 
+	test("footnote definitions are footnote lines", () => {
+		const doc = "a[^1]\n\n[^1]: note\nend";
+		const decos = decorate(doc, doc.length);
+		expect(lineClass(decos, doc, 0)).toBe("");
+		expect(lineClass(decos, doc, 2)).toBe("HyperMD-footnote");
+	});
+
 	test("fenced code marks its first and last lines", () => {
 		const doc = "```js\nx\n```\n\nend";
 		const decos = decorate(doc, doc.length);

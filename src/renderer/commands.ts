@@ -165,8 +165,8 @@ function registerEditorCommands(app: App) {
 		if (coords) view?.showContextMenu?.(new MouseEvent("contextmenu", { clientX: coords.left, clientY: coords.bottom }));
 	});
 
-	// Focus works from anywhere, so it is not an editor command.
-	app.commands.addCommand({
+	// Focus works from anywhere, so it checks for a Markdown view itself.
+	const focus: Command = {
 		id: "editor:focus",
 		name: "Focus on editor",
 		checkCallback: (checking) => {
@@ -184,5 +184,7 @@ function registerEditorCommands(app: App) {
 			}
 			return true;
 		},
-	});
+	};
+	app.commands.addCommand(focus);
+	app.commands.editorCommands[focus.id] = focus;
 }

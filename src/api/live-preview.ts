@@ -244,6 +244,58 @@ class ImageWidget extends WidgetType {
 	}
 }
 
+// Typora-style `<img src="Assets/x.png" style="zoom:50%">`: the src is a path
+// relative to the note (backslashes allowed) or a URL; other attributes
+// carry over except event handlers.
+const HTML_ATTR = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+const IMG_ATTRS = new Set(["alt", "title", "width", "height", "style", "align", "class"]);
+
+function htmlImage(tag: string, host: LivePreviewHost): HtmlImageWidget | null {
+	const attrs: [string, string][] = [];
+	let src = "";
+	for (const m of tag.replace(/^<img\b/i, "").matchAll(HTML_ATTR)) {
+		const name = m[1].toLowerCase();
+		const value = m[2] ?? m[3] ?? m[4] ?? "";
+		if (name === "src") src = value;
+		else if (IMG_ATTRS.has(name)) attrs.push([name, value]);
+	}
+	if (!src) return null;
+	let url: string | null = src;
+	if (!SCHEME.test(src)) {
+		let path = src.replace(/\\/g, "/").replace(/^\.\//, "");
+		try {
+			path = decodeURIComponent(path);
+		} catch {}
+		// An absolute path from another machine still finds the file by name.
+		url = host.resolveImage(path) ?? (path.includes("/") ? host.resolveImage(path.slice(path.lastIndexOf("/") + 1)) : null);
+	}
+	return url ? new HtmlImageWidget(url, attrs) : null;
+}
+
+class HtmlImageWidget extends WidgetType {
+	constructor(
+		readonly src: string,
+		readonly attrs: [string, string][],
+	) {
+		super();
+	}
+
+	eq(other: HtmlImageWidget) {
+		return other.src === this.src && JSON.stringify(other.attrs) === JSON.stringify(this.attrs);
+	}
+
+	toDOM() {
+		const wrap = createSpan("cm-html-embed");
+		const img = wrap.createEl("img", { attr: { src: this.src } });
+		for (const [name, value] of this.attrs) img.setAttribute(name, value);
+		return wrap;
+	}
+
+	ignoreEvent() {
+		return false;
+	}
+}
+
 class FlairWidget extends WidgetType {
 	constructor(readonly language: string) {
 		super();
@@ -683,6 +735,13 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (src && target) decos.push(Decoration.replace({ widget: new ImageWidget(src, target, alt) }).range(from, to));
 					return false;
 				}
+				case "HTMLTag": {
+					if (touches(from, to)) return;
+					const tag = state.sliceDoc(from, to);
+					const widget = /^<img\b/i.test(tag) ? htmlImage(tag, host) : null;
+					if (widget) decos.push(Decoration.replace({ widget }).range(from, to));
+					return;
+				}
 				case "internal-link":
 				case "internal-embed": {
 					if (touches(from, to)) return false;
@@ -705,6 +764,10 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					);
 					decos.push(hide.range(shown.to, to));
 					return false;
+				}
+				case "footref": {
+					if (doc.lineAt(from).from === from && state.sliceDoc(to, to + 1) === ":") addLine(from, "HyperMD-footnote");
+					return;
 				}
 				case "hashtag": {
 					const tag = state.sliceDoc(from, to);

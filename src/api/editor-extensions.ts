@@ -1,7 +1,7 @@
 import { autocompletion, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { bracketMatching, HighlightStyle, indentOnInput, indentUnit, syntaxHighlighting, syntaxTree } from "@codemirror/language";
+import { bracketMatching, codeFolding, foldGutter, HighlightStyle, indentOnInput, indentUnit, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, type Extension, Prec } from "@codemirror/state";
@@ -10,6 +10,7 @@ import { styleTags, Tag, tags as t } from "@lezer/highlight";
 import type { BlockContext, LeafBlock, LeafBlockParser, MarkdownConfig } from "@lezer/markdown";
 import type { App } from "./app";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
+import { setIcon } from "./icons";
 import { type LivePreviewHost, livePreview, livePreviewState } from "./live-preview";
 import type { MarkdownView } from "./markdown-view";
 
@@ -263,6 +264,45 @@ const wikilinkSyntax: MarkdownConfig = {
 	],
 };
 
+// A footnote definition is a paragraph, not a link reference definition.
+// This parser runs before the link reference one and drops it, which
+// would otherwise claim `[^1]: word`.
+class FootnoteDefinitionParser implements LeafBlockParser {
+	nextLine(_cx: BlockContext, _line: unknown, leaf: LeafBlock) {
+		leaf.parsers.splice(leaf.parsers.indexOf(this) + 1);
+		return false;
+	}
+
+	finish(cx: BlockContext, leaf: LeafBlock) {
+		cx.addLeafElement(leaf, cx.elt("Paragraph", leaf.start, leaf.start + leaf.content.length, cx.parser.parseInline(leaf.content, leaf.start)));
+		return true;
+	}
+}
+
+// Footnote references and definition labels, `[^id]`, which lezer-markdown
+// reads as reference links.
+const footnoteSyntax: MarkdownConfig = {
+	defineNodes: [{ name: "footref", style: token("cm-footref") }],
+	parseBlock: [
+		{
+			name: "footnote-definition",
+			before: "LinkReference",
+			leaf: (_cx, leaf) => (/^\[\^[^\s[\]^]+\]:/.test(leaf.content) ? new FootnoteDefinitionParser() : null),
+		},
+	],
+	parseInline: [
+		{
+			name: "footref",
+			before: "Link",
+			parse(cx, next, pos) {
+				if (next !== 91 || cx.char(pos + 1) !== 94) return -1;
+				const m = /^\[\^[^\s[\]^]+\]/.exec(cx.slice(pos, cx.end));
+				return m ? cx.addElement(cx.elt("footref", pos, pos + m[0].length)) : -1;
+			},
+		},
+	],
+};
+
 // Any single character between the brackets is a task status, as in
 // Obsidian; GFM only knows `[ ]` and `[x]`.
 class TaskParser implements LeafBlockParser {
@@ -326,6 +366,7 @@ export const obsidianMarkdown: MarkdownConfig[] = [
 	highlightSyntax,
 	hashtagSyntax,
 	wikilinkSyntax,
+	footnoteSyntax,
 	taskSyntax,
 	formattingClasses,
 ];
@@ -418,6 +459,22 @@ const activeLine = ViewPlugin.fromClass(
 	},
 	{ decorations: (v) => v.decorations },
 );
+
+// Headings and lists fold from a chevron in the gutter, as with Obsidian's
+// foldHeading and foldIndent options (both on by default).
+function folding(app: App): Extension[] {
+	if (!(app.vault.getConfig("foldHeading") ?? true) && !(app.vault.getConfig("foldIndent") ?? true)) return [];
+	return [
+		codeFolding(),
+		foldGutter({
+			markerDOM(open) {
+				const el = createDiv({ cls: open ? "cm-fold-indicator" : "cm-fold-indicator is-collapsed" });
+				setIcon(el.createDiv({ cls: open ? "collapse-indicator collapse-icon" : "collapse-indicator collapse-icon is-collapsed" }), "chevron-down");
+				return el;
+			},
+		}),
+	];
+}
 
 // Indentation follows the vault's useTab and tabSize settings (Obsidian
 // defaults: tabs, 4 columns).
@@ -521,6 +578,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		}),
 	];
 	if (app.vault.getConfig("showLineNumber")) ext.push(lineNumbers());
+	ext.push(folding(app));
 	return ext;
 }
 
