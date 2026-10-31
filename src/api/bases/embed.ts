@@ -7,23 +7,51 @@ import { parseLinktext } from "../metadata-utils";
 import type { TAbstractFile, TFile } from "../vault";
 import { QueryController } from "./controller";
 
-const FENCE = /^([ \t]*)(`{3,}|~{3,})[ \t]*base[ \t]*\r?\n/gm;
+// A ```base fence line. Group 1 holds what comes before the fence inside list
+// items and block quotes: indentation, list markers and ">".
+const FENCE = /^((?:[ \t]*(?:>|(?:[-+*]|\d{1,9}[.)])[ \t]))*[ \t]*)(`{3,}|~{3,})[ \t]*base[ \t]*$/;
 
-// Replace the content of the one ```base block in `text` that reads `before`;
-// when no block or several match, nothing is written.
-export function replaceBaseBlock(text: string, before: string, after: string): string | null {
-	const matches: [number, number][] = [];
-	for (const m of text.matchAll(FENCE)) {
-		const start = m.index! + m[0].length;
-		const close = new RegExp(`^${m[1]}${m[2][0]}{${m[2].length},}[ \\t]*$`, "m");
-		const rest = text.slice(start);
-		const end = close.exec(rest);
-		const body = end ? rest.slice(0, end.index) : rest;
-		if (body.trimEnd() === before.trimEnd()) matches.push([start, start + body.length]);
+// A block line as the renderer passes it, without its container's prefix.
+// Markdown removes at most the prefix's indentation, so a line indented less,
+// or an empty quoted line such as ">", loses all of it.
+function unprefix(line: string, prefix: string) {
+	if (line.startsWith(prefix)) return line.slice(prefix.length);
+	let i = 0;
+	for (let j = 0; i < line.length && j < prefix.length; j++) {
+		if (line[i] === prefix[j]) i++;
+		else if (prefix[j] !== " " && prefix[j] !== "\t") break;
 	}
-	if (matches.length !== 1) return null;
-	const [start, end] = matches[0];
-	return `${text.slice(0, start)}${after.trimEnd()}\n${text.slice(end)}`;
+	return line.slice(i);
+}
+
+// Replace the content of the one ```base block in `text` whose source, as the
+// renderer passes it to the block's processor, reads `before`. When no block
+// or several match, nothing is written.
+export function replaceBaseBlock(text: string, before: string, after: string): string | null {
+	const lines = text.split("\n");
+	const bare = lines.map((line) => line.replace(/\r$/, ""));
+	const want = before.replace(/\r\n/g, "\n").trimEnd();
+	const found: { start: number; end: number; prefix: string }[] = [];
+	for (let i = 0; i < bare.length; i++) {
+		const m = FENCE.exec(bare[i]);
+		if (!m) continue;
+		// The block's lines line up under the fence, list markers included.
+		const prefix = m[1].replace(/[-+*]|\d+[.)]/g, (marker) => " ".repeat(marker.length));
+		const close = new RegExp(`^ {0,3}${m[2][0]}{${m[2].length},}[ \\t]*$`);
+		let end = i + 1;
+		while (end < bare.length && !close.test(unprefix(bare[end], prefix))) end++;
+		const body = bare.slice(i + 1, end).map((line) => unprefix(line, prefix));
+		if (body.join("\n").trimEnd() === want) found.push({ start: i + 1, end, prefix });
+		i = end;
+	}
+	if (found.length !== 1) return null;
+	const { start, end, prefix } = found[0];
+	const eol = lines[start - 1].endsWith("\r") ? "\r" : "";
+	const body = after
+		.trimEnd()
+		.split("\n")
+		.map((line) => (line ? prefix + line : prefix.trimEnd()) + eol);
+	return [...lines.slice(0, start), ...body, ...lines.slice(end)].join("\n");
 }
 
 export function renderBaseBlock(app: App, source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) {

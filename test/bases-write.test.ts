@@ -1,9 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import MarkdownIt from "markdown-it";
 import { BaseDocument } from "../src/api/bases/config";
 import { replaceBaseBlock } from "../src/api/bases/embed";
 import { impliedByFilters, type NewNote } from "../src/api/bases/new-note";
 
 const note = (block: string) => `# Note\n\n\`\`\`base\n${block}\`\`\`\n\nAfter.\n`;
+
+// What the renderer hands a ```base block's processor: markdown-it's fence
+// content, with the indentation and ">" of list items and quotes removed.
+const md = new MarkdownIt({ html: true, linkify: true, breaks: true });
+const blockSource = (text: string) => md.parse(text, {}).find((t) => t.type === "fence" && t.info.trim() === "base")?.content;
 
 // Toolbar edits in a ```base block rewrite that block in the note; a wrong
 // match would overwrite another block or the user's text.
@@ -14,9 +20,28 @@ describe("writing a base block back to its note", () => {
 		expect(replaceBaseBlock(note(before), before, after)).toBe(note(after));
 	});
 
-	test("matches through ~~~ fences and indentation, and leaves other blocks alone", () => {
-		const text = "```js\nviews: x\n```\n  ~~~~ base\n  filters: a\n  ~~~~\n";
-		expect(replaceBaseBlock(text, "  filters: a\n", "  filters: b")).toBe("```js\nviews: x\n```\n  ~~~~ base\n  filters: b\n  ~~~~\n");
+	// A block in a list item or a quote is found from the source the renderer
+	// gives, and the new YAML keeps the block's indentation and markers.
+	test("blocks in list items and quotes are written back in place", () => {
+		const cases = [
+			["- tasks\n\n  ```base\n  views:\n    - type: table\n      name: A\n  ```\n", "- tasks\n\n  ```base\n  views:\n    - type: table\n      name: A\n      limit: 5\n  ```\n"],
+			["- ```base\n  views:\n    - type: table\n      name: A\n  ```\n", "- ```base\n  views:\n    - type: table\n      name: A\n      limit: 5\n  ```\n"],
+			[
+				"1. item\n   > ~~~~ base\n   > views:\n   >\n   >   - type: table\n   >     name: A\n   > ~~~~\n\nAfter.\n",
+				"1. item\n   > ~~~~ base\n   > views:\n   >\n   >   - type: table\n   >     name: A\n   >     limit: 5\n   > ~~~~\n\nAfter.\n",
+			],
+		];
+		for (const [text, expected] of cases) {
+			const before = blockSource(text)!;
+			const written = replaceBaseBlock(text, before, before.replace("name: A", "name: A\n    limit: 5"));
+			expect(written).toBe(expected);
+			expect(blockSource(written!)).toBe(before.replace("name: A", "name: A\n    limit: 5"));
+		}
+	});
+
+	test("leaves other code blocks alone and keeps CRLF line ends", () => {
+		const text = "```js\nviews: x\n```\r\n~~~ base\r\nfilters: a\r\n~~~\r\n";
+		expect(replaceBaseBlock(text, blockSource(text)!, "filters: b\n")).toBe("```js\nviews: x\n```\r\n~~~ base\r\nfilters: b\r\n~~~\r\n");
 	});
 
 	test("writes nothing when no block or more than one block holds the old YAML", () => {
