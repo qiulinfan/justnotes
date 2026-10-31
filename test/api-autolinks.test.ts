@@ -15,7 +15,7 @@ const host = {
 } as unknown as LivePreviewHost;
 
 const links = ["<review@example.com>", "<www.team@example.com>", "www.example.com", "review2@example.com", "<https://example.com/angle>", "https://example.com/bare"];
-const doc = `${links.join(" ")}\n\nend`;
+const doc = `${links.join(" ")}\n\n[ref]: notes/target.md\n\nend`;
 const state = EditorState.create({
 	doc,
 	selection: { anchor: doc.length },
@@ -41,6 +41,8 @@ describe("Live Preview autolinks", () => {
 			"review2@example.com": "mailto:review2@example.com",
 			"https://example.com/angle": "https://example.com/angle",
 			"https://example.com/bare": "https://example.com/bare",
+			// A reference definition's relative destination still opens the note.
+			"notes/target.md": "notes/target.md",
 		});
 	});
 
