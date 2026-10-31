@@ -51,6 +51,14 @@ function showsNoFile(view: View) {
 	return view.file ? view.app.vault.getAbstractFileByPath(view.file.path) !== view.file : !view.allowNoFile;
 }
 
+function safeDecode(text: string) {
+	try {
+		return decodeURI(text);
+	} catch {
+		return text;
+	}
+}
+
 // Leaves showing a recorded state again (going back or forward, a restored
 // layout, a reopened tab); such a load adds no history entry.
 const replaying = new WeakSet<WorkspaceLeaf>();
@@ -1611,13 +1619,16 @@ export class Workspace extends Events {
 	// note, heading or block in a popover, with Mod held when the source asks
 	// for it. The target renders as an embed (![[linktext]]), so what a post
 	// processor sees in a heading's part of a note reports no section lines:
-	// lines of the part are not lines of the file.
+	// lines of the part are not lines of the file. A Markdown link's target
+	// comes from Live Preview %-encoded, as written ([x](Note.md#Heading%20Two)),
+	// and is decoded as a click on it is.
 	#onHoverLink(info: { event: MouseEvent; source: string; hoverParent: HoverParent; targetEl: HTMLElement | null; linktext: string; sourcePath?: string }) {
-		const { event, source, hoverParent, targetEl, linktext } = info ?? {};
-		if (!hoverParent || typeof linktext !== "string") return;
+		const { event, source, hoverParent, targetEl, linktext: href } = info ?? {};
+		if (!hoverParent || typeof href !== "string") return;
 		if ((this.hoverLinkSources[source]?.defaultMod ?? true) && !Keymap.isModEvent(event)) return;
 		const existing = hoverParent.hoverPopover;
 		if (existing && existing.targetEl === targetEl && existing.state !== PopoverState.Hidden) return;
+		const linktext = safeDecode(href);
 		const sourcePath = info.sourcePath ?? "";
 		const file = this.app.metadataCache.getFirstLinkpathDest(parseLinktext(linktext).path, sourcePath);
 		if (!file || (file.extension !== "md" && !/^(png|jpe?g|gif|svg|webp|bmp|avif)$/i.test(file.extension))) return;
