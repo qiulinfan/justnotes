@@ -611,6 +611,15 @@ plain style. Development notes belong in this file.
   xattrs such as Finder tags. A read of a path waits for a write putting that
   file's bytes on disk; reads never wait for queued writes, because code inside
   the write queue (kgdistiller's reconcile hooks) may read.
+- `fileManager.renameFile` also follows raw HTML media srcs (`<img>`,
+  `<video>`, `<audio>`, `<source>`; `html-links.ts`), which the metadata
+  cache does not index (Obsidian leaves them broken): a relative src that
+  named a moved file exactly (relative to its note, backslashes, `./` and
+  %-escapes read as Typora writes them), and every relative src in a moved
+  note, is rewritten relative to the note, keeping `./`, %-escapes and
+  backslash style. Absolute paths, URLs, srcs that only found their file by
+  name and anything in code or comments are left alone. Only notes holding
+  a moved file's name are read.
 - The adapter keeps a folder-to-children index that only its add and drop
   paths update. Changes under `.obsidian` emit only vault `raw` events, as in
   Obsidian.
