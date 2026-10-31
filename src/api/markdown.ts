@@ -1038,7 +1038,9 @@ function enhance(root: HTMLElement, job: RenderJob) {
 		if (fold && !fold.firstChild) setIcon(fold, "lucide-chevron-down");
 	}
 	for (const embed of root.findAllSelf("span.internal-embed:not(.is-loaded)") as HTMLElement[]) {
-		job.promises.push(loadEmbed(embed, job).catch((err) => console.error(err)));
+		const child = job.parent.addChild(new EmbedChild(embed, job));
+		// The render waits for the embeds that load now; the others load with their owner.
+		if (child.loading) job.promises.push(child.loading);
 	}
 }
 
@@ -1047,8 +1049,9 @@ const AUDIO_EXTENSIONS = new Set(["flac", "m4a", "mp3", "ogg", "wav", "3gp"]);
 const VIDEO_EXTENSIONS = new Set(["mkv", "mov", "mp4", "ogv", "webm"]);
 const MAX_EMBED_DEPTH = 5;
 
-async function loadEmbed(embed: HTMLElement, job: RenderJob) {
+async function loadEmbed(child: EmbedChild, job: RenderJob) {
 	const { app } = job;
+	const embed = child.containerEl;
 	const src = embed.getAttribute("src") ?? "";
 	const { path, subpath } = parseLinktext(src);
 	const file = app.metadataCache.getFirstLinkpathDest(path, job.sourcePath);
@@ -1072,9 +1075,9 @@ async function loadEmbed(embed: HTMLElement, job: RenderJob) {
 		embed.addClasses(["media-embed", "video-embed"]);
 		embed.createEl("video", { attr: { controls: true, src: app.vault.getResourcePath(file), ...size } });
 	} else if (ext === "pdf") {
-		await embedPdf(embed, file, subpath, job);
+		await embedPdf(child, file, subpath, app);
 	} else if (ext === "md") {
-		await embedNote(embed, file, subpath, job);
+		await embedNote(child, file, subpath, job);
 	} else {
 		embed.addClasses(["file-embed", "mod-generic"]);
 		const title = embed.createDiv("file-embed-title");
@@ -1124,8 +1127,9 @@ function sliceSubpath(text: string, subpath: string) {
 	return range(match.line, end ? end.line : lines.length);
 }
 
-async function embedNote(embed: HTMLElement, file: TFile, subpath: string, job: RenderJob) {
+async function embedNote(child: EmbedChild, file: TFile, subpath: string, job: RenderJob) {
 	const { app } = job;
+	const embed = child.containerEl;
 	embed.addClasses(["markdown-embed", "inline-embed"]);
 	embed.createDiv("embed-title markdown-embed-title");
 	const content = embed.createDiv("markdown-embed-content");
@@ -1136,12 +1140,13 @@ async function embedNote(embed: HTMLElement, file: TFile, subpath: string, job: 
 		content.createDiv({ cls: "markdown-embed-loop", text: `"${file.basename}" is already embedded here.` });
 		return;
 	}
-	const embedChild = job.parent.addChild(new MarkdownRenderChild(embed));
 	let inner: Component | null = null;
 	const render = async () => {
 		const text = await app.vault.cachedRead(file);
-		if (inner) embedChild.removeChild(inner);
-		inner = embedChild.addChild(new Component());
+		// Unloaded while reading: it takes no new render.
+		if (!child._loaded) return;
+		if (inner) child.removeChild(inner);
+		inner = child.addChild(new Component());
 		content.empty();
 		const slice = sliceSubpath(text, subpath);
 		if (slice === null) {
@@ -1152,7 +1157,7 @@ async function embedNote(embed: HTMLElement, file: TFile, subpath: string, job: 
 		const sizer = view.createDiv("markdown-preview-sizer markdown-preview-section");
 		await renderStatic(app, slice, sizer, file.path, inner, [...job.embedStack, key]);
 	};
-	embedChild.registerEvent(
+	child.registerEvent(
 		app.vault.on("modify", (changed: TFile) => {
 			if (changed === file) render().catch((err) => console.error(err));
 		}),
@@ -1162,28 +1167,30 @@ async function embedNote(embed: HTMLElement, file: TFile, subpath: string, job: 
 
 // A PDF embed shows its pages one under another, rendered by pdf.js when they
 // scroll into view. #page=N opens at that page, #height=N sets the viewer height.
-async function embedPdf(embed: HTMLElement, file: TFile, subpath: string, job: RenderJob) {
+async function embedPdf(child: EmbedChild, file: TFile, subpath: string, app: App) {
+	const embed = child.containerEl;
 	embed.addClass("pdf-embed");
 	const params = new URLSearchParams(subpath.replace(/^#/, ""));
 	const viewer = embed.createDiv("pdf-embed-viewer");
 	const height = Number(params.get("height"));
 	if (height > 0) viewer.style.height = `${height}px`;
-	const child = job.parent.addChild(new MarkdownRenderChild(embed));
 	const lib = await loadPdfJs();
-	const doc = await lib.getDocument({ data: new Uint8Array(await job.app.vault.readBinary(file)) }).promise;
+	const doc = await lib.getDocument({ data: new Uint8Array(await app.vault.readBinary(file)) }).promise;
+	const first = (await doc.getPage(1)).getViewport({ scale: 1 });
+	if (!child._loaded) return void doc.destroy();
 	child.register(() => doc.destroy());
 	const observer = new IntersectionObserver(
 		(entries) => {
 			for (const entry of entries) {
 				if (!entry.isIntersecting) continue;
 				observer.unobserve(entry.target);
-				renderPdfPage(lib, doc, entry.target as HTMLElement).catch((err) => console.error(err));
+				// A page still drawing when the embed unloads fails with its document.
+				renderPdfPage(lib, doc, entry.target as HTMLElement).catch((err) => child._loaded && console.error(err));
 			}
 		},
 		{ root: viewer, rootMargin: "200px 0px" },
 	);
 	child.register(() => observer.disconnect());
-	const first = (await doc.getPage(1)).getViewport({ scale: 1 });
 	for (let n = 1; n <= doc.numPages; n++) {
 		const pageEl = viewer.createDiv({ cls: "pdf-embed-page", attr: { "data-page": n } });
 		pageEl.style.aspectRatio = `${first.width} / ${first.height}`;
@@ -1341,6 +1348,24 @@ export class MarkdownRenderChild extends Component {
 	}
 }
 
+// An embed loads its target only while the render's owner is loaded, as in
+// Obsidian; unloading it drops what loading registered (the note's modify
+// listener, the PDF document) and the renders inside it.
+class EmbedChild extends MarkdownRenderChild {
+	loading: Promise<void> | null = null;
+	#job: RenderJob;
+
+	constructor(containerEl: HTMLElement, job: RenderJob) {
+		super(containerEl);
+		this.#job = job;
+	}
+
+	onload() {
+		this.containerEl.empty();
+		this.loading = loadEmbed(this, this.#job).catch((err) => console.error(err));
+	}
+}
+
 let appRef: App | null = null;
 export function setMarkdownApp(app: App) {
 	appRef = app;
@@ -1462,7 +1487,7 @@ class StaticRenderer extends MarkdownRenderer {
 // highlighting are in; that waits only for a library that has not loaded yet.
 // getSectionInfo maps each block to its lines in `markdown`, except in an embed.
 async function renderStatic(app: App, markdown: string, el: HTMLElement, sourcePath: string, component: Component, embedStack: string[]) {
-	// Some plugins pass no component; the output then has no owner to unload it.
+	// Some plugins pass no component; the output then never loads its embeds.
 	const owner = new StaticRenderer(app, el, sourcePath);
 	component?.addChild(owner);
 	attachHandlers(owner, el, () => sourcePath, false);
