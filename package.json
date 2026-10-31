@@ -5,12 +5,16 @@
 	"license": "MIT",
 	"description": "Why do I need any closed-source editor and any cloud service for note taking and personal knowledge base?",
 	"main": "dist/main.js",
+	"bin": {
+		"justnotes": "src/cli/justnotes.ts"
+	},
 	"scripts": {
 		"build": "bun build.ts",
 		"postinstall": "node node_modules/electron/install.js",
 		"start": "bun run build && electron .",
 		"check": "tsc --noEmit -p .",
-		"test": "bun test test"
+		"test": "bun test test",
+		"cli": "bun src/cli/justnotes.ts"
 	},
 	"dependencies": {
 		"@codemirror/autocomplete": "^6.20.4",

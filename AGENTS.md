@@ -49,6 +49,10 @@ plain style. Development notes belong in this file.
     `internal-plugins.ts`, `secret-storage.ts`, `sanitize.ts` (DOMPurify),
     `setting-modal.ts`, `ui/` (menus, modals, notices, settings, suggests,
     tooltips), `bases/` (Bases: formulas, queries, table/cards/list views).
+- `src/cli/`: the `justnotes` command (`justnotes.ts`, run with `bun run cli
+  -- ...` or as the package's bin) and the socket protocol it shares with the
+  app (`protocol.ts`). `src/main/cli.ts` and `cli-server.ts` serve it,
+  `src/renderer/cli.ts` runs the request in the vault window.
 - `src/renderer/`: host UI (boot, core commands, file explorer, search, view
   and workspace commands, bases view, the core plugins in `core-plugins.ts`
   and the modules it installs) and `styles/NN-*.css`, which keep
@@ -108,6 +112,29 @@ plain style. Development notes belong in this file.
   passes an origin; untagged edits must not look like typing.
 - `Plugin.load()` awaits an async `onload` before children load and before the
   next plugin, as Obsidian does. `Component.load()` stays synchronous.
+- `registerCliHandler` handlers run from a terminal: `justnotes [--profile
+  <dir>] [vault=<name|path>] <command> [key=value ...] [flag ...]`, Obsidian's
+  CLI syntax (bare flags are `"true"`, `\n`, `\t` and `\\` unescape in
+  values). `--key value` also works: it takes the next word for a flag
+  declared with a value or an undeclared key, never for a declared switch.
+  Undeclared keys pass through, because QuickAdd (the only owner's plugin that
+  registers handlers) reads `value-<id>=...` and other keys as variables. The
+  handler's string goes to stdout with status 0, whatever it says (QuickAdd
+  reports `"ok":false` in its JSON); a throw, or no instance running on the
+  profile, is status 1; an unknown command, unknown `vault=` or a missing or
+  valueless flag is 2. `help [<command>]` lists the window's handlers or one
+  command's flags.
+  Without `vault=` the request goes to the open vault holding the working
+  folder, else the focused window. Main serves one socket per profile at
+  `<profile>/cli/justnotes-cli.sock` (folder 0700, socket 0600; a named pipe
+  keyed by the profile on Windows), never a network port. A socket path past
+  sockaddr_un's limit (a deep `--profile`) is bound and connected relative to
+  its folder after a `chdir`, which main undoes at once (Node binds
+  synchronously). A window takes requests after `installCli` (end of boot)
+  says it is ready; earlier requests wait up to a minute, and a reload, crash
+  or close answers pending ones with an error. A socket file left by a killed
+  instance is replaced on the next start; a live one (another instance on the
+  same profile) is left alone and that instance serves no CLI.
 - `registerCodeMirror` is a no-op: it only ran in Obsidian's legacy editor.
 - A code-block language has one handler, the latest registration, in both
   views. Live Preview re-renders when processors change; the reading view keeps
@@ -302,8 +329,8 @@ paid: only within the owner's small test budget), background, kgdistiller
 (0.1.5 and 3.0.2), latex-live (0.2.0; 0.1.7 loads), obsidian-git, omp-sidebar,
 quickadd, terminal and obsidian-tinymist (0.1.0, its YOLO bridge against a
 local mock provider). Known gaps: popout windows, a canvas view (QuickAdd's
-capture into the active canvas), a CLI transport for `registerCliHandler`,
-`app.metadataTypeManager`, editable properties, tab drag and drop.
+capture into the active canvas), `app.metadataTypeManager`, editable
+properties, tab drag and drop.
 
 ## Verify
 
