@@ -61,6 +61,7 @@ const IMPLEMENTED = new Set([
 	"note-composer",
 	"word-count",
 	"slides",
+	"audio-recorder",
 	"file-recovery",
 	"bookmarks",
 ]);
@@ -85,6 +86,7 @@ export const CORE_PLUGIN_INFO: Record<string, { name: string; description: strin
 	outline: { name: "Outline", description: "Shows the headings of the active note." },
 	"word-count": { name: "Word count", description: "Shows the word and character count in the status bar." },
 	slides: { name: "Slides", description: "Presents a note as a slide deck." },
+	"audio-recorder": { name: "Audio recorder", description: "Record audio and save it as an attachment in a note." },
 	"file-recovery": { name: "File recovery", description: "Keeps snapshots of your notes to restore lost work." },
 };
 
@@ -278,7 +280,7 @@ export class InternalPlugins {
 
 // The implemented core plugins a vault without core-plugins.json starts
 // with off, as Obsidian does.
-const OFF_BY_DEFAULT = new Set(["slides"]);
+const OFF_BY_DEFAULT = new Set(["slides", "audio-recorder"]);
 
 // Whether each core plugin starts enabled: core-plugins.json, then the
 // user's choices made in justnotes.

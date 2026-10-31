@@ -206,6 +206,22 @@ section.footnotes {
 	max-width: 100%;
 }
 
+/* The audio and video views (media-view.ts). */
+.view-content:is(.audio-container, .video-container) {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.video-container video {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+.view-content:is(.audio-container, .video-container) audio {
+	width: min(100%, 480px);
+}
+
 .internal-embed.file-embed {
 	display: flex;
 	align-items: center;

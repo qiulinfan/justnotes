@@ -1,5 +1,6 @@
 import type { App } from "../api/app";
 import type { CorePluginHost, CorePluginInstaller } from "../api/internal-plugins";
+import { installAudioRecorder } from "./audio-recorder";
 import { installBacklinksInDocument } from "./backlinks-in-document";
 import { BookmarksInstance, installBookmarks } from "./bookmarks";
 import { installCanvas } from "./canvas-view";
@@ -69,6 +70,7 @@ function installers(): Record<string, CorePluginInstaller> {
 	result["word-count"] = installWordCount;
 	result.bookmarks = installBookmarks;
 	result.slides = installSlides;
+	result["audio-recorder"] = installAudioRecorder;
 	return result;
 }
 

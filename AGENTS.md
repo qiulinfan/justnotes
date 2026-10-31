@@ -28,7 +28,8 @@ plain style. Development notes belong in this file.
   frame name). `lifecycle.ts` runs the quit flush
   (`justnotes:before-close` / `justnotes:close-ready`), `ipc.ts` the
   synchronous IPC behind SecretStorage (Electron `safeStorage`) and the
-  plugins' clipboard, `protocol.ts` scheme registration.
+  plugins' clipboard, `protocol.ts` scheme registration, `media.ts` which
+  media requests are granted.
 - `src/api/`: the `obsidian` module. `index.ts` is exactly the list plugins see:
   the value exports of `obsidian.d.ts`, no more (`test/finish-exports.test.ts`
   checks both directions). Modules that also hold justnotes internals are listed
@@ -102,7 +103,7 @@ plain style. Development notes belong in this file.
   `graph:open`, `graph:open-local`, `tag-pane:open`, `daily-notes`, `daily-notes:goto-prev`/`-next`,
   `insert-template`, `insert-current-date`/`-time`,
   `note-composer:merge-file`/`split-file`/`extract-heading`,
-  `file-recovery:open`, `slides:start`), so `hotkeys.json` binds them. The panes' views
+  `file-recovery:open`, `slides:start`, `audio-recorder:start`/`stop`), so `hotkeys.json` binds them. The panes' views
   (`backlink`, `outgoing-link`, `outline`, `tag`, `graph`, `localgraph`)
   register always, so a saved
   layout keeps them; the first three follow the active file. Unlinked mentions
@@ -150,7 +151,26 @@ plain style. Development notes belong in this file.
   It opens in the focused window, asks for fullscreen (refused without a user
   gesture, so CDP `eval` starts get the full window) and closes when
   fullscreen ends; its key scope has no parent, so app hotkeys stay off while
-  it shows. Not there yet: the other core plugins,
+  it shows. Audio recorder (`audio-recorder.ts`, off without
+  core-plugins.json, as in Obsidian) records the microphone with
+  MediaRecorder from its ribbon button (`audio-recorder:Start/stop
+  recording`, red while recording: `.is-recording`, a guess) or its two
+  commands; turning it off ends a recording and saves it. A recording is
+  WebM/Opus as Obsidian's desktop recordings (MP4, then Ogg, only where WebM
+  is not recorded), named `Recording YYYYMMDDHHmmss.webm`, saved through
+  `importFile` into the attachment folder for the active note and embedded
+  at its cursor on a line of its own (Obsidian's docs say at the end of the
+  note); with no note open it opens in a tab. Media players
+  (`createMediaPlayer` in `markdown.ts`, used by embeds in both views and by
+  the `audio`/`video` views of `media-view.ts`, registered at boot for
+  Obsidian's extensions) turn a video file without a picture into an audio
+  player and make Chromium find the missing duration of MediaRecorder's
+  WebM by seeking past the end once, so recordings can be scrubbed. Main
+  grants media only as `media.ts` decides: the microphone alone, to a vault
+  page's main frame (iframes, `<webview>` guests and the camera are
+  refused), after `systemPreferences.askForMediaAccess` on macOS when the
+  system has not decided yet; with `--use-fake-device-for-media-stream` it
+  skips the system check. Not there yet: the other core plugins,
   the Tags view's Mod-click to add a tag to the search, links to an
   extracted heading (`[[Note#Heading]]`) are not redirected to the new note.
 - Bookmarks (`bookmarks-data.ts`: format, merge, rename/delete following,
@@ -670,8 +690,8 @@ blogs with five of its plugins.
   that points outside it: a plugin folder can be a symlink to the plugin's
   development checkout, whose `data.json` is the real one, and the script
   copies such a folder as files.
-- `bun scripts/smoke.ts --vault <copy> --port <port> --profile <dir> [--keep]`
-  launches an isolated instance (own profile, mock keychain, no background
+- `bun scripts/smoke.ts --vault <copy> --port <port> --profile <dir> [--keep]
+  [-- <electron flag> ...]` launches an isolated instance (own profile, mock keychain, no background
   throttling) and reports boot errors; drive a kept one with
   `CDP_PORT=<port> bun scripts/cdp.ts` (real key events, `eval` against
   `window.app`, screenshots, `reload`; always set `CDP_PORT`, or it drives
@@ -690,6 +710,11 @@ blogs with five of its plugins.
   proxy; evaluate in main instead (`remote.require("vm").runInThisContext`
   with `process.mainModule.require("electron")`). Stubs in main survive
   `cdp.ts reload`; the page's do not.
+- Never record the real microphone or raise macOS's microphone prompt: pass
+  `-- --use-fake-device-for-media-stream` to `smoke.ts` (flags after `--` go
+  to Electron), which gives getUserMedia Chromium's synthetic input and makes
+  main skip the system check. Not `--use-fake-ui-for-media-stream`: it
+  grants every media request before main's permission handler sees it.
 - Never touch the system clipboard: intercept `navigator.clipboard` in the
   page and replace main's clipboard with one in Electron 45's asynchronous
   shape. A synchronous stub in the page hides failures of the synchronous

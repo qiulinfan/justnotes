@@ -49,6 +49,12 @@
 	gap: 4px;
 }
 
+/* The Audio recorder's button while it records. */
+.side-dock-ribbon-action.is-recording,
+.side-dock-ribbon-action.is-recording:hover {
+	color: var(--color-red);
+}
+
 .workspace-split {
 	display: flex;
 	min-width: 0;

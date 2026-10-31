@@ -12,6 +12,7 @@ import { installCli } from "./cli";
 import { registerCoreCommands } from "./commands";
 import { installDevCapture } from "./dev-capture";
 import { defaultRightSidebar, installCorePlugins, registerCorePluginViews } from "./core-plugins";
+import { registerMediaViews } from "./media-view";
 import { SearchView } from "./search";
 import { registerViewCommands } from "./view-commands";
 import { EmptyView, FileExplorerView } from "./views";
@@ -119,6 +120,7 @@ async function boot() {
 	app.viewRegistry.registerView("file-explorer", (leaf) => new FileExplorerView(leaf));
 	app.viewRegistry.registerView("search", (leaf) => new SearchView(leaf));
 	app.viewRegistry.registerExtensions(["md"], "markdown");
+	registerMediaViews(app);
 	installBases(app);
 	registerCorePluginViews(app);
 
