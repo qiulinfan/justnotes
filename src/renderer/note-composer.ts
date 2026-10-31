@@ -43,9 +43,19 @@ export function composeText(template: string | null, vars: ComposeVars) {
 	return filled ? `${filled.replace(/\n*$/, "")}\n\n${vars.content}` : vars.content;
 }
 
+// A note with CRLF line breaks is worked on as LF and given CRLF back.
+function keepEol(dest: string, edit: (lf: string) => string) {
+	if (!dest.includes("\r\n")) return edit(dest);
+	return edit(dest.replace(/\r\n/g, "\n")).replace(/\n/g, "\r\n");
+}
+
 // `dest` with `text` added at its end, or at its start just after its
-// frontmatter, a blank line between them.
+// frontmatter, a blank line between them, with dest's line breaks.
 export function addText(dest: string, text: string, at: "end" | "start") {
+	return keepEol(dest, (lf) => addTextLf(lf, text.replace(/\r\n/g, "\n"), at));
+}
+
+function addTextLf(dest: string, text: string, at: "end" | "start") {
 	const body = text.replace(/\n*$/, "");
 	if (!dest.trim()) return `${body}\n`;
 	if (at === "end") return `${dest.replace(/\n*$/, "")}\n\n${body}\n`;
@@ -57,12 +67,17 @@ export function addText(dest: string, text: string, at: "end" | "start") {
 
 // Merges `content` into `dest` (see addText); a frontmatter in `content`
 // goes into dest's frontmatter, adding only the properties dest lacks, as an
-// inserted template's does.
+// inserted template's does (throwing FrontmatterNotMapError when dest's is
+// not a map of properties).
 export function mergeText(dest: string, content: string, at: "end" | "start", compose: (body: string) => string = (body) => body) {
+	return keepEol(dest, (lf) => mergeTextLf(lf, content.replace(/\r\n/g, "\n"), at, compose));
+}
+
+function mergeTextLf(dest: string, content: string, at: "end" | "start", compose: (body: string) => string) {
 	const end = locateFrontMatter(content)?.end ?? 0;
 	const fm = content.slice(0, end);
-	const body = content.slice(end).replace(/^\r?\n/, "");
-	let out = addText(dest, compose(body), at);
+	const body = content.slice(end).replace(/^\n/, "");
+	let out = addTextLf(dest, compose(body).replace(/\r\n/g, "\n"), at);
 	if (fm) for (const e of [...templateEdits(out, 0, 0, `${fm}\n`)].reverse()) out = out.slice(0, e.from) + e.insert + out.slice(e.to);
 	return out;
 }

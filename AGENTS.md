@@ -128,7 +128,8 @@ plain style. Development notes belong in this file.
   at the end, Shift+Enter at the start (after the frontmatter), Mod+Enter (or
   Enter with no match) creates a note named as typed; a merged note's
   frontmatter adds only missing properties, links to it are redirected
-  (`FileManager.redirectLinks`) and it goes to the trash. File recovery keeps
+  (`FileManager.redirectLinks`) and it goes to the trash. Text added to a
+  CRLF note gets CRLF line breaks. File recovery keeps
   whole-text snapshots of `.md` and `.canvas` files in the profile's IndexedDB
   (`<appId>-file-recovery`), one when a file is opened and then at most one
   per `intervalMinutes` (default 5) after edits, pruned after `keepDays`
@@ -136,10 +137,14 @@ plain style. Development notes belong in this file.
   one waiting for the interval, follow a renamed file; deleting a file with
   one waiting saves its last text at once. Templates insert a
   template's frontmatter at the top, adding only the properties the note
-  lacks. On a case-insensitive volume the Daily notes and Templates folders
-  are found as the disk spells them (`vault.getDiskPath`, justnotes' own), so
-  a setting naming `daily` for `Daily` opens, creates and steps between the
-  notes there. `properties` is the All properties pane
+  lacks. Properties are never added (by Templates or Note composer) to
+  frontmatter that is not a map of properties, or that the added lines would
+  not leave one (a flow map): `templateEdits` throws
+  `FrontmatterNotMapError`, nothing is written and a Notice (the CLI an
+  error) says why, as `processFrontMatter` refuses. On a case-insensitive
+  volume the Daily notes and Templates folders are found as the disk spells
+  them (`vault.getDiskPath`, justnotes' own), so a setting naming `daily` for
+  `Daily` opens, creates and steps between the notes there. `properties` is the All properties pane
   (`all-properties`, `properties:open`): names with type and note count,
   unfolding to their notes; its menu sets the type or renames the property in
   every note (each note's YAML changed only at that key). Slides

@@ -10,7 +10,7 @@ import { findMentions, headingAt, headingTree, mentionSkips, outlineMatches } fr
 import { addText, composeText, headingSection, mergeText, noteName, sectionReplacement } from "../src/renderer/note-composer";
 import { contentScale, slideSources } from "../src/renderer/slides";
 import { sortTags, type TagNode, tagTree } from "../src/renderer/tag-pane";
-import { fillTemplate, templateEdits } from "../src/renderer/templates";
+import { FrontmatterNotMapError, fillTemplate, templateEdits } from "../src/renderer/templates";
 import { countWords } from "../src/renderer/word-count";
 
 // The rows of the backlinks pane's unlinked mentions (and the outgoing links
@@ -109,6 +109,19 @@ describe("note composer", () => {
 		expect(mergeText("B\n", "---\ntags: a\n---\nA\n", "end")).toBe("---\ntags: a\n---\nB\n\nA\n");
 	});
 
+	// Added lines would turn a list or flow map into invalid YAML.
+	test("properties are never merged into a destination whose frontmatter is not a map", () => {
+		for (const dest of ["---\n- a\n---\nB\n", "---\n{a: 1}\n---\nB\n", "---\na: [\n---\nB\n"]) {
+			expect(() => mergeText(dest, "---\nsource: x\n---\nA\n", "end")).toThrow(FrontmatterNotMapError);
+		}
+	});
+
+	test("a CRLF destination keeps CRLF on every line, the added text and properties included", () => {
+		expect(addText("A\r\n", "B\nC", "end")).toBe("A\r\n\r\nB\r\nC\r\n");
+		expect(addText("---\r\nt: x\r\n---\r\nA\r\n", "B", "start")).toBe("---\r\nt: x\r\n---\r\nB\r\n\r\nA\r\n");
+		expect(mergeText("---\r\ntags: b\r\n---\r\nB\r\n", "---\nsource: x\n---\nA\n", "end")).toBe("---\r\ntags: b\r\nsource: x\r\n---\r\nB\r\n\r\nA\r\n");
+	});
+
 	test("a heading's section runs to the next heading of the same or a higher level", () => {
 		const text = ["# Top", "intro", "## Part", "", "body", "### Sub", "deep", "## Next", "tail"].join("\n");
 		const section = headingSection(text, 4)!;
@@ -185,6 +198,13 @@ describe("inserting a template", () => {
 	test("properties the note has keep their values; new ones are added", () => {
 		const doc = "---\ntags: mine\n---\nText\n";
 		expect(insert(doc, doc.length, "---\ntags: lecture\naliases:\n  - L3\n---\nBody\n")).toBe("---\ntags: mine\naliases:\n  - L3\n---\nText\nBody\n");
+	});
+
+	test("a note whose frontmatter is not a map gets no properties added", () => {
+		for (const doc of ["---\n- a\n---\nText\n", "---\n{a: 1}\n---\nText\n"]) {
+			expect(() => insert(doc, doc.length, "---\nb: 2\n---\nBody\n")).toThrow(FrontmatterNotMapError);
+		}
+		expect(insert("---\n- a\n---\nText\n", 12, "Body")).toBe("---\n- a\n---\nBodyText\n");
 	});
 
 	test("the body never lands inside the note's frontmatter", () => {

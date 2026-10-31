@@ -16,7 +16,7 @@ import { dailyNote } from "../../renderer/daily-notes";
 import { bookmarkUrl } from "../../renderer/bookmarks-data";
 import { consoleEntries, errorEntries } from "../../renderer/dev-capture";
 import { fileRecoveryOf, lineDiff, openFileRecovery, type Snapshot } from "../../renderer/file-recovery";
-import { insertTemplate } from "../../renderer/templates";
+import { FrontmatterNotMapError, insertTemplate } from "../../renderer/templates";
 import { CliError, intParam, keyValues, list, oneOf, on, type Result, type Row, result, usage } from "../output";
 import { type Ctx, coreOptions, type Handler, markdown, resolveName, targetFile } from "./context";
 import { baseFile, findTemplate, pickView, randomNote, resolveTemplate, savedWorkspaces } from "./vault";
@@ -294,7 +294,12 @@ const templateInsert: Handler = async (ctx, params) => {
 	const view = ctx.app.workspace.getActiveViewOfType(MarkdownView);
 	if (!view?.file || view.getMode() !== "source") throw new CliError("No note is being edited; open one in editing view first.");
 	const template = findTemplate(ctx.app, params.name);
-	await insertTemplate(ctx.app, view.editor, view.file.basename, template);
+	try {
+		await insertTemplate(ctx.app, view.editor, view.file.basename, template);
+	} catch (err) {
+		if (err instanceof FrontmatterNotMapError) throw new CliError(`Could not insert the template: ${err.message}.`);
+		throw err;
+	}
 	await view.save();
 	return done({ path: view.file.path, template: template.path }, view.file.path);
 };

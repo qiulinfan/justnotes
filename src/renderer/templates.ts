@@ -1,6 +1,7 @@
 import type { CorePluginHost } from "../api/internal-plugins";
 import type { App } from "../api/app";
 import { Editor } from "../api/editor";
+import { readProperties } from "../api/frontmatter-edit";
 import { FuzzySuggestModal } from "../api/ui/suggest";
 import { Notice } from "../api/ui/notice";
 import { moment } from "../api/util";
@@ -54,10 +55,20 @@ function frontmatterEntries(body: string) {
 	return entries;
 }
 
+// Thrown where adding properties would corrupt the note's frontmatter: YAML
+// that is not a map of properties (a list, text between two rules, invalid
+// YAML), or one the added lines would not leave a map (a flow map).
+export class FrontmatterNotMapError extends Error {
+	constructor() {
+		super("the note's frontmatter is not a map of properties");
+	}
+}
+
 // The edits that insert a template into a note with the selection
 // [from, to): the template's body replaces the selection, and its frontmatter
 // goes to the top of the note, where properties the note has already keep
-// their values, as Obsidian does.
+// their values, as Obsidian does. Throws FrontmatterNotMapError rather than
+// add properties to frontmatter that is not a map.
 export function templateEdits(doc: string, from: number, to: number, template: string): TextEdit[] {
 	const fm = FRONTMATTER.exec(template);
 	const own = FRONTMATTER.exec(doc);
@@ -80,8 +91,12 @@ export function templateEdits(doc: string, from: number, to: number, template: s
 	const at = Math.max(from, own[0].length);
 	const edits: TextEdit[] = [];
 	if (added.length) {
+		const eol = own[0].includes("\r\n") ? "\r\n" : "\n";
+		const insert = `${added.flatMap((e) => e.lines).join(eol)}${eol}`;
+		const yaml = own[1] ?? "";
+		if (!readProperties(yaml) || !readProperties(yaml + insert)) throw new FrontmatterNotMapError();
 		const close = own[0].lastIndexOf("---");
-		edits.push({ from: close, to: close, insert: `${added.flatMap((e) => e.lines).join("\n")}\n` });
+		edits.push({ from: close, to: close, insert });
 	}
 	// A note that ends with its frontmatter has no line break after it yet.
 	const gap = at === own[0].length && !own[0].endsWith("\n") ? "\n" : "";
@@ -125,6 +140,8 @@ export function templateFiles(folder: TFolder): TFile[] {
 	return folder.children.flatMap((child) => (child instanceof TFolder ? templateFiles(child) : child instanceof TFile && child.extension === "md" ? [child] : []));
 }
 
+// Throws FrontmatterNotMapError, inserting nothing, when the template has
+// properties and the note's frontmatter is not a map.
 export async function insertTemplate(app: App, editor: Editor, title: string, file: TFile) {
 	const text = fillTemplate(await app.vault.cachedRead(file), { title, date: moment(), dateFormat: dateFormat(app), timeFormat: timeFormat(app) });
 	const cm = editor.cm;
@@ -156,7 +173,10 @@ class TemplateModal extends FuzzySuggestModal<TFile> {
 	}
 
 	onChooseItem(file: TFile) {
-		insertTemplate(this.app, this.#editor, this.#title, file);
+		insertTemplate(this.app, this.#editor, this.#title, file).catch((err) => {
+			if (!(err instanceof FrontmatterNotMapError)) throw err;
+			new Notice(`Could not insert the template: ${err.message}.`);
+		});
 	}
 }
 
