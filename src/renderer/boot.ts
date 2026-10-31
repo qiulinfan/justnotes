@@ -103,7 +103,12 @@ function handleWindowClose(app: App) {
 	});
 }
 
+// Boot phases as User Timing marks (`justnotes:<phase>`), for profiles and
+// for measuring startup over CDP: performance.getEntriesByType("mark").
+const mark = (phase: string) => performance.mark(`justnotes:${phase}`);
+
 async function boot() {
+	mark("boot");
 	installDevCapture();
 	keepAppPage();
 	installDomExtensions();
@@ -126,26 +131,34 @@ async function boot() {
 
 	buildShell(app);
 	await app.vault.load();
+	mark("vault-loaded");
 	// Indexing overlaps the rest of boot and is done before plugins load, so
 	// getFileCache() works in their onload, as in Obsidian.
 	const indexed = app.metadataCache.initialize();
 	applyTheme(app);
 	await app.hotkeyManager.load();
+	mark("hotkeys-loaded");
 	await loadMathJax().catch((err) => console.error(err));
+	mark("mathjax-loaded");
 	registerCoreCommands(app);
 	registerEditorSuggests(app);
 	registerViewCommands(app);
 	registerWorkspaceCommands(app);
 
 	await indexed;
+	mark("metadata-indexed");
 	await app.metadataTypeManager.load();
 	// Core plugins come before community plugins, which may read their options
 	// while loading; both load before the layout, so it can restore their views.
 	await app.internalPlugins.initialize();
 	installCorePlugins(app);
+	mark("core-plugins-loaded");
 	await app.plugins.initialize();
+	mark("plugins-loaded");
 	await app.restoreLayoutState({ ...DEFAULT_LAYOUT, right: defaultRightSidebar(app) });
+	mark("layout-restored");
 	app.workspace.setLayoutReady();
+	mark("layout-ready");
 	handleWindowClose(app);
 	installCli(app);
 

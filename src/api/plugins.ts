@@ -102,7 +102,12 @@ export class Plugins {
 		} catch {}
 		const saved = this.app.loadLocalStorage("enabled-plugins");
 		this.#overlay = { enabled: saved?.enabled ?? [], disabled: saved?.disabled ?? [] };
-		for (const id of applyOverlay(ids, this.#overlay)) await this.enablePlugin(id);
+		for (const id of applyOverlay(ids, this.#overlay)) {
+			const start = performance.now();
+			await this.enablePlugin(id);
+			// Each plugin's load time, for profiles and startup measurements.
+			performance.measure(`justnotes:plugin:${id}`, { start });
+		}
 	}
 
 	getPlugin(id: string) {
