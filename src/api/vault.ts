@@ -1139,9 +1139,11 @@ export class Vault extends Events {
 		return respell(path, (lower) => this.#lower.get(lower)?.path, keepName);
 	}
 
-	#newPath(path: string, message: string) {
+	// Hidden paths and files the watcher has not reported yet are not in the
+	// index, so the disk decides too: creating never replaces what is there.
+	async #newPath(path: string, message: string) {
 		path = this.#respell(normalizePath(path));
-		if (this.#taken(path)) throw new Error(message);
+		if (this.#taken(path) || (await this.adapter.exists(path))) throw new Error(message);
 		return path;
 	}
 
@@ -1173,7 +1175,7 @@ export class Vault extends Events {
 	}
 
 	async create(path: string, data: string, options?: DataWriteOptions) {
-		path = this.#newPath(path, "File already exists.");
+		path = await this.#newPath(path, "File already exists.");
 		await this.adapter.write(path, data, options);
 		const file = await this.#fileAt(path);
 		this.#remember(file, data);
@@ -1181,7 +1183,7 @@ export class Vault extends Events {
 	}
 
 	async createBinary(path: string, data: ArrayBuffer, options?: DataWriteOptions) {
-		path = this.#newPath(path, "File already exists.");
+		path = await this.#newPath(path, "File already exists.");
 		await this.adapter.writeBinary(path, data, options);
 		return this.#fileAt(path);
 	}
@@ -1197,7 +1199,7 @@ export class Vault extends Events {
 	}
 
 	async createFolder(path: string) {
-		path = this.#newPath(path, "Folder already exists.");
+		path = await this.#newPath(path, "Folder already exists.");
 		await this.adapter.mkdir(path);
 		const folder = this.fileMap[path];
 		return folder instanceof TFolder ? folder : new TFolder(this, path);
@@ -1258,7 +1260,7 @@ export class Vault extends Events {
 	}
 
 	async copy<T extends TAbstractFile>(file: T, newPath: string): Promise<T> {
-		newPath = this.#newPath(newPath, file instanceof TFolder ? "Folder already exists." : "File already exists.");
+		newPath = await this.#newPath(newPath, file instanceof TFolder ? "Folder already exists." : "File already exists.");
 		await this.adapter.copy(file.path, newPath);
 		const copy = this.fileMap[newPath] ?? (file instanceof TFolder ? new TFolder(this, newPath) : await this.#fileAt(newPath));
 		return copy as T;

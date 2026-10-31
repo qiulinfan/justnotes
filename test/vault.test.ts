@@ -127,6 +127,23 @@ describe("Vault collisions", () => {
 		expect(vault.getRoot().children.map((f) => f.path).sort()).toEqual(["a.md", "b.md"]);
 	});
 
+	// Hidden paths are not in the index; the disk says they exist.
+	test("creating, copying or renaming onto an existing hidden path fails and keeps its bytes", async () => {
+		const { vault, full } = await makeVault({ ".obsidian/x.json": "keep", ".obsidian/bin": "bin", "a.md": "A" });
+		fs.mkdirSync(full(".obsidian/dir"));
+		await expect(vault.create(".obsidian/x.json", "new")).rejects.toThrow("File already exists.");
+		await expect(vault.createBinary(".obsidian/bin", new ArrayBuffer(2))).rejects.toThrow("File already exists.");
+		await expect(vault.createFolder(".obsidian/dir")).rejects.toThrow("Folder already exists.");
+		await expect(vault.copy(vault.getFileByPath("a.md")!, ".obsidian/x.json")).rejects.toThrow("File already exists.");
+		await expect(vault.rename(vault.getFileByPath("a.md")!, ".obsidian/x.json")).rejects.toThrow("already exists");
+		expect(fs.readFileSync(full(".obsidian/x.json"), "utf8")).toBe("keep");
+		expect(fs.readFileSync(full(".obsidian/bin"), "utf8")).toBe("bin");
+		expect(fs.readFileSync(full("a.md"), "utf8")).toBe("A");
+		const made = await vault.create(".obsidian/new.json", "{}");
+		expect(made.path).toBe(".obsidian/new.json");
+		expect(fs.readFileSync(full(".obsidian/new.json"), "utf8")).toBe("{}");
+	});
+
 	test("on a case-insensitive volume a case variant cannot be created but a case-only rename works", async () => {
 		const { vault, full } = await makeVault({ "Note.md": "N" });
 		if (!vault.adapter.insensitive) return;
