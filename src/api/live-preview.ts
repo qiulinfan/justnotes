@@ -651,9 +651,10 @@ interface BuildContext {
 // A rendered link: the editor's underline, dimmed with is-unresolved when no
 // file has the name, and the attributes of the renderer's link element, its
 // class (internal-link, external-link) and the data-href that the click and
-// hover handlers read.
+// hover handlers read. Inclusive, so a widget filling the link text (a badge
+// image) sits inside the link element and clicks on it open the link.
 function linkMark(kind: "internal-link" | "external-link", href: string, resolved = true) {
-	return Decoration.mark({ class: resolved ? "cm-underline" : "cm-underline is-unresolved", attributes: { class: kind, "data-href": href } });
+	return Decoration.mark({ class: resolved ? "cm-underline" : "cm-underline is-unresolved", attributes: { class: kind, "data-href": href }, inclusive: true });
 }
 
 // Syntax stays visible wherever the selection touches; elsewhere it is hidden
@@ -847,7 +848,9 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 						decos.push(mark.range(marks[0].to, textEnd));
 					}
 					decos.push(hide.range(textEnd, to));
-					return false;
+					// The link text's own syntax (emphasis, code, math, a badge
+					// image) renders inside the link, as in the reading view.
+					return;
 				}
 				case "Autolink": {
 					if (touches(from, to)) return false;

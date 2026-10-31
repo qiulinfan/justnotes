@@ -181,6 +181,29 @@ describe("links", () => {
 			["Missing", "cm-underline is-unresolved"],
 		]);
 	});
+
+	// A README's badge, [![alt](img)](url), and formatted link text render
+	// inside the link, as in the reading view, instead of showing their source.
+	test("an image or formatting in a link's text renders within the link", () => {
+		const doc = "[![badge](pic.png)](https://ci.example) [**bold** `code`](Known)\nend";
+		// Marks and replacements sit in separate layers: put them in document order.
+		const shown = decorate(doc, doc.length)
+			.sort((a, b) => a.from - b.from || Number(!!a.widget) - Number(!!b.widget))
+			.map((d) => [doc.slice(d.from, d.to), d.widget ?? d.mark]);
+		expect(shown).toEqual([
+			["[", "hidden"],
+			["![badge](pic.png)", "cm-underline"],
+			["![badge](pic.png)", "ImageWidget"],
+			["](https://ci.example)", "hidden"],
+			["[", "hidden"],
+			["**bold** `code`", "cm-underline"],
+			["**", "hidden"],
+			["**", "hidden"],
+			["`", "hidden"],
+			["`", "hidden"],
+			["](Known)", "hidden"],
+		]);
+	});
 });
 
 // A click on a rendered table cell must land in that cell's source.
