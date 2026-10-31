@@ -54,8 +54,11 @@
 	white-space: nowrap;
 }
 
+/* Centred, so text placed among the buttons (the terminal plugin's result
+   count) lines up with them instead of stretching to their height. */
 .document-search-buttons {
 	display: flex;
+	align-items: center;
 	gap: 2px;
 }
 

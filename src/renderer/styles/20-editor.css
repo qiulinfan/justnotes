@@ -66,10 +66,53 @@
 	background: transparent;
 }
 
-.cm-panels {
-	background: var(--background-secondary);
+/* Panels, the find panel among them, in this app's colours. CodeMirror's
+   light theme rules for them weigh two classes (its theme class and the
+   element's) and are mounted before app.css, so .cm-editor rules of the same
+   weight replace them; sizes and layout stay CodeMirror's. */
+.cm-editor .cm-panels {
+	background-color: var(--background-secondary);
 	color: var(--text-normal);
-	border-color: var(--background-modifier-border) !important;
+	border-color: var(--background-modifier-border);
+}
+
+/* Native controls in the panels, such as the find panel's checkboxes. */
+body.theme-dark .cm-editor .cm-panels {
+	color-scheme: dark;
+}
+
+.cm-editor .cm-textfield {
+	background-color: var(--background-modifier-form-field);
+	border-color: var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.cm-editor .cm-textfield:focus {
+	border-color: var(--interactive-accent);
+	outline: none;
+}
+
+.cm-editor .cm-button {
+	background: var(--interactive-normal);
+	border-color: var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.cm-editor .cm-button:hover,
+.cm-editor .cm-button:active {
+	background: var(--interactive-hover);
+}
+
+.cm-editor .cm-panel.cm-search input[type="checkbox"] {
+	accent-color: var(--interactive-accent);
+}
+
+.cm-editor .cm-panel.cm-search [name="close"] {
+	color: var(--text-muted);
+}
+
+.cm-editor .cm-panel.cm-search [name="close"]:hover {
+	color: var(--text-normal);
 }
 
 /* Find: matches take Obsidian's highlight colours, the current one its

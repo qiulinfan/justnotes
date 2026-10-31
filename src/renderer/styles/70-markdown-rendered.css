@@ -111,9 +111,19 @@ pre:hover > .copy-code-button {
 
 .internal-link,
 .external-link {
-	color: var(--text-accent);
 	text-decoration: none;
 	cursor: pointer;
+}
+
+/* Colours come from Obsidian's link variables, so a plugin that sets them on
+   a container (QuickAdd mutes the links in a disabled choice) restyles the
+   links inside. */
+.internal-link {
+	color: var(--link-color);
+}
+
+.external-link {
+	color: var(--link-external-color);
 }
 
 .internal-link:hover,
@@ -122,7 +132,8 @@ pre:hover > .copy-code-button {
 }
 
 .internal-link.is-unresolved {
-	opacity: 0.7;
+	color: var(--link-unresolved-color);
+	opacity: var(--link-unresolved-opacity);
 }
 
 a.tag {
