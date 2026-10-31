@@ -102,6 +102,17 @@ export interface ClickableToken {
 	to: number;
 }
 
+// The address a URL node outside a link opens. GFM links bare www. text and
+// email addresses, and an angle-bracket autolink without a scheme is an email
+// address; they open as https: and mailto: links, through window.open like any
+// other URL, where main's policy decides. A link reference definition's
+// destination is not an autolink and stays as written.
+function autolinkHref(node: SyntaxNode, url: string) {
+	const parent = node.parent?.name;
+	if (SCHEME.test(url) || parent === "LinkReference") return url;
+	return parent !== "Autolink" && /^www\./i.test(url) ? `https://${url}` : `mailto:${url}`;
+}
+
 function tokenOf(state: EditorState, n: SyntaxNode): ClickableToken | null {
 	const text = (node: SyntaxNode) => state.sliceDoc(node.from, node.to);
 	switch (n.name) {
@@ -122,7 +133,7 @@ function tokenOf(state: EditorState, n: SyntaxNode): ClickableToken | null {
 		case "URL": {
 			const parent = n.parent?.name;
 			if (parent === "Link" || parent === "Image") return null;
-			return { type: "external-link", text: text(n), from: n.from, to: n.to };
+			return { type: "external-link", text: autolinkHref(n, text(n)), from: n.from, to: n.to };
 		}
 		case "hashtag":
 			return { type: "tag", text: text(n), from: n.from, to: n.to };
@@ -844,14 +855,14 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const url = node.getChild("URL");
 					if (!url) return false;
 					decos.push(hide.range(from, url.from));
-					decos.push(linkMark("external-link", state.sliceDoc(url.from, url.to)).range(url.from, url.to));
+					decos.push(linkMark("external-link", autolinkHref(url, state.sliceDoc(url.from, url.to))).range(url.from, url.to));
 					decos.push(hide.range(url.to, to));
 					return false;
 				}
 				case "URL": {
 					const parent = node.parent?.name;
 					if (parent === "Link" || parent === "Image" || touches(from, to)) return;
-					decos.push(linkMark("external-link", state.sliceDoc(from, to)).range(from, to));
+					decos.push(linkMark("external-link", autolinkHref(node, state.sliceDoc(from, to))).range(from, to));
 					return;
 				}
 				case "Image": {

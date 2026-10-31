@@ -61,9 +61,9 @@ export abstract class SettingTab {
 
 	display() {}
 
-	hide() {
-		this.containerEl.empty();
-	}
+	// Leaves the container as display() left it: a tab that builds its settings
+	// once must find them again on the next display().
+	hide() {}
 }
 
 export abstract class PluginSettingTab extends SettingTab {

@@ -692,6 +692,19 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 				return true;
 			},
 		}),
+		// The editor menu opens over the gutters too, as in Obsidian (obsidian-git
+		// adds its line author items there); domEventHandlers only see the content,
+		// where CodeMirror passes over a right-click something already handled (the
+		// link menu of a rendered callout), and so does this.
+		ViewPlugin.define((cm) => {
+			const onContextMenu = (evt: MouseEvent) => {
+				if (evt.defaultPrevented || !(evt.target as HTMLElement).closest?.(".cm-gutters")) return;
+				evt.preventDefault();
+				view.showContextMenu(evt);
+			};
+			cm.dom.addEventListener("contextmenu", onContextMenu);
+			return { destroy: () => cm.dom.removeEventListener("contextmenu", onContextMenu) };
+		}),
 	];
 	if (app.vault.getConfig("showLineNumber")) ext.push(lineNumbers());
 	ext.push(folding(app));

@@ -209,28 +209,42 @@ export interface SearchResult {
 	matches: [number, number][];
 }
 
+// The best of the greedy matches that start at each occurrence of the query's
+// first letter: from the first one alone, "qa new" would match "QuickAdd: New
+// note from template" better than "QuickAdd: QA New".
 export function prepareFuzzySearch(query: string) {
 	const q = query.toLowerCase().replace(/\s+/g, "");
 	return (text: string): SearchResult | null => {
 		if (!q) return { score: 0, matches: [] };
 		const t = text.toLowerCase();
-		const matches: [number, number][] = [];
-		let qi = 0;
-		let score = 0;
-		let last = -1;
-		for (let i = 0; i < t.length && qi < q.length; i++) {
-			if (t[i] !== q[qi]) continue;
-			const prev = matches[matches.length - 1];
-			if (prev && prev[1] === i) prev[1] = i + 1;
-			else matches.push([i, i + 1]);
-			// Reward consecutive runs and word starts; penalize gaps.
-			score -= last >= 0 ? (i - last - 1) * 0.1 : i * 0.05;
-			if (i === 0 || /[\s\-_/.:]/.test(t[i - 1])) score += 0.5;
-			last = i;
-			qi++;
+		let best: SearchResult | null = null;
+		for (let start = t.indexOf(q[0]); start >= 0; start = t.indexOf(q[0], start + 1)) {
+			const result = fuzzyMatchFrom(t, q, start);
+			// A later start has fewer letters left, so it cannot match either.
+			if (!result) break;
+			if (!best || result.score > best.score) best = result;
 		}
-		return qi === q.length ? { score, matches } : null;
+		return best;
 	};
+}
+
+function fuzzyMatchFrom(t: string, q: string, start: number): SearchResult | null {
+	const matches: [number, number][] = [];
+	let qi = 0;
+	let score = 0;
+	let last = -1;
+	for (let i = start; i < t.length && qi < q.length; i++) {
+		if (t[i] !== q[qi]) continue;
+		const prev = matches[matches.length - 1];
+		if (prev && prev[1] === i) prev[1] = i + 1;
+		else matches.push([i, i + 1]);
+		// Reward consecutive runs and word starts; penalize gaps.
+		score -= last >= 0 ? (i - last - 1) * 0.1 : i * 0.05;
+		if (i === 0 || /[\s\-_/.:]/.test(t[i - 1])) score += 0.5;
+		last = i;
+		qi++;
+	}
+	return qi === q.length ? { score, matches } : null;
 }
 
 export function prepareSimpleSearch(query: string) {

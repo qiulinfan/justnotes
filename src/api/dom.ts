@@ -71,16 +71,19 @@ function makeSvg(parent: Node | null, tag: string, o?: Info | string, cb?: (el: 
 // properties. @electron/remote loads through the page's require, so a plugin
 // that requires it directly gets the same instance. Set up on first use: it
 // needs the Electron renderer.
+// Electron 45's renderer has no `clipboard`, which Obsidian's renderer still
+// has; plugins read and write it synchronously, as the main process's
+// clipboard does through remote.
 let electronModule: any;
 export function getElectron() {
 	if (!electronModule) {
 		electronModule = require("electron");
-		if (!("remote" in electronModule)) {
-			Object.defineProperty(electronModule, "remote", {
-				get: () => (window as any).require("@electron/remote"),
-				enumerable: true,
-				configurable: true,
-			});
+		const fromRemote: Record<string, () => unknown> = {
+			remote: () => (window as any).require("@electron/remote"),
+			clipboard: () => (window as any).require("@electron/remote").clipboard,
+		};
+		for (const [name, get] of Object.entries(fromRemote)) {
+			if (!(name in electronModule)) Object.defineProperty(electronModule, name, { get, enumerable: true, configurable: true });
 		}
 	}
 	return electronModule;

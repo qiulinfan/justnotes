@@ -78,10 +78,12 @@ export class FileExplorerView extends ItemView {
 		});
 		for (const name of ["create", "delete", "rename"]) this.registerEvent(this.app.vault.on(name, () => this.#refresh()));
 		this.registerEvent(this.app.workspace.on("file-open", () => this.#markActive()));
-		// The explorer's file actions also appear in a note's tab and More options menus.
+		// The explorer's file actions also appear in a note's tab and More options
+		// menus and in file menus plugins open (obsidian-git's source control view),
+		// as Obsidian's do; its own menu adds them itself, link menus go without.
 		this.registerEvent(
 			this.app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile, source: string) => {
-				if (source === "more-options" || source === "tab-header") this.#addFileItems(menu, file);
+				if (source !== "file-explorer-context-menu" && source !== "link-context-menu") this.#addFileItems(menu, file);
 			}),
 		);
 		this.#expanded = new Set(this.app.loadLocalStorage("justnotes-expanded") ?? []);
@@ -238,6 +240,8 @@ export class FileExplorerView extends ItemView {
 				.setSection("action")
 				.onClick(() => new MoveModal(this.app, [file]).open()),
 		);
+		if (file instanceof TFile) menu.addItem((i) => i.setTitle("Open in default app").setIcon("arrow-up-right").setSection("system").onClick(() => this.app.openWithDefaultApp(file.path)));
+		menu.addItem((i) => i.setTitle("Show in system explorer").setIcon("arrow-up-right").setSection("system").onClick(() => this.app.showInFolder(file.path)));
 		menu.addItem((i) =>
 			i
 				.setTitle("Delete")
