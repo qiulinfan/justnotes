@@ -15,12 +15,13 @@ export function registerIpc() {
 		return picked.canceled ? null : picked.filePaths[0];
 	});
 	ipcMain.handle("justnotes:request-url", (evt, req: RequestParams) => requestUrl(req, evt.sender.getUserAgent()));
-	// SecretStorage is synchronous in the renderer, so both calls are sync.
-	ipcMain.on("justnotes:secrets-load", (evt, vaultId: string) => {
-		evt.returnValue = loadSecrets(vaultId);
+	// SecretStorage is synchronous in the renderer, which waits on sendSync
+	// until the reply is set.
+	ipcMain.on("justnotes:secrets-load", async (evt, vaultId: string) => {
+		evt.returnValue = await loadSecrets(vaultId);
 	});
-	ipcMain.on("justnotes:secret-set", (evt, vaultId: string, id: string, secret: string) => {
-		evt.returnValue = setSecret(vaultId, id, secret);
+	ipcMain.on("justnotes:secret-set", async (evt, vaultId: string, id: string, secret: string) => {
+		evt.returnValue = await setSecret(vaultId, id, secret);
 	});
 }
 
@@ -175,34 +176,52 @@ function readSealed(file: string): Record<string, string> {
 	}
 }
 
-// Without a secrets file the keychain is never touched.
-function loadSecrets(vaultId: string) {
+function writeSealed(file: string, sealed: Record<string, string>) {
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	fs.writeFileSync(`${file}.tmp`, JSON.stringify(sealed, null, "\t"), { mode: 0o600 });
+	fs.renameSync(`${file}.tmp`, file);
+}
+
+// Without a secrets file the keychain is never touched. A secret whose key was
+// rotated is sealed again with the new one.
+async function loadSecrets(vaultId: string) {
 	const secrets: Record<string, string> = {};
-	for (const [id, sealed] of Object.entries(readSealed(secretsFile(vaultId)))) {
-		try {
-			secrets[id] = electron.safeStorage.decryptString(Buffer.from(sealed, "base64"));
-		} catch (err) {
-			console.error(`Secret "${id}" could not be decrypted`, err);
+	try {
+		const file = secretsFile(vaultId);
+		const sealed = readSealed(file);
+		let rotated = false;
+		for (const [id, value] of Object.entries(sealed)) {
+			try {
+				const { result, shouldReEncrypt } = await electron.safeStorage.decryptStringAsync(Buffer.from(value, "base64"));
+				secrets[id] = result;
+				if (shouldReEncrypt) {
+					sealed[id] = (await electron.safeStorage.encryptStringAsync(result)).toString("base64");
+					rotated = true;
+				}
+			} catch (err) {
+				console.error(`Secret "${id}" could not be decrypted`, err);
+			}
 		}
+		if (rotated) writeSealed(file, sealed);
+	} catch (err) {
+		console.error("Secrets could not be loaded", err);
 	}
 	return secrets;
 }
 
 // Returns null once the secret is on disk, or the error message. An empty
 // secret removes the id.
-function setSecret(vaultId: string, id: string, secret: string) {
+async function setSecret(vaultId: string, id: string, secret: string) {
 	try {
 		if (!SECRET_ID.test(id)) throw new Error(`Invalid secret id "${id}"`);
 		const file = secretsFile(vaultId);
 		const sealed = readSealed(file);
 		if (secret === "") delete sealed[id];
 		else {
-			if (!electron.safeStorage.isEncryptionAvailable()) throw new Error("Encrypted storage is not available on this device");
-			sealed[id] = electron.safeStorage.encryptString(secret).toString("base64");
+			if (!(await electron.safeStorage.isAsyncEncryptionAvailable())) throw new Error("Encrypted storage is not available on this device");
+			sealed[id] = (await electron.safeStorage.encryptStringAsync(secret)).toString("base64");
 		}
-		fs.mkdirSync(path.dirname(file), { recursive: true });
-		fs.writeFileSync(`${file}.tmp`, JSON.stringify(sealed, null, "\t"), { mode: 0o600 });
-		fs.renameSync(`${file}.tmp`, file);
+		writeSealed(file, sealed);
 		return null;
 	} catch (err) {
 		return err instanceof Error ? err.message : String(err);
