@@ -55,6 +55,18 @@ describe("FileManager.renameFile", () => {
 		expect(read("index.md")).toBe("[x](archive/a/x.md)");
 	});
 
+	// The blogs vault keeps Markdown links with Chinese folder names written
+	// as they read; a rename must not turn them into percent escapes.
+	test("Markdown links keep letters beyond ASCII as written, spaces still encoded", async () => {
+		const { vault, fm, read } = await setup(
+			{ "posts/p.md": "![图](附件/a%20b.png) [笔记](笔记%201.md#第一%20节)", "posts/附件/a b.png": "", "posts/笔记 1.md": "" },
+			{ alwaysUpdateLinks: true, useMarkdownLinks: true, newLinkFormat: "relative" },
+		);
+		await fm.renameFile(vault.getFileByPath("posts/附件/a b.png")!, "posts/附件/图 2.png");
+		await fm.renameFile(vault.getFileByPath("posts/笔记 1.md")!, "posts/笔记 (2).md");
+		expect(read("posts/p.md")).toBe("![图](附件/图%202.png) [笔记](笔记%20(2).md#第一%20节)");
+	});
+
 	test("links that still reach the note after a move are left as written", async () => {
 		const { vault, fm, read } = await setup({ "a/note.md": "", "src.md": "[[note]] [[a/note]]" });
 		await fm.renameFile(vault.getFileByPath("a/note.md")!, "b/note.md");
