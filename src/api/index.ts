@@ -1,5 +1,6 @@
 // The `obsidian` module plugins require.
 export * from "./app";
+export * from "./bases";
 export * from "./editor";
 export * from "./events";
 export * from "./file-manager";

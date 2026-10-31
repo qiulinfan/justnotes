@@ -137,6 +137,12 @@ export class Plugin extends Component {
 		this.register(() => MarkdownPreviewRenderer.unregisterCodeBlockPostProcessor(language));
 	}
 
+	// Obsidian returns false when Bases is not enabled in the vault; Bases views
+	// already handle that.
+	registerBasesView(_viewId: string, _registration: unknown) {
+		return false;
+	}
+
 	registerEditorExtension(extension: Extension) {
 		this.app.workspace.registerEditorExtension(extension);
 		this.register(() => this.app.workspace.unregisterEditorExtension(extension));
