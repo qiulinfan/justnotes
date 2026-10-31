@@ -5,7 +5,7 @@ import type { SyntaxNode } from "@lezer/common";
 import type { App } from "./app";
 import type { Component } from "./events";
 import { setIcon } from "./icons";
-import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, renderMath, resolveHtmlSrc } from "./markdown";
+import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, onCodeBlockProcessorsChange, renderMath, resolveHtmlSrc } from "./markdown";
 import { getLinkpath } from "./metadata-utils";
 import { parseYaml } from "./util";
 
@@ -475,31 +475,40 @@ type CodeBlockProcessor = (source: string, el: HTMLElement, ctx: any) => any;
 
 // Code-block processors live in the Markdown renderer's registry.
 function codeBlockProcessor(language: string): CodeBlockProcessor | undefined {
-	return (MarkdownPreviewRenderer as any).codeBlockPostProcessors?.[language];
+	const processors = MarkdownPreviewRenderer.codeBlockPostProcessors;
+	return Object.hasOwn(processors, language) ? processors[language] : undefined;
 }
 
-// A fenced block whose language a plugin renders, as in Obsidian's Live
-// Preview: the processor's output plus an edit button.
+// A line of a fence's content without the fence's own indentation: all of
+// it, or as much leading whitespace as the line has.
+function dedent(line: string, indent: string) {
+	if (line.startsWith(indent)) return line.slice(indent.length);
+	return line.slice(Math.min(/^[ \t]*/.exec(line)![0].length, indent.length));
+}
+
+// A fenced block whose language has a code-block processor (a plugin's,
+// mermaid, base), as in Obsidian's Live Preview: the processor's output plus
+// an edit button. The processor gets the fence's content without the fence's
+// indentation, as the renderer passes it.
 class CodeBlockWidget extends WidgetType {
 	constructor(
 		readonly language: string,
 		readonly source: string,
 		readonly from: number,
+		readonly handler: CodeBlockProcessor,
 		readonly host: LivePreviewHost,
 	) {
 		super();
 	}
 
 	eq(other: CodeBlockWidget) {
-		return other.language === this.language && other.source === this.source;
+		return other.language === this.language && other.source === this.source && other.handler === this.handler;
 	}
 
 	toDOM(view: EditorView) {
 		const el = createDiv("cm-preview-code-block cm-embed-block markdown-rendered");
 		const block = el.createDiv(`block-language-${this.language}`);
-		const child = new MarkdownRenderChild(block);
-		child.load();
-		renderChildren.set(el, child);
+		const child = widgetComponent(view, el);
 		const ctx = {
 			docId: Math.random().toString(36).slice(2),
 			sourcePath: this.host.sourcePath(),
@@ -514,9 +523,7 @@ class CodeBlockWidget extends WidgetType {
 			},
 		};
 		try {
-			Promise.resolve(codeBlockProcessor(this.language)?.(this.source, block, ctx))
-				.then(() => view.requestMeasure())
-				.catch((err) => console.error(err));
+			Promise.resolve(this.handler(this.source, block, ctx)).catch((err) => console.error(err));
 		} catch (err) {
 			console.error(err);
 		}
@@ -669,9 +676,12 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (touchesLines(from, to)) return false;
 					const info = node.getChild("CodeInfo");
 					const language = info ? state.sliceDoc(info.from, info.to).trim().split(/\s/)[0] : "";
-					if (closed && language && codeBlockProcessor(language) && ownsLines(node)) {
-						const source = last.number - first.number > 1 ? doc.sliceString(first.to + 1, last.from - 1) : "";
-						decos.push(Decoration.replace({ block: true, widget: new CodeBlockWidget(language, source, first.from, host) }).range(first.from, last.to));
+					const handler = language ? codeBlockProcessor(language) : undefined;
+					if (closed && handler && ownsLines(node)) {
+						const indent = doc.sliceString(first.from, from);
+						const lines = last.number - first.number > 1 ? doc.sliceString(first.to + 1, last.from - 1).split("\n") : [];
+						const source = lines.map((line) => dedent(line, indent)).join("\n");
+						decos.push(Decoration.replace({ block: true, widget: new CodeBlockWidget(language, source, first.from, handler, host) }).range(first.from, last.to));
 						return false;
 					}
 					if (marks[0].from < first.to) decos.push(hide.range(marks[0].from, first.to));
@@ -923,5 +933,31 @@ export function livePreview(host: LivePreviewHost): Extension {
 			return true;
 		},
 	});
-	return [frontmatterRevealed, field, tagClicks];
+	return [frontmatterRevealed, field, tagClicks, processorRefresh];
 }
+
+// A plugin that loads or unloads a code-block processor changes which fences
+// render: the decorations are rebuilt once its registrations are done.
+const processorRefresh = ViewPlugin.fromClass(
+	class {
+		#stop: () => void;
+		#queued = false;
+		#destroyed = false;
+
+		constructor(view: EditorView) {
+			this.#stop = onCodeBlockProcessorsChange(() => {
+				if (this.#queued) return;
+				this.#queued = true;
+				queueMicrotask(() => {
+					this.#queued = false;
+					if (!this.#destroyed) refreshLivePreview(view);
+				});
+			});
+		}
+
+		destroy() {
+			this.#destroyed = true;
+			this.#stop();
+		}
+	},
+);

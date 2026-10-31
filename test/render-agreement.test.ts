@@ -5,11 +5,11 @@ import { EditorState } from "@codemirror/state";
 import { type Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 import { obsidianMarkdown } from "../src/api/editor-extensions";
 import { type LivePreviewHost, livePreview } from "../src/api/live-preview";
-import { renderMarkdownSections } from "../src/api/markdown";
+import { MarkdownPreviewRenderer, renderMarkdownSections } from "../src/api/markdown";
 
 // Live Preview and the reading view must show the same thing for the same
-// text: a formula that renders in one and not the other is what a user
-// notices.
+// text: a formula that renders in one and not the other, or a code-block
+// processor that gets other source in the editor, is what a user notices.
 
 const host = {
 	app: {
@@ -81,3 +81,23 @@ describe("math", () => {
 	}
 });
 
+describe("code-block processors", () => {
+	// bases' replaceBaseBlock finds a block by the source its processor got,
+	// so a fence in a list item must reach the processor without its indent.
+	test("a fence in a list item hands the processor the reading view's source", () => {
+		const processor = () => {};
+		MarkdownPreviewRenderer.registerCodeBlockPostProcessor("agree-lang", processor);
+		try {
+			const doc = "- item\n\n\t```agree-lang\n\tviews:\n\t  - name: A\n\t```\n\nend";
+			const html = renderMarkdownSections(doc)
+				.sections.map((s) => s.html)
+				.join("");
+			const readingSource = unescape(/<code class="language-agree-lang is-loaded">([^<]*)<\/code>/.exec(html)![1]);
+			const widget = widgets(doc).find((w) => w.constructor.name === "CodeBlockWidget");
+			expect(readingSource).toBe("views:\n  - name: A");
+			expect(widget.source).toBe(readingSource);
+		} finally {
+			MarkdownPreviewRenderer.unregisterCodeBlockPostProcessor("agree-lang", processor);
+		}
+	});
+});

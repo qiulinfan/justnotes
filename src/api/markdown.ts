@@ -32,6 +32,16 @@ type CodeBlockHandler = (source: string, el: HTMLElement, ctx: MarkdownPostProce
 
 const postProcessors: MarkdownPostProcessor[] = [];
 const codeBlockRegistrations = new Map<string, { handler: CodeBlockHandler; postProcessor: MarkdownPostProcessor }[]>();
+const codeBlockListeners = new Set<() => void>();
+
+// justnotes: Live Preview renders fences again when a language gains or loses
+// its handler. Returns the function that stops listening.
+export function onCodeBlockProcessorsChange(listener: () => void) {
+	codeBlockListeners.add(listener);
+	return () => {
+		codeBlockListeners.delete(listener);
+	};
+}
 
 function removeFrom<T>(list: T[], item: T) {
 	const i = list.indexOf(item);
@@ -991,7 +1001,7 @@ function pendingLibraries(tokens: Token[], markdown: string) {
 function highlightCode(root: HTMLElement, prism: any) {
 	for (const code of root.findAllSelf("pre:not(.frontmatter) > code[class*='language-']")) {
 		const lang = /(?:^|\s)language-(\S+)/.exec(code.className)?.[1];
-		const grammar = lang && !(lang in MarkdownPreviewRenderer.codeBlockPostProcessors) ? prism.languages[lang] : undefined;
+		const grammar = lang && !Object.hasOwn(MarkdownPreviewRenderer.codeBlockPostProcessors, lang) ? prism.languages[lang] : undefined;
 		if (grammar) code.innerHTML = prism.highlight(code.textContent ?? "", grammar, lang);
 	}
 }
@@ -1614,6 +1624,7 @@ export class MarkdownPreviewRenderer {
 		list.push({ handler, postProcessor });
 		codeBlockRegistrations.set(language, list);
 		MarkdownPreviewRenderer.codeBlockPostProcessors[language] = handler;
+		for (const listener of [...codeBlockListeners]) listener();
 		return postProcessor;
 	}
 
@@ -1625,6 +1636,7 @@ export class MarkdownPreviewRenderer {
 		const top = list[list.length - 1];
 		if (top) MarkdownPreviewRenderer.codeBlockPostProcessors[language] = top.handler;
 		else delete MarkdownPreviewRenderer.codeBlockPostProcessors[language];
+		for (const listener of [...codeBlockListeners]) listener();
 	}
 
 	// An instance renders a whole note into a reading view, one div.el-* per
