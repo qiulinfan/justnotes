@@ -1213,3 +1213,7 @@ SOFTWARE.
 .ll-preview .ll-toolbar { flex-wrap: wrap; }
 .ll-preview .ll-actions { flex-wrap: wrap; }
 /* pdf:pdfReading.css end */
+
+/* justnotes: the pasted-image form (src/latex/editor/imagePaste.ts). */
+.ll-figure-path { font-family: var(--font-monospace); font-size: var(--font-ui-small); color: var(--text-muted); word-break: break-all; margin-bottom: 8px; }
+.ll-figure-modal .ll-figure-width { width: 5em; }

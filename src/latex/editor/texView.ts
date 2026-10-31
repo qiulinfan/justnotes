@@ -12,6 +12,7 @@ import { WorkspaceLeaf } from "../../api/workspace";
 import { setIcon } from "../../api/icons";
 import { setTooltip } from "../../api/ui/tooltip";
 import type { LatexLive as LatexLivePlugin } from "../latex-live";
+import { imagePaste } from "./imagePaste";
 import type { EditingMode } from "../settings";
 import { Definitions, emptyDefinitions, projectDefinitions } from "../tex/macros";
 import { includeName, preambleFiles } from "../tex/project";
@@ -533,6 +534,12 @@ export class TexView extends TextFileView {
           renderContent: (view, node, signal) => plugin.theoremGraphs.content(node, view.dom.ownerDocument, signal),
           openSource: (source) => void plugin.openLocation(source.file, source.line),
           subscribe: (_view, onChange) => plugin.theoremGraphs.subscribe(onChange),
+        }),
+        imagePaste({
+          app: plugin.app,
+          file: () => this.file,
+          absolutePath: (path) => plugin.absolutePath(path),
+          rootFor: (abs) => plugin.rootFor(abs),
         }),
         EditorView.domEventHandlers({
           compositionend: () => {
