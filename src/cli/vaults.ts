@@ -80,6 +80,13 @@ export function readKnownVaults(profile: string): string[] {
 	}
 }
 
+// `vaults` without `vault`, compared by real path, so a symlinked spelling
+// takes off the vault it leads to. The folder itself is not touched.
+export function withoutVault(vaults: string[], vault: string): string[] {
+	const real = realPathOf(vault);
+	return vaults.filter((known) => realPathOf(known) !== real);
+}
+
 export type VaultPick = { vault: string; open: boolean; argv: string[] } | { error: string; code: number };
 
 // A leading vault= names the vault by folder name (open vaults first, then

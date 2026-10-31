@@ -144,6 +144,12 @@ body {
 	--tab-max-width: 320px;
 	--sidebar-markdown-font-size: calc(var(--font-text-size) * 0.9);
 	--sidebar-tab-text-display: none;
+	--vault-profile-display: flex;
+	--vault-profile-actions-display: flex;
+	--vault-profile-font-size: var(--font-ui-small);
+	--vault-profile-font-weight: var(--font-medium);
+	--vault-profile-color: var(--text-normal);
+	--vault-profile-color-hover: var(--vault-profile-color);
 	--ribbon-background: var(--background-secondary);
 	--ribbon-background-collapsed: var(--background-primary);
 	--ribbon-width: 44px;

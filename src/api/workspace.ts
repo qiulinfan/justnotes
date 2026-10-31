@@ -874,6 +874,15 @@ export class WorkspaceSidedock extends WorkspaceSplit {
 		this.resizeHandleEl = handle;
 	}
 
+	// What stays below the panes, as Obsidian's vault profile does at the
+	// bottom of the left sidebar (renderer/vault-switcher.ts).
+	footerEl: HTMLElement | null = null;
+
+	insertChild(index: number, child: WorkspaceTabs | WorkspaceSplit) {
+		super.insertChild(index, child);
+		if (this.footerEl) this.containerEl.appendChild(this.footerEl);
+	}
+
 	setWidth(width: number) {
 		this.width = Math.round(Math.clamp(width, 160, Math.max(160, window.innerWidth * 0.6)));
 		this.containerEl.style.width = `${this.width}px`;
