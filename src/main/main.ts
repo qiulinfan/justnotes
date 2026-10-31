@@ -131,10 +131,11 @@ app.on("web-contents-created", (_evt, contents) => {
 // The application menu, like Obsidian's. Electron's default menu had Close
 // Window on Cmd+W and Reload on Cmd+R, so those keys could close the window or
 // reload the page instead of running the close-tab and reload commands; no
-// item here takes a key the renderer's hotkeys use. The Edit roles stay
-// because text fields and <webview> guests undo, copy and paste through them.
-// Quit closes each window through its before-close flush (lifecycle.ts).
-// Windows and Linux get no menu bar.
+// item here takes a key the renderer's hotkeys use (Minimize leaves Cmd+M to
+// Quick LaTeX's inline math). The Edit roles stay because text fields and
+// <webview> guests undo, copy and paste through them. Quit closes each window
+// through its before-close flush (lifecycle.ts). Windows and Linux get no menu
+// bar.
 function setApplicationMenu() {
 	if (process.platform !== "darwin") return Menu.setApplicationMenu(null);
 	Menu.setApplicationMenu(
@@ -155,7 +156,7 @@ function setApplicationMenu() {
 				],
 			},
 			{ label: "View", submenu: [{ role: "toggleDevTools" }] },
-			{ role: "window", submenu: [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "front" }] },
+			{ role: "window", submenu: [{ label: "Minimize", click: (_item, win) => win?.minimize() }, { role: "zoom" }, { type: "separator" }, { role: "front" }] },
 		]),
 	);
 }
