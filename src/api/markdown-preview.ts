@@ -150,11 +150,14 @@ export class MarkdownEditView implements MarkdownSubView {
 		}
 	}
 
+	// The pane that was edited saves the text; this one only shows it.
 	#applyRemote(start: Text, u: ViewUpdate) {
 		if (this.#destroyed) return;
 		const cm = this.editor.cm;
 		if (cm.state.doc.eq(start)) cm.dispatch({ changes: u.changes, annotations: [remoteEdit.of(true), Transaction.addToHistory.of(false)] });
 		else this.set(u.state.doc.toString(), false);
+		this.view.requestSave.cancel();
+		this.view.dirty = false;
 	}
 }
 
@@ -177,7 +180,7 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 	#scroll = 0;
 	#pendingScroll: number | null = null;
 	#renderSoon = debounce(() => this.rerender(), 250, true);
-	#search: { el: HTMLElement; input: HTMLInputElement; count: HTMLElement; matches: Range[]; index: number } | null = null;
+	#search: { el: HTMLElement; input: HTMLInputElement; count: HTMLElement; matches: Range[]; index: number; open: boolean } | null = null;
 
 	constructor(view: MarkdownView) {
 		super(view.app, view.contentEl.createDiv("markdown-reading-view"));
@@ -275,8 +278,9 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 				else return;
 				evt.preventDefault();
 			});
-			this.#search = { el, input, count, matches: [], index: -1 };
+			this.#search = { el, input, count, matches: [], index: -1, open: false };
 		}
+		this.#search.open = true;
 		this.#search.el.show();
 		this.#search.input.focus();
 		this.#search.input.select();
@@ -284,7 +288,8 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 	}
 
 	closeSearch(refocus = false) {
-		if (!this.#search?.el.isShown()) return;
+		if (!this.#search?.open) return;
+		this.#search.open = false;
 		this.#search.el.hide();
 		this.#search.matches = [];
 		if (searching === this) {
@@ -365,7 +370,7 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		this.#pendingScroll = null;
 		if (pending !== null) this.applyScroll(pending);
 		else this.previewEl.scrollTop = top;
-		if (this.#search?.el.isShown()) this.#find();
+		if (this.#search?.open) this.#find();
 	}
 
 	getScroll() {
