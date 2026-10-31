@@ -57,8 +57,10 @@ export function registerCoreCommands(app: App) {
 	});
 	add("workspace:new-tab", "New tab", [["Mod"], "t"], () => app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true }));
 	add("workspace:close", "Close current tab", [["Mod"], "w"], () => app.workspace.activeLeaf?.detach());
+	// The new note goes where "Default location for new notes" says, which can
+	// be the active note's folder.
 	add("file-explorer:new-file", "Create new note", [["Mod"], "n"], async () => {
-		const file = await app.fileManager.createNewMarkdownFile(app.fileManager.getNewFileParent(""));
+		const file = await app.fileManager.createNewMarkdownFile(app.fileManager.getNewFileParent(app.workspace.getActiveFile()?.path ?? ""));
 		await app.workspace.getLeaf(false).openFile(file);
 	});
 	registerEditorCommands(app);
