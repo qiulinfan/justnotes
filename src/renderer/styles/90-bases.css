@@ -402,3 +402,10 @@ tfoot .bases-summary-row td {
 	background: var(--background-modifier-hover);
 	text-decoration: none;
 }
+
+.bases-toolbar-search-input {
+	width: 180px;
+	margin: 0 4px;
+	padding: 2px 6px;
+	font-size: var(--font-ui-small);
+}

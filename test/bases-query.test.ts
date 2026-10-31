@@ -45,13 +45,13 @@ afterAll(async () => {
 });
 
 // Run the base in `yaml` and return the matching paths, in order.
-function query(yaml: string, viewIndex = 0, thisPath: string | null = null) {
+function query(yaml: string, viewIndex = 0, thisPath: string | null = null, search = "") {
 	const doc = new BaseDocument(yaml);
 	expect(doc.error).toBeNull();
 	const config = new BasesViewConfig(doc.views[viewIndex], doc.config);
 	const thisFile = thisPath ? vault.getFileByPath(thisPath) : null;
 	const run = new QueryRun(app, doc.config.formulas, thisFile, thisPath ?? "test.base");
-	const out = executeQuery(run, doc.config, config, vault.getFiles());
+	const out = executeQuery(run, doc.config, config, vault.getFiles(), search);
 	return { ...out, paths: out.result.data.map((e) => e.file.path), config };
 }
 
@@ -188,6 +188,13 @@ views:
 		expect(a.getValue("note.status")).toBeInstanceOf(StringValue);
 		expect(query('filters: project == link("Alpha")\nviews:\n  - type: table\n    name: T\n').paths).toEqual(["tasks/a.md"]);
 		expect(query("filters: due < date(\"2025-01-07\")\nviews:\n  - type: table\n    name: T\n").paths).toEqual(["tasks/b.md"]);
+	});
+
+	test("the toolbar search keeps entries whose name or visible properties contain the text", () => {
+		const yaml = 'filters: file.inFolder("tasks")\nviews:\n  - type: table\n    name: T\n    order: [status]\n';
+		expect(query(yaml, 0, null, "DON").paths).toEqual(["tasks/b.md"]);
+		expect(query(yaml, 0, null, "c.md").paths).toEqual(["tasks/c.md"]);
+		expect(query(yaml, 0, null, "work").paths).toEqual([]);
 	});
 
 	test("allProperties lists the matching files' properties, then formulas, then file properties", () => {

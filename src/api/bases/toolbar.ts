@@ -2,6 +2,7 @@
 // properties and new note. Every change is written to the view's YAML.
 import { setIcon, setTooltip } from "../icons";
 import { Menu } from "../ui/menu";
+import { debounce } from "../util";
 import { type BasesViewConfig, groupByOf, limitOf, viewData } from "./config";
 import type { QueryController } from "./controller";
 import { openFilterEditor, openFormulaEditor, openViewOptions } from "./options";
@@ -25,6 +26,7 @@ export class BasesToolbar {
 	#sort: HTMLElement;
 	#group: HTMLElement;
 	#filter: HTMLElement;
+	#searchEl: HTMLInputElement;
 
 	constructor(controller: QueryController, headerEl: HTMLElement) {
 		this.#controller = controller;
@@ -35,6 +37,25 @@ export class BasesToolbar {
 		setIcon(this.#viewButton.createSpan("bases-toolbar-chevron"), "chevron-down");
 		this.#results = this.#item(bar, "bases-toolbar-results-menu", null, "", (el) => this.#resultsMenu(el));
 		bar.createDiv("bases-toolbar-spacer");
+		this.#searchEl = bar.createEl("input", { type: "search", cls: "bases-toolbar-search-input", placeholder: "Search" });
+		this.#searchEl.hide();
+		const search = debounce(() => {
+			this.#controller.search = this.#searchEl.value;
+			this.#controller.run();
+		}, 150, true);
+		this.#searchEl.addEventListener("input", () => search());
+		this.#searchEl.addEventListener("keydown", (evt) => {
+			if (evt.key !== "Escape") return;
+			evt.stopPropagation();
+			this.#searchEl.value = "";
+			search();
+			search.run();
+			this.#searchEl.hide();
+		});
+		this.#item(bar, "bases-toolbar-search", "search", "Search", () => {
+			this.#searchEl.show();
+			this.#searchEl.focus();
+		});
 		this.#sort = this.#item(bar, "bases-toolbar-sort-menu", "arrow-up-down", "Sort", (el) => this.#sortMenu(el));
 		this.#group = this.#item(bar, "bases-toolbar-group-menu", "layers", "Group", (el) => this.#groupMenu(el));
 		this.#filter = this.#item(bar, "bases-toolbar-filter-menu", "filter", "Filter", () => openFilterEditor(this.#controller));

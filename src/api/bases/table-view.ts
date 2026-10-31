@@ -44,6 +44,9 @@ export class TableView extends BasesView {
 	// Note properties shown as checkboxes, empty ones included: those typed
 	// checkbox, or holding a boolean in any row.
 	#checkboxes = new Set<BasesPropertyId>();
+	// A rerun while a cell is being edited waits until the edit ends.
+	#editing = false;
+	#stale = false;
 
 	constructor(controller: QueryController, containerEl: HTMLElement) {
 		super(controller);
@@ -62,6 +65,10 @@ export class TableView extends BasesView {
 	}
 
 	onDataUpdated() {
+		if (this.#editing) {
+			this.#stale = true;
+			return;
+		}
 		const scrollTop = this.#el.scrollTop;
 		const scrollLeft = this.#el.scrollLeft;
 		this.#el.empty();
@@ -257,10 +264,16 @@ export class TableView extends BasesView {
 		const input = td.createEl("input", { type: "text", cls: "bases-cell-input", value: original });
 		input.focus();
 		input.select();
+		this.#editing = true;
 		let done = false;
 		const finish = (save: boolean) => {
 			if (done) return;
 			done = true;
+			this.#editing = false;
+			if (this.#stale) {
+				this.#stale = false;
+				queueMicrotask(() => this.onDataUpdated());
+			}
 			const text = input.value.trim();
 			td.empty();
 			if (!save || text === original.trim()) {

@@ -44,7 +44,14 @@ export interface QueryOutput {
 	errors: string[];
 }
 
-export function executeQuery(run: QueryRun, config: BasesConfigFile, view: BasesViewConfig, files: TFile[]): QueryOutput {
+// The toolbar's search: entries whose file name or any visible property
+// contains the text, ignoring case.
+function matchesSearch(entry: BasesEntry, columns: BasesPropertyId[], search: string) {
+	if (entry.file.name.toLowerCase().includes(search)) return true;
+	return columns.some((id) => entry.getValue(id)?.toString().toLowerCase().includes(search));
+}
+
+export function executeQuery(run: QueryRun, config: BasesConfigFile, view: BasesViewConfig, files: TFile[], search = ""): QueryOutput {
 	const errors = new Set<string>();
 	const filters = viewData(view).filters;
 	const matching: BasesEntry[] = [];
@@ -52,8 +59,11 @@ export function executeQuery(run: QueryRun, config: BasesConfigFile, view: Bases
 		const entry = new BasesEntry(run, file);
 		if (testFilter(config.filters, run, entry, errors) && testFilter(filters, run, entry, errors)) matching.push(entry);
 	}
+	const query = search.trim().toLowerCase();
+	const columns = view.getOrder();
+	const found = query ? matching.filter((entry) => matchesSearch(entry, columns, query)) : matching;
 	const sorts = view.getSort();
-	const keyed = matching.map((entry) => ({ entry, keys: sorts.map((s) => entry.getValue(s.property)) }));
+	const keyed = found.map((entry) => ({ entry, keys: sorts.map((s) => entry.getValue(s.property)) }));
 	keyed.sort((a, b) => {
 		for (let i = 0; i < sorts.length; i++) {
 			const c = sortCompare(a.keys[i], b.keys[i], sorts[i].direction);

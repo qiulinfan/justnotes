@@ -48,6 +48,8 @@ export class QueryController extends Component {
 	currentResult = new BasesQueryResult();
 	allProperties: BasesPropertyId[] = [];
 	errors: string[] = [];
+	// The toolbar's search text; it narrows the results without changing the base.
+	search = "";
 	source: BasesSource;
 	#toolbar: BasesToolbar;
 	#messageEl: HTMLElement;
@@ -211,7 +213,7 @@ export class QueryController extends Component {
 		invalidateLinkIndex(this.app);
 		const thisFile = this.source.thisFile();
 		this.#run = new QueryRun(this.app, this.document.config.formulas, thisFile, this.source.sourcePath);
-		const out = executeQuery(this.#run, this.document.config, config, this.app.vault.getFiles());
+		const out = executeQuery(this.#run, this.document.config, config, this.app.vault.getFiles(), this.search);
 		this.currentConfig = config;
 		this.currentResult = out.result;
 		this.allProperties = out.allProperties;
