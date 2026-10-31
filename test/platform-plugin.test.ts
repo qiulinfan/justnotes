@@ -36,16 +36,16 @@ describe("Plugin.registerView and registerExtensions", () => {
 	test("unloading releases the view type and the file extensions, so the plugin loads again", async () => {
 		const app = { viewRegistry: new ViewRegistry() };
 		const enable = async () => {
-			const plugin = await loadedPlugin("typst", app);
-			plugin.registerView("typst-view", () => ({}) as any);
-			plugin.registerExtensions(["typ"], "typst-view");
+			const plugin = await loadedPlugin("sketch", app);
+			plugin.registerView("sketch-view", () => ({}) as any);
+			plugin.registerExtensions(["sketch"], "sketch-view");
 			return plugin;
 		};
 		(await enable()).unload();
-		expect(app.viewRegistry.getTypeByExtension("typ")).toBeUndefined();
-		expect(app.viewRegistry.getViewCreatorByType("typst-view")).toBeUndefined();
+		expect(app.viewRegistry.getTypeByExtension("sketch")).toBeUndefined();
+		expect(app.viewRegistry.getViewCreatorByType("sketch-view")).toBeUndefined();
 		await enable();
-		expect(app.viewRegistry.getTypeByExtension("typ")).toBe("typst-view");
+		expect(app.viewRegistry.getTypeByExtension("sketch")).toBe("sketch-view");
 	});
 });
 

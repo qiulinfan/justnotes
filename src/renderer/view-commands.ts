@@ -21,7 +21,7 @@ export function registerViewCommands(app: App) {
 		if (!checking) act(view);
 		return true;
 	};
-	// Plugin views (latex-live, tinymist) implement showSearch too.
+	// Plugin views (latex-live) implement showSearch too.
 	const search = (replace: boolean) => (view: View, checking: boolean) => {
 		const show = (view as { showSearch?: (replace?: boolean) => void }).showSearch;
 		if (typeof show !== "function") return false;

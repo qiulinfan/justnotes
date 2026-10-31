@@ -3,7 +3,7 @@ import { Commands, HotkeyManager } from "../src/api/keymap";
 import { TextFileView } from "../src/api/view";
 import { registerViewCommands } from "../src/renderer/view-commands";
 
-// tinymist's Typst editor is a TextFileView of its own with a showSearch
+// A plugin's editor can be a TextFileView of its own with a showSearch
 // method, and it leaves Mod-S and Mod-F to Obsidian's commands: Save current
 // file and Search current file must act on it as on a note.
 describe("view commands", () => {

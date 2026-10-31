@@ -110,8 +110,8 @@ describe("Commands", () => {
 	});
 });
 
-// A plugin view keys its own editor on a scope under the app's (tinymist's
-// Typst view registers Mod-B, Mod-E and more on `new Scope(this.app.scope)`
+// A plugin view keys its own editor on a scope under the app's (a plugin's
+// editor view registers Mod-B, Mod-E and more on `new Scope(this.app.scope)`
 // and leaves Mod-S and Mod-F to Obsidian). While the view has focus its keys
 // come before any command hotkey, and the keys it leaves alone still reach the
 // app's hotkeys, or the editor when no hotkey takes them.

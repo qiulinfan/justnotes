@@ -47,7 +47,7 @@ vault 就是一个放 Markdown 文件的文件夹. 已有的 Obsidian vault 可�
 - 属性: 在 Live Preview 和阅读视图里直接改, 按类型显示 (文本, 列表, 数字, 勾选, 日期, 标签).
 - 标签页可以拖动: 重排, 换到别的组, 拖到边上分屏, 拖出窗口变成弹出窗口. 文件栏的文件可以拖进笔记 (插入链接) 或终端 (输入路径).
 - 命令行 `justnotes`: Obsidian 自带的命令行命令 (同名同语法, Publish 和 Sync 除外) 加上插件注册的命令, 另外每个命令都能 `--json`, 只读的命令不开 app 也能用, 需要 app 时会自己启动它. `justnotes help` 列出全部, `justnotes completion fish` 生成补全. 放进 PATH: `ln -s "$PWD/src/cli/justnotes.ts" ~/.local/bin/justnotes` (需要 Bun).
-- 测过的 Obsidian 插件: Copy Location, Quick LaTeX, Completr, YOLO Completion Only, Background, kgdistiller, LaTeX Live, Git, omp, QuickAdd, Terminal, Tinymist Typst, Translate.
+- 测过的 Obsidian 插件: Copy Location, Quick LaTeX, Completr, YOLO Completion Only, Background, kgdistiller, LaTeX Live, Git, omp, QuickAdd, Terminal, Translate.
 
 还没有的: 随机笔记, 录音这类其余核心插件, 新建网址书签, 幻灯片的演讲者备注.
 

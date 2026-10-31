@@ -778,7 +778,7 @@ plain style. Development notes belong in this file.
   isolates its stacking, so CodeMirror's own panel (300) and tooltip (500)
   z-indexes stay under host overlays. A leaf showing a CodeMirror tooltip goes
   above the other leaves (`z-index: 1`), so a tooltip that reaches past its
-  pane (tinymist's completion docs and formula hovers beside its preview pane)
+  pane (a plugin's completion docs and hovers beside its preview pane)
   is not covered by the panes after it.
 - CodeMirror's base theme is the first `<style>` in `<head>`, and its light
   rules use two classes (`.ͼ2 .cm-panels`); justnotes never sets
@@ -798,12 +798,11 @@ copies: copy-location, quick-latex, obsidian-completr, yolo (live completion,
 paid: only within the owner's small test budget), background, kgdistiller
 (0.1.5 and 3.0.2), latex-live (0.1.0, 0.1.7 and 0.2.0), obsidian-git (2.41.1
 and 2.42.0), omp-sidebar, quickadd (2.24.2 and 2.33.1), terminal (3.27.2 and
-3.29.0) and obsidian-tinymist (0.1.0, its YOLO bridge against a local mock
-provider). QuickAdd's capture into the active canvas and into a configured
+3.29.0). QuickAdd's capture into the active canvas and into a configured
 card were tested on a synthetic vault. In a popout window Markdown editing,
 Completr's and the link suggests, latex-live's math, QuickAdd's modals and
 menus and a terminal moved there (its `onWindowMigrated` reopens xterm) were
-tested live. All thirteen, translate (0.1.0) included, also loaded with no
+tested live. All twelve, translate (0.1.0) included, also loaded with no
 errors in the real notes vault, where translate's hold-Shift popup returned a
 DeepSeek translation (one paid call of a fraction of a cent; it reads its key
 from a file under `~/Desktop/apis`), and the core plugin panes, a popout and
@@ -839,7 +838,7 @@ blogs with five of its plugins.
   a page whose popout closes on the drop stops answering. Mouse input goes through `Input.dispatchMouseEvent`. Injected keys
   never trigger macOS menu key equivalents, so Cmd+A needs `cdp.ts selectall`;
   native `<select>` popups cannot be driven. A plugin's `<iframe>` from
-  another origin (tinymist's preview on 127.0.0.1) is a target of its own
+  another origin (a preview served on 127.0.0.1) is a target of its own
   (type `iframe` in `/json`): read positions inside it through that target,
   then click at them in page coordinates.
 - Stub openers before clicking anything that may open a URL. Assigning
@@ -871,13 +870,4 @@ blogs with five of its plugins.
   the system temp folder, but copies hold no `.tex`: copy a project's whole TeX
   tree in (notes' projects `\input` sibling projects and `../toolchain`), and
   stub `dialog.showSaveDialog` in main before Export to HTML, which opens a
-  native save dialog CDP cannot see; obsidian-tinymist runs two `tinymist lsp` processes
-  (the editor's and the formula renderer) and a preview server on 127.0.0.1,
-  rooted at the copy, but downloads a `@preview` package missing from Typst's
-  package cache into that cache, so use fixtures whose packages are cached
-  (`~/Library/Caches/typst/packages`). Copies get the vault's `.typ` and `.bib`
-  files; notes has none, so copy in Typst fixtures (courses' `_editor-test`
-  holds a demo and a book with a `.tinymist-preview.typ`). Its YOLO bridge
-  completes through yolo: with yolo enabled, blank the copy's API keys and
-  point its completion model at a local OpenAI-compatible mock (YOLO's chat
-  protocol accepts `http://127.0.0.1`; Mercury FIM only Inception's host).
+  native save dialog CDP cannot see.
