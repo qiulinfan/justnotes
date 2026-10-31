@@ -79,6 +79,14 @@ function textMatches(text: string, re: RegExp): SearchMatch[] {
 	return matches;
 }
 
+// A result row's text: the match marked, with a little of the line around it.
+export function appendMatch(el: HTMLElement, content: string, match: { from: number; to: number }) {
+	const start = Math.max(0, match.from - 30);
+	el.appendText((start > 0 ? "…" : "") + content.slice(start, match.from));
+	el.createEl("mark", { text: content.slice(match.from, match.to) });
+	el.appendText(content.slice(match.to, match.to + 80));
+}
+
 // Full-text search that reads the Markdown files directly; no index. A
 // `tag:` query finds tags through the metadata cache instead.
 export class SearchView extends ItemView {
@@ -149,12 +157,8 @@ export class SearchView extends ItemView {
 		title.addEventListener("click", () => this.#open(file, null));
 		const lines = text.split("\n");
 		for (const match of found) {
-			const content = lines[match.line] ?? "";
 			const el = group.createDiv("search-result-match");
-			const start = Math.max(0, match.from - 30);
-			el.appendText((start > 0 ? "…" : "") + content.slice(start, match.from));
-			el.createEl("mark", { text: content.slice(match.from, match.to) });
-			el.appendText(content.slice(match.to, match.to + 80));
+			appendMatch(el, lines[match.line] ?? "", match);
 			el.addEventListener("click", () => this.#open(file, match));
 		}
 	}

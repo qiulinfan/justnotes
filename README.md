@@ -43,9 +43,10 @@ vault 就是一个放 Markdown 文件的文件夹. 已有的 Obsidian vault 可�
 - 全文搜索 (`⌘⇧F`), 直接读文件, 没有索引. `tag:#标签` 按标签搜 (正文和 frontmatter, 含子标签).
 - Bases: `.base` 文件和 `base` 代码块, 表格, 卡片和列表视图, 排序, 分组, 筛选, 公式, 在表格里改属性.
 - 命令面板 (`⌘P`), 快速切换 (`⌘O`), 设置 (`⌘,`). vault 里 `.obsidian/hotkeys.json` 的快捷键会生效.
+- 核心插件: 反向链接 (含未链接的提及, 可以一键改成链接), 出链, 大纲, 日记, 模板, 字数统计. 开哪些跟 vault 的 `core-plugins.json` 走, 设置 (比如模板文件夹) 要在 Obsidian 里改.
 - 测过的 Obsidian 插件: Copy Location, Quick LaTeX, Completr, YOLO Completion Only, Background, kgdistiller, LaTeX Live, Git, omp, QuickAdd, Terminal.
 
-还没有的: 反向链接, 日记和模板这类核心插件, Canvas, 在属性面板里改属性, 弹出窗口 (会开成标签页), 拖动标签页, 自动上传到云盘.
+还没有的: 笔记底部的反向链接, 关系图谱, Canvas 和其他核心插件, 在属性面板里改属性, 弹出窗口 (会开成标签页), 拖动标签页, 自动上传到云盘.
 
 justnotes 只读 `.obsidian/` 里的配置, 不会写, 所以和 Obsidian 交替打开同一个 vault 没问题.
 

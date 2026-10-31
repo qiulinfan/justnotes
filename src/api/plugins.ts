@@ -92,10 +92,9 @@ export class Plugins {
 	}
 
 	// Enable the plugins listed in the vault's community-plugins.json, with the
-	// user's own choices applied on top. Core plugins come first, as in
-	// Obsidian, so plugins can read their options while loading.
+	// user's own choices applied on top. Boot initializes core plugins first, as
+	// Obsidian does, so plugins can read their options while loading.
 	async initialize() {
-		await this.app.internalPlugins.initialize();
 		await this.loadManifests();
 		let ids: string[] = [];
 		try {

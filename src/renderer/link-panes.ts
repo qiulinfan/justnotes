@@ -1,0 +1,464 @@
+import type { App } from "../api/app";
+import { setIcon } from "../api/icons";
+import { Keymap } from "../api/keymap";
+import type { CachedMetadata, HeadingCache, Pos, Reference } from "../api/metadata";
+import { parseFrontMatterAliases } from "../api/metadata-utils";
+import { Notice } from "../api/ui/notice";
+import { debounce } from "../api/util";
+import type { TAbstractFile, TFile } from "../api/vault";
+import { ItemView } from "../api/view";
+import type { WorkspaceLeaf } from "../api/workspace";
+import { appendMatch, type SearchMatch } from "./search";
+
+// Letters that make a word with the letters next to them. Chinese and
+// Japanese put no spaces between words, so a name next to one of their
+// characters still stands alone.
+const WORD = /[\p{L}\p{N}_]/u;
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+
+// The names a note goes by: its file name and its aliases.
+export function namesOf(file: TFile, cache: CachedMetadata | null) {
+	const names = [file.basename, ...(parseFrontMatterAliases(cache?.frontmatter) ?? [])];
+	return [...new Set(names.map((name) => String(name).trim()).filter(Boolean))];
+}
+
+// The parts of a note where a name is no mention: its frontmatter, links and
+// embeds, and code blocks. Offsets, end excluded.
+export function mentionSkips(cache: CachedMetadata | null): [number, number][] {
+	const skips: [number, number][] = [];
+	const add = (pos?: Pos) => {
+		if (pos) skips.push([pos.start.offset, pos.end.offset]);
+	};
+	add(cache?.frontmatterPosition);
+	for (const ref of [...(cache?.links ?? []), ...(cache?.embeds ?? [])]) add(ref.position);
+	for (const section of cache?.sections ?? []) if (section.type === "code" || section.type === "yaml") add(section.position);
+	return skips;
+}
+
+// Where `text` names one of `names` outside `skips`, ignoring case: the name
+// must stand alone (see WORD), and of overlapping names the longer one counts.
+export function findMentions(text: string, names: string[], skips: [number, number][]): SearchMatch[] {
+	const found: [number, number][] = [];
+	const loose = (ch: string | undefined, edge: string) => !ch || !WORD.test(ch) || UNSPACED.test(ch) || UNSPACED.test(edge);
+	for (const name of names) {
+		const re = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu");
+		for (const m of text.matchAll(re)) {
+			const from = m.index;
+			const to = from + m[0].length;
+			if (!loose(text[from - 1], m[0][0]) || !loose(text[to], m[0][m[0].length - 1])) continue;
+			if (skips.some(([a, b]) => from < b && to > a)) continue;
+			found.push([from, to]);
+		}
+	}
+	found.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+	const starts = [0];
+	for (let i = text.indexOf("\n"); i >= 0; i = text.indexOf("\n", i + 1)) starts.push(i + 1);
+	const matches: SearchMatch[] = [];
+	let end = -1;
+	for (const [from, to] of found) {
+		if (from < end) continue;
+		end = to;
+		let line = 0;
+		for (let lo = 0, hi = starts.length - 1; lo <= hi; ) {
+			const mid = (lo + hi) >> 1;
+			if (starts[mid] <= from) {
+				line = mid;
+				lo = mid + 1;
+			} else hi = mid - 1;
+		}
+		matches.push({ line, from: from - starts[line], to: to - starts[line] });
+	}
+	return matches;
+}
+
+export interface OutlineNode {
+	heading: HeadingCache;
+	children: OutlineNode[];
+}
+
+// The headings as a tree: each one holds the deeper headings after it.
+export function headingTree(headings: HeadingCache[]): OutlineNode[] {
+	const roots: OutlineNode[] = [];
+	const stack: OutlineNode[] = [];
+	for (const heading of headings) {
+		const node = { heading, children: [] };
+		while (stack.length && stack[stack.length - 1].heading.level >= heading.level) stack.pop();
+		(stack.length ? stack[stack.length - 1].children : roots).push(node);
+		stack.push(node);
+	}
+	return roots;
+}
+
+// Opens `file` where a pane's row points: in the tab that shows it already,
+// else in the current one; Mod-click opens a new tab.
+async function openAt(app: App, file: TFile, eState: Record<string, unknown>, evt: MouseEvent) {
+	const where = Keymap.isModEvent(evt);
+	let leaf: WorkspaceLeaf | null = where ? app.workspace.getLeaf(where) : null;
+	if (!leaf) {
+		const recent = app.workspace.getMostRecentLeaf();
+		if ((recent?.view as { file?: TFile } | undefined)?.file === file) leaf = recent;
+		app.workspace.iterateRootLeaves((l) => {
+			if (!leaf && (l.view as { file?: TFile }).file === file) leaf = l;
+		});
+	}
+	await (leaf ?? app.workspace.getLeaf(false)).openFile(file, { active: true, eState });
+}
+
+const byName = (a: TFile, b: TFile) => a.basename.localeCompare(b.basename, undefined, { numeric: true }) || a.path.localeCompare(b.path);
+
+// A section with a heading that folds it; `onToggle` hears the new state.
+function section(parent: HTMLElement, title: string, collapsed: boolean, onToggle: (collapsed: boolean) => void) {
+	const el = parent.createDiv("link-pane-section");
+	const header = el.createDiv("link-pane-section-header");
+	const icon = header.createDiv("link-pane-collapse");
+	header.createSpan({ text: title });
+	const count = header.createSpan("link-pane-count");
+	const body = el.createDiv("link-pane-section-body");
+	const set = (value: boolean) => {
+		el.toggleClass("is-collapsed", value);
+		setIcon(icon, value ? "chevron-right" : "chevron-down");
+	};
+	set(collapsed);
+	header.addEventListener("click", () => {
+		const next = !el.hasClass("is-collapsed");
+		set(next);
+		onToggle(next);
+	});
+	return { count, body };
+}
+
+// A pane in the sidebar that shows something about the active file and
+// follows it, as Obsidian's backlinks, outgoing links and outline do.
+abstract class ActiveFilePane extends ItemView {
+	file: TFile | null = null;
+	#generation = 0;
+	#refresh = debounce(() => this.#render(), 300, true);
+
+	constructor(leaf: WorkspaceLeaf) {
+		super(leaf);
+		this.navigation = false;
+	}
+
+	getDisplayText() {
+		return this.file ? `${this.title} of ${this.file.basename}` : this.title;
+	}
+
+	abstract readonly title: string;
+
+	// Fills `el`; `current()` turns false once a later render has begun.
+	abstract fill(file: TFile, el: HTMLElement, current: () => boolean): Promise<void>;
+
+	async onOpen() {
+		this.headerEl.hide();
+		this.contentEl.addClass("link-pane");
+		const follow = () => {
+			const file = this.app.workspace.getActiveFile();
+			if (file === this.file) return;
+			this.file = file;
+			this.#render();
+		};
+		this.registerEvent(this.app.workspace.on("file-open", follow));
+		this.registerEvent(this.app.workspace.on("active-leaf-change", follow));
+		this.registerEvent(this.app.vault.on("rename", (file: TAbstractFile) => this.changed(file) && this.refresh()));
+		this.registerEvent(this.app.vault.on("delete", (file: TAbstractFile) => this.changed(file) && this.refresh()));
+		this.file = this.app.workspace.getActiveFile();
+		this.#render();
+	}
+
+	// Whether a change to `file` can change what the pane shows.
+	changed(_file: TAbstractFile) {
+		return true;
+	}
+
+	refresh() {
+		this.#refresh();
+	}
+
+	async #render() {
+		const generation = ++this.#generation;
+		const el = createDiv();
+		if (this.file) await this.fill(this.file, el, () => generation === this.#generation);
+		else el.createDiv({ cls: "link-pane-empty", text: "No file is open." });
+		if (generation !== this.#generation) return;
+		const scroll = this.contentEl.scrollTop;
+		this.contentEl.empty();
+		this.contentEl.append(...Array.from(el.childNodes));
+		this.contentEl.scrollTop = scroll;
+		this.leaf.updateHeader();
+	}
+}
+
+export class BacklinkView extends ActiveFilePane {
+	readonly title = "Backlinks";
+	#sources = new Set<string>();
+	#linkedCollapsed = false;
+	#unlinkedCollapsed = true;
+
+	constructor(leaf: WorkspaceLeaf) {
+		super(leaf);
+		this.icon = "links-coming-in";
+	}
+
+	getViewType() {
+		return "backlink";
+	}
+
+	async onOpen() {
+		// A note's own edits change only its self-links; other notes' edits
+		// change its mentions.
+		this.registerEvent(
+			this.app.metadataCache.on("resolve", (file: TFile) => {
+				if (file !== this.file || this.#sources.has(file.path)) this.refresh();
+			}),
+		);
+		await super.onOpen();
+	}
+
+	getState() {
+		return { file: this.file?.path ?? null, collapseAll: this.#linkedCollapsed, unlinkedCollapsed: this.#unlinkedCollapsed };
+	}
+
+	async setState(state: any) {
+		if (typeof state?.unlinkedCollapsed === "boolean") this.#unlinkedCollapsed = state.unlinkedCollapsed;
+		if (typeof state?.collapseAll === "boolean") this.#linkedCollapsed = state.collapseAll;
+	}
+
+	async fill(file: TFile, el: HTMLElement, current: () => boolean) {
+		const { vault, metadataCache } = this.app;
+		const backlinks = metadataCache.getBacklinksForFile(file);
+		this.#sources = new Set(backlinks.keys());
+		const linked = section(el, "Linked mentions", this.#linkedCollapsed, (c) => {
+			this.#linkedCollapsed = c;
+		});
+		const sources = backlinks
+			.keys()
+			.map((path) => vault.getFileByPath(path))
+			.filter((f): f is TFile => !!f)
+			.sort(byName);
+		linked.count.setText(String(sources.length));
+		if (!sources.length) linked.body.createDiv({ cls: "link-pane-empty", text: "No backlinks found." });
+		for (const source of sources) {
+			const text = await vault.cachedRead(source);
+			if (!current()) return;
+			const group = this.#group(linked.body, source);
+			const lines = text.split("\n");
+			for (const ref of backlinks.get(source.path) ?? []) this.#reference(group, source, lines, ref);
+		}
+		const unlinked = section(el, "Unlinked mentions", this.#unlinkedCollapsed, (c) => {
+			this.#unlinkedCollapsed = c;
+			if (!c) this.refresh();
+		});
+		if (this.#unlinkedCollapsed || file.extension !== "md") return;
+		const names = namesOf(file, metadataCache.getFileCache(file));
+		let count = 0;
+		for (const source of vault.getMarkdownFiles().sort(byName)) {
+			if (source === file) continue;
+			const text = await vault.cachedRead(source);
+			if (!current()) return;
+			const found = findMentions(text, names, mentionSkips(metadataCache.getFileCache(source)));
+			if (!found.length) continue;
+			count++;
+			const group = this.#group(unlinked.body, source);
+			const lines = text.split("\n");
+			for (const match of found) {
+				const row = this.#row(group, source, lines[match.line] ?? "", match, { line: match.line, from: match.from, to: match.to });
+				const button = row.createEl("button", { cls: "link-pane-link-button", text: "Link" });
+				button.addEventListener("click", (evt) => {
+					evt.stopPropagation();
+					this.#link(source, file, match, (lines[match.line] ?? "").slice(match.from, match.to));
+				});
+			}
+		}
+		unlinked.count.setText(String(count));
+		if (!count) unlinked.body.createDiv({ cls: "link-pane-empty", text: "No unlinked mentions found." });
+	}
+
+	#group(parent: HTMLElement, file: TFile) {
+		const group = parent.createDiv("link-pane-group");
+		const title = group.createDiv({ cls: "search-result-file-title", text: file.basename });
+		title.setAttr("aria-label", file.path);
+		title.addEventListener("click", (evt) => openAt(this.app, file, {}, evt));
+		return group;
+	}
+
+	#row(group: HTMLElement, file: TFile, content: string, match: { from: number; to: number }, at: { line: number; from: number; to: number }) {
+		const row = group.createDiv("search-result-match");
+		appendMatch(row.createSpan("link-pane-match-text"), content, match);
+		const eState = { cursor: { from: { line: at.line, ch: at.from }, to: { line: at.line, ch: at.to } }, line: at.line };
+		row.addEventListener("click", (evt) => openAt(this.app, file, eState, evt));
+		return row;
+	}
+
+	// A frontmatter link has no position; its row shows the property.
+	#reference(group: HTMLElement, source: TFile, lines: string[], ref: Reference & { position?: Pos; key?: string }) {
+		if (!ref.position) {
+			const content = `${ref.key ?? ""}: ${ref.original}`;
+			this.#row(group, source, content, { from: content.length - ref.original.length, to: content.length }, { line: 0, from: 0, to: 0 });
+			return;
+		}
+		const { start, end } = ref.position;
+		const content = lines[start.line] ?? "";
+		const to = end.line === start.line ? end.col : content.length;
+		this.#row(group, source, content, { from: start.col, to }, { line: start.line, from: start.col, to });
+	}
+
+	// Turns a mention into a link, if the note still has it where it was found.
+	async #link(source: TFile, target: TFile, match: SearchMatch, text: string) {
+		const link = this.app.fileManager.generateMarkdownLink(target, source.path, "", text === target.basename ? undefined : text);
+		let done = false;
+		await this.app.vault.process(source, (data) => {
+			let offset = 0;
+			for (let i = 0; i < match.line; i++) offset = data.indexOf("\n", offset) + 1;
+			if (data.slice(offset + match.from, offset + match.to) !== text) return data;
+			done = true;
+			return data.slice(0, offset + match.from) + link + data.slice(offset + match.to);
+		});
+		if (!done) new Notice(`${source.basename} changed; the mention is no longer there.`);
+		this.refresh();
+	}
+}
+
+export class OutgoingLinkView extends ActiveFilePane {
+	readonly title = "Outgoing links";
+	#linksCollapsed = false;
+	#unlinkedCollapsed = true;
+
+	constructor(leaf: WorkspaceLeaf) {
+		super(leaf);
+		this.icon = "links-going-out";
+	}
+
+	getViewType() {
+		return "outgoing-link";
+	}
+
+	async onOpen() {
+		this.registerEvent(this.app.metadataCache.on("resolve", (file: TFile) => file === this.file && this.refresh()));
+		await super.onOpen();
+	}
+
+	changed(file: TAbstractFile) {
+		return file === this.file || !this.#unlinkedCollapsed;
+	}
+
+	getState() {
+		return { file: this.file?.path ?? null, linksCollapsed: this.#linksCollapsed, unlinkedCollapsed: this.#unlinkedCollapsed };
+	}
+
+	async setState(state: any) {
+		if (typeof state?.linksCollapsed === "boolean") this.#linksCollapsed = state.linksCollapsed;
+		if (typeof state?.unlinkedCollapsed === "boolean") this.#unlinkedCollapsed = state.unlinkedCollapsed;
+	}
+
+	async fill(file: TFile, el: HTMLElement, current: () => boolean) {
+		const { vault, metadataCache } = this.app;
+		const links = section(el, "Links", this.#linksCollapsed, (c) => {
+			this.#linksCollapsed = c;
+		});
+		const resolved = Object.keys(metadataCache.resolvedLinks[file.path] ?? {})
+			.map((path) => vault.getFileByPath(path))
+			.filter((f): f is TFile => !!f)
+			.sort(byName);
+		const unresolved = Object.keys(metadataCache.unresolvedLinks[file.path] ?? {}).sort((a, b) => a.localeCompare(b));
+		links.count.setText(String(resolved.length + unresolved.length));
+		for (const dest of resolved) {
+			const row = links.body.createDiv({ cls: "search-result-file-title", text: dest.extension === "md" ? dest.basename : dest.name });
+			row.setAttr("aria-label", dest.path);
+			row.addEventListener("click", (evt) => openAt(this.app, dest, {}, evt));
+		}
+		for (const link of unresolved) {
+			const row = links.body.createDiv({ cls: "search-result-file-title is-unresolved", text: link });
+			row.addEventListener("click", (evt) => this.app.workspace.openLinkText(link, file.path, Keymap.isModEvent(evt)));
+		}
+		if (!resolved.length && !unresolved.length) links.body.createDiv({ cls: "link-pane-empty", text: "No links found." });
+		const unlinked = section(el, "Unlinked mentions", this.#unlinkedCollapsed, (c) => {
+			this.#unlinkedCollapsed = c;
+			if (!c) this.refresh();
+		});
+		if (this.#unlinkedCollapsed || file.extension !== "md") return;
+		const text = await vault.cachedRead(file);
+		if (!current()) return;
+		const skips = mentionSkips(metadataCache.getFileCache(file));
+		let count = 0;
+		for (const dest of vault.getMarkdownFiles().sort(byName)) {
+			if (dest === file) continue;
+			const found = findMentions(text, namesOf(dest, metadataCache.getFileCache(dest)), skips);
+			if (!found.length) continue;
+			count++;
+			const row = unlinked.body.createDiv({ cls: "search-result-file-title", text: dest.basename });
+			row.createSpan({ cls: "link-pane-count", text: String(found.length) });
+			row.setAttr("aria-label", dest.path);
+			row.addEventListener("click", (evt) => openAt(this.app, dest, {}, evt));
+		}
+		unlinked.count.setText(String(count));
+		if (!count) unlinked.body.createDiv({ cls: "link-pane-empty", text: "No unlinked mentions found." });
+	}
+}
+
+export class OutlineView extends ActiveFilePane {
+	readonly title = "Outline";
+	#collapsed = new Set<string>();
+
+	constructor(leaf: WorkspaceLeaf) {
+		super(leaf);
+		this.icon = "list";
+	}
+
+	getViewType() {
+		return "outline";
+	}
+
+	async onOpen() {
+		this.registerEvent(this.app.metadataCache.on("changed", (file: TFile) => file === this.file && this.refresh()));
+		await super.onOpen();
+	}
+
+	changed(file: TAbstractFile) {
+		return file === this.file;
+	}
+
+	getState() {
+		return { file: this.file?.path ?? null };
+	}
+
+	async fill(file: TFile, el: HTMLElement) {
+		const headings = this.app.metadataCache.getFileCache(file)?.headings ?? [];
+		if (!headings.length) {
+			el.createDiv({ cls: "link-pane-empty", text: "No headings found." });
+			return;
+		}
+		const add = (parent: HTMLElement, nodes: OutlineNode[]) => {
+			for (const node of nodes) {
+				const { heading } = node;
+				// A heading's place in the note keys its folded state.
+				const key = `${file.path}:${heading.position.start.line}`;
+				const item = parent.createDiv("outline-item");
+				const self = item.createDiv("outline-item-self");
+				const icon = self.createDiv("link-pane-collapse");
+				self.createSpan({ text: heading.heading });
+				const children = item.createDiv("outline-item-children");
+				if (node.children.length) {
+					const set = (collapsed: boolean) => {
+						item.toggleClass("is-collapsed", collapsed);
+						setIcon(icon, collapsed ? "chevron-right" : "chevron-down");
+					};
+					set(this.#collapsed.has(key));
+					icon.addEventListener("click", (evt) => {
+						evt.stopPropagation();
+						if (!this.#collapsed.delete(key)) this.#collapsed.add(key);
+						set(this.#collapsed.has(key));
+					});
+					add(children, node.children);
+				}
+				self.addEventListener("click", (evt) => openAt(this.app, file, { line: heading.position.start.line }, evt));
+			}
+		};
+		add(el, headingTree(headings));
+	}
+}
+
+export function registerLinkPanes(app: App) {
+	app.viewRegistry.registerView("backlink", (leaf) => new BacklinkView(leaf));
+	app.viewRegistry.registerView("outgoing-link", (leaf) => new OutgoingLinkView(leaf));
+	app.viewRegistry.registerView("outline", (leaf) => new OutlineView(leaf));
+}

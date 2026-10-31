@@ -50,7 +50,8 @@ plain style. Development notes belong in this file.
     `setting-modal.ts`, `ui/` (menus, modals, notices, settings, suggests,
     tooltips), `bases/` (Bases: formulas, queries, table/cards/list views).
 - `src/renderer/`: host UI (boot, core commands, file explorer, search, view
-  and workspace commands, bases view) and `styles/NN-*.css`, which keep
+  and workspace commands, bases view, the core plugins in `core-plugins.ts`
+  and the modules it installs) and `styles/NN-*.css`, which keep
   Obsidian's CSS variable and class names so plugin stylesheets apply.
 
 ## Compatibility rules
@@ -61,9 +62,27 @@ plain style. Development notes belong in this file.
   `grep -oE "require\(['\"][^'\"]+['\"]\)"` for modules and
   `grep -oE 'app\.[a-zA-Z]+(\.[a-zA-Z]+)?'` for app members.
 - Boot order: `vault.load`, the metadata index (started early, awaited), then
+  `internalPlugins.initialize` and `installCorePlugins`, then
   `plugins.initialize`, then the layout restore and `layout-ready`. Plugins
-  see a resolved cache in `onload`, as in Obsidian, and so miss the first
-  `resolved` event.
+  see a resolved cache and the core plugins' options in `onload`, as in
+  Obsidian, and so miss the first `resolved` event.
+- Core plugins follow the vault's `core-plugins.json` and read their options
+  from `<configDir>/<id>.json`, never writing either: their settings are set in
+  Obsidian. Enabled instances exist only for those `IMPLEMENTED` in
+  `internal-plugins.ts`; a disabled one adds no commands, ribbon button or
+  pane. Their commands keep Obsidian's ids (`backlink:open`,
+  `outgoing-links:open`, `outline:open`, `daily-notes`,
+  `daily-notes:goto-prev`/`-next`, `insert-template`,
+  `insert-current-date`/`-time`), so `hotkeys.json` binds them. The panes'
+  views (`backlink`, `outgoing-link`, `outline`) register always, so a saved
+  layout keeps them; they follow the active file. Unlinked mentions are
+  computed only while their section is open, by reading every note
+  (`findMentions`: whole words ignoring case, a name next to a Chinese or
+  Japanese character counts, links, frontmatter and code blocks skipped).
+  Templates insert a template's frontmatter at the top, adding only the
+  properties the note lacks. Not there yet: backlinks at the bottom of a note,
+  the outline's search and cursor following, the other core plugins (graph,
+  canvas, note composer, tag pane, file recovery, ...).
 - Keyboard: a capture-phase `keydown` listener walks the keymap scope stack
   before CodeMirror sees the key; the active scope follows keyboard focus. The
   root scope has one catch-all handler that runs command hotkeys; plugins may

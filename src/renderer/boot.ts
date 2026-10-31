@@ -9,6 +9,7 @@ import { Notice } from "../api/ui/notice";
 import { installTooltips } from "../api/ui/tooltip";
 import { installBases } from "./bases-view";
 import { registerCoreCommands } from "./commands";
+import { defaultRightSidebar, installCorePlugins, registerCorePluginViews } from "./core-plugins";
 import { SearchView } from "./search";
 import { registerViewCommands } from "./view-commands";
 import { EmptyView, FileExplorerView } from "./views";
@@ -21,7 +22,6 @@ const DEFAULT_LAYOUT = {
 		direction: "horizontal",
 		children: [{ type: "tabs", children: [{ type: "leaf", state: { type: "file-explorer" } }, { type: "leaf", state: { type: "search" } }] }],
 	},
-	right: { type: "split", direction: "horizontal", collapsed: true, children: [] },
 };
 
 // The base theme follows the vault's "theme" setting (appearance.json is part
@@ -113,6 +113,7 @@ async function boot() {
 	app.viewRegistry.registerView("search", (leaf) => new SearchView(leaf));
 	app.viewRegistry.registerExtensions(["md"], "markdown");
 	installBases(app);
+	registerCorePluginViews(app);
 
 	buildShell(app);
 	await app.vault.load();
@@ -128,9 +129,12 @@ async function boot() {
 	registerWorkspaceCommands(app);
 
 	await indexed;
-	// Plugins load before the layout, so it can restore their views.
+	// Core plugins come before community plugins, which may read their options
+	// while loading; both load before the layout, so it can restore their views.
+	await app.internalPlugins.initialize();
+	installCorePlugins(app);
 	await app.plugins.initialize();
-	await app.restoreLayoutState(DEFAULT_LAYOUT);
+	await app.restoreLayoutState({ ...DEFAULT_LAYOUT, right: defaultRightSidebar(app) });
 	app.workspace.setLayoutReady();
 	handleWindowClose(app);
 
