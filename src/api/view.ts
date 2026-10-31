@@ -749,9 +749,11 @@ export function matchLines(a: string[], b: string[], budget = 1e7): [number, num
 const sameLines = (a: string[], b: string[]) => a.length === b.length && a.every((l, i) => l === b[i]);
 
 // A three-way line merge (diff3) of two edits of `base`. Changes on one side,
-// or the same change on both, merge cleanly. Where the sides changed the same
-// lines differently, both versions are kept, `theirs` first, and the region
-// counts as a conflict.
+// the same change on both, and changes to different lines next to each other
+// merge cleanly. Where the sides changed the same lines differently, both
+// versions are kept, `theirs` first, and the region counts as a conflict. Two
+// insertions at one place are both kept the same way, but no line was changed
+// twice, so that is no conflict.
 export function mergeText(base: string, ours: string, theirs: string): { text: string; conflicts: number } {
 	if (ours === base || ours === theirs) return { text: theirs, conflicts: 0 };
 	if (theirs === base) return { text: ours, conflicts: 0 };
@@ -773,13 +775,16 @@ export function mergeText(base: string, ours: string, theirs: string): { text: s
 		const bs = b.slice(ib, endB);
 		if (sameLines(as, os)) out.push(...bs);
 		else if (sameLines(bs, os) || sameLines(as, bs)) out.push(...as);
-		else {
+		else if (as.length === os.length && bs.length === os.length && os.every((line, k) => as[k] === line || bs[k] === line || as[k] === bs[k])) {
+			// Edits on adjacent lines: the sides replaced different lines one for one.
+			os.forEach((line, k) => out.push(as[k] === line ? bs[k] : as[k]));
+		} else {
 			let head = 0;
 			while (head < as.length && head < bs.length && as[head] === bs[head]) head++;
 			let tail = 0;
 			while (tail < as.length - head && tail < bs.length - head && as[as.length - 1 - tail] === bs[bs.length - 1 - tail]) tail++;
 			out.push(...bs.slice(0, bs.length - tail), ...as.slice(head));
-			conflicts++;
+			if (os.length) conflicts++;
 		}
 		i = endO;
 		ia = endA;
