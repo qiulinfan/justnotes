@@ -26,8 +26,11 @@ const root = path.resolve(import.meta.dir, "..");
 // Test windows are usually hidden behind others, where Chromium throttles
 // timers and animation frames; pdf.js pages then take a minute to render.
 const unthrottled = ["--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"];
+// SecretStorage encrypts with safeStorage, which on macOS uses the login
+// keychain; a test instance must neither touch it nor prompt for access.
+const mockKeychain = "--use-mock-keychain";
 const child = Bun.spawn(
-	[path.join(root, "node_modules/.bin/electron"), root, ...unthrottled, "--vault", path.resolve(vault), "--profile", profile, `--remote-debugging-port=${port}`],
+	[path.join(root, "node_modules/.bin/electron"), root, ...unthrottled, mockKeychain, "--vault", path.resolve(vault), "--profile", profile, `--remote-debugging-port=${port}`],
 	{ stdout: "ignore", stderr: "ignore" },
 );
 
