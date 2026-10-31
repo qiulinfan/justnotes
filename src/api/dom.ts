@@ -65,14 +65,24 @@ function makeSvg(parent: Node | null, tag: string, o?: Info | string, cb?: (el: 
 }
 
 // Obsidian's renderer hands plugins Electron's module with @electron/remote as
-// `remote`, both from require("electron") and as window.electron. Created on
-// first use: it needs the Electron renderer.
+// `remote`, both from require("electron") and as window.electron. `remote` is
+// an own property of Electron's module object, so every require("electron")
+// sees it, including esbuild's `import * as electron`, which copies own
+// properties. @electron/remote loads through the page's require, so a plugin
+// that requires it directly gets the same instance. Set up on first use: it
+// needs the Electron renderer.
 let electronModule: any;
 export function getElectron() {
-	electronModule ??= new Proxy(require("electron"), {
-		get: (target, key) => (key === "remote" ? require("@electron/remote") : Reflect.get(target, key)),
-		has: (target, key) => key === "remote" || Reflect.has(target, key),
-	});
+	if (!electronModule) {
+		electronModule = require("electron");
+		if (!("remote" in electronModule)) {
+			Object.defineProperty(electronModule, "remote", {
+				get: () => (window as any).require("@electron/remote"),
+				enumerable: true,
+				configurable: true,
+			});
+		}
+	}
 	return electronModule;
 }
 
