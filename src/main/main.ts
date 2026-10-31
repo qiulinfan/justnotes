@@ -1,8 +1,7 @@
-import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell, type WebContents } from "electron";
-import { registerIpc, vaultOf } from "./ipc";
+import { knownVaults, realPathOf, registerIpc, rememberVault, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
 import { handleSchemes, registerSchemes } from "./protocol";
 
@@ -83,11 +82,14 @@ ipcMain.handle("justnotes:obsidian-urls", (evt) => {
 // obsidian://open?path= (or new, or search) naming a file outside the sender's
 // vault, as kgdistiller opens a record of another base: the vault that holds
 // the file opens in its own window, or brings its open one to the front, and
-// takes the URL, as Obsidian does. Resolves false when no other vault holds
-// it, and the sender says it is not in this vault.
+// takes the URL, as Obsidian does. Only a vault once opened with --vault or
+// the folder picker opens this way: a vault's window runs its community
+// plugins, and a link must not run the code of a folder the user never chose.
+// Resolves false when no such vault holds the file, and the sender says it is
+// not in this vault.
 ipcMain.handle("justnotes:open-in-vault", (evt, url: string, target: string) => {
-	const vault = vaultOf(target);
-	if (!vault || vaultWindows.get(realPath(vault))?.webContents === evt.sender) return false;
+	const vault = vaultOf(target, knownVaults());
+	if (!vault || vaultWindows.get(vault)?.webContents === evt.sender) return false;
 	sendObsidianUrl(url, openVault(vault).webContents);
 	return true;
 });
@@ -187,17 +189,9 @@ function samePage(target: string, current: string) {
 // window, each with its own ?vault=, in this one process and profile.
 const vaultWindows = new Map<string, BrowserWindow>();
 
-function realPath(file: string) {
-	try {
-		return fs.realpathSync(file);
-	} catch {
-		return file;
-	}
-}
-
 // Opens a vault's window, or brings its open window to the front.
 function openVault(vault: string) {
-	const key = realPath(vault);
+	const key = realPathOf(vault);
 	const open = vaultWindows.get(key);
 	if (open) {
 		if (open.isMinimized()) open.restore();
@@ -241,7 +235,7 @@ function openVault(vault: string) {
 }
 
 // The first vault comes from `--vault <path>`; without it the user picks a
-// folder.
+// folder. Either way the user chose it, so links may open it from now on.
 async function openFirstVault() {
 	let vault = argValue("--vault");
 	if (!vault) {
@@ -249,7 +243,9 @@ async function openFirstVault() {
 		if (picked.canceled || picked.filePaths.length === 0) return app.quit();
 		vault = picked.filePaths[0];
 	}
-	openVault(path.resolve(vault));
+	vault = path.resolve(vault);
+	rememberVault(vault);
+	openVault(vault);
 }
 
 remoteMain.initialize();
