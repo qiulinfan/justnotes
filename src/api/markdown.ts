@@ -1115,9 +1115,39 @@ function enhance(root: HTMLElement, job: RenderJob) {
 }
 
 const IMAGE_EXTENSIONS = new Set(["avif", "bmp", "gif", "jpeg", "jpg", "png", "svg", "webp"]);
-const AUDIO_EXTENSIONS = new Set(["flac", "m4a", "mp3", "ogg", "wav", "3gp"]);
-const VIDEO_EXTENSIONS = new Set(["mkv", "mov", "mp4", "ogv", "webm"]);
+export const AUDIO_EXTENSIONS = new Set(["flac", "m4a", "mp3", "ogg", "wav", "3gp"]);
+export const VIDEO_EXTENSIONS = new Set(["mkv", "mov", "mp4", "ogv", "webm"]);
 const MAX_EMBED_DEPTH = 5;
+
+// A player for an audio or video file. A video container may hold only sound
+// (the Audio recorder's .webm recordings): its player turns into an audio
+// player once the metadata shows no picture, and `onAudioOnly` hears of it.
+// A recording MediaRecorder wrote has no duration in its header, which
+// leaves the player unable to seek; seeking past the end once makes Chromium
+// find the duration, after which the player starts over at 0.
+export function createMediaPlayer(parent: HTMLElement, src: string, video: boolean, attrs: Record<string, string | null> = {}, onAudioOnly?: () => void) {
+	const findDuration = (el: HTMLMediaElement) => {
+		if (el.duration !== Number.POSITIVE_INFINITY) return;
+		el.addEventListener("durationchange", () => (el.currentTime = 0), { once: true });
+		el.currentTime = Number.MAX_SAFE_INTEGER;
+	};
+	const audioPlayer = () => {
+		const audio = parent.createEl("audio", { attr: { controls: true, src } });
+		audio.addEventListener("loadedmetadata", () => findDuration(audio), { once: true });
+		return audio;
+	};
+	if (!video) return void audioPlayer();
+	const player = parent.createEl("video", { attr: { controls: true, src, ...attrs } });
+	player.addEventListener(
+		"loadedmetadata",
+		() => {
+			if (player.videoWidth || player.videoHeight) return findDuration(player);
+			player.replaceWith(audioPlayer());
+			onAudioOnly?.();
+		},
+		{ once: true },
+	);
+}
 
 async function loadEmbed(child: EmbedChild, job: RenderJob) {
 	const { app } = job;
@@ -1140,10 +1170,13 @@ async function loadEmbed(child: EmbedChild, job: RenderJob) {
 		embed.createEl("img", { attr: { alt: embed.getAttribute("alt"), src: app.vault.getResourcePath(file), ...size } });
 	} else if (AUDIO_EXTENSIONS.has(ext)) {
 		embed.addClasses(["media-embed", "audio-embed"]);
-		embed.createEl("audio", { attr: { controls: true, src: app.vault.getResourcePath(file) } });
+		createMediaPlayer(embed, app.vault.getResourcePath(file), false);
 	} else if (VIDEO_EXTENSIONS.has(ext)) {
 		embed.addClasses(["media-embed", "video-embed"]);
-		embed.createEl("video", { attr: { controls: true, src: app.vault.getResourcePath(file), ...size } });
+		createMediaPlayer(embed, app.vault.getResourcePath(file), true, size, () => {
+			embed.removeClass("video-embed");
+			embed.addClass("audio-embed");
+		});
 	} else if (ext === "pdf") {
 		await embedPdf(child, file, subpath, app);
 	} else if (ext === "md") {
