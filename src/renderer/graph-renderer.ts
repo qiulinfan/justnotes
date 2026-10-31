@@ -116,6 +116,7 @@ export class GraphRenderer {
 	#height = 0;
 	#dpr = 1;
 	#frame = 0;
+	#frameWin: Window | null = null;
 	#dirty = true;
 	#hovered: RenderNode | null = null;
 	// The hovered node's highlight, faded in and out.
@@ -150,7 +151,7 @@ export class GraphRenderer {
 	}
 
 	destroy() {
-		cancelAnimationFrame(this.#frame);
+		this.#frameWin?.cancelAnimationFrame(this.#frame);
 		this.#frame = 0;
 		this.#resize.disconnect();
 		this.#sim.stop();
@@ -295,7 +296,7 @@ export class GraphRenderer {
 
 	#measure() {
 		const rect = this.containerEl.getBoundingClientRect();
-		this.#dpr = window.devicePixelRatio || 1;
+		this.#dpr = this.canvas.win.devicePixelRatio || 1;
 		this.#width = rect.width;
 		this.#height = rect.height;
 		this.canvas.width = Math.max(1, Math.round(rect.width * this.#dpr));
@@ -307,7 +308,15 @@ export class GraphRenderer {
 
 	#wake() {
 		this.#dirty = true;
-		if (!this.#frame) this.#frame = requestAnimationFrame(() => this.#loop());
+		if (!this.#frame) this.#schedule();
+	}
+
+	// Frames come from the window the canvas is in: a graph in a popout window
+	// keeps moving while the vault window is minimized, which stops its frames.
+	#schedule() {
+		const win = this.canvas.win;
+		this.#frameWin = win;
+		this.#frame = win.requestAnimationFrame(() => this.#loop());
 	}
 
 	#loop() {
@@ -340,7 +349,7 @@ export class GraphRenderer {
 			this.stats.maxDrawMs = Math.max(this.stats.maxDrawMs, ms);
 		}
 		this.#dirty = false;
-		if (moving || fading || this.#pointer?.node) this.#frame = requestAnimationFrame(() => this.#loop());
+		if (moving || fading || this.#pointer?.node) this.#schedule();
 	}
 
 	#draw() {
