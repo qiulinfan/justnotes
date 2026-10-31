@@ -45,6 +45,19 @@ function fileOf(view: View) {
 	return view instanceof FileView ? view.file : null;
 }
 
+// Leaves showing a recorded state again (going back or forward, a restored
+// layout, a reopened tab); such a load adds no history entry.
+const replaying = new WeakSet<WorkspaceLeaf>();
+
+async function replay(leaf: WorkspaceLeaf, state: ViewState, eState?: any) {
+	replaying.add(leaf);
+	try {
+		await leaf.setViewState(state, eState);
+	} finally {
+		replaying.delete(leaf);
+	}
+}
+
 export abstract class WorkspaceItem extends Events {
 	app: App;
 	id: string;
@@ -199,7 +212,6 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 	// When the leaf was last active, for getMostRecentLeaf.
 	activeTime = 0;
 	history: LeafHistory;
-	#replaying = false;
 
 	constructor(app: App, id?: string) {
 		super(app, createDiv("workspace-leaf"), id);
@@ -228,14 +240,7 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 		this.containerEl.addEventListener("focusin", () => this.app.workspace.setActiveLeaf(this));
 		this.history = new LeafHistory(
 			() => this.#historyState(),
-			async (entry) => {
-				this.#replaying = true;
-				try {
-					await this.setViewState(entry.state, entry.eState);
-				} finally {
-					this.#replaying = false;
-				}
-			},
+			(entry) => replay(this, entry.state, entry.eState),
 		);
 		this.view = this.app.workspace.createView(this, "empty");
 		this.containerEl.appendChild(this.view.containerEl);
@@ -266,7 +271,7 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 		const workspace = this.app.workspace;
 		const before = this.view;
 		const beforeFile = fileOf(before);
-		const entry = before.navigation && !this.#replaying ? this.#historyState() : null;
+		const entry = before.navigation && !replaying.has(this) ? this.#historyState() : null;
 		if (viewState.pinned !== undefined) this.setPinned(viewState.pinned);
 		if (viewState.group) this.setGroupMember(viewState.group);
 		const needsView = () =>
@@ -1490,12 +1495,8 @@ export class Workspace extends Events {
 		this.#lastOpenFiles = Array.isArray(layout?.lastOpenFiles) ? layout.lastOpenFiles.filter((p: unknown) => typeof p === "string").slice(0, 10) : [];
 		// A slow view (one that waits for a server) must not hold up startup;
 		// it keeps loading after the wait.
-		const loads = restore.map(([leaf, state]) => leaf.setViewState(state).catch((err) => console.error(err)));
+		const loads = restore.map(([leaf, state]) => replay(leaf, state).catch((err) => console.error(err)));
 		await Promise.all(loads.map((load) => withTimeout(load, 3000)));
-		for (const [leaf] of restore) {
-			leaf.history.backHistory.length = 0;
-			leaf.history.forwardHistory.length = 0;
-		}
 	}
 
 	#load(split: WorkspaceSplit, data: any, restore: [WorkspaceLeaf, LeafViewState][]) {
@@ -1548,8 +1549,7 @@ export class Workspace extends Events {
 	async undoCloseLeaf() {
 		const closed = this.#closed.pop();
 		if (!closed) return false;
-		const leaf = this.getLeaf("tab");
-		await leaf.setViewState({ ...closed.state, active: true }, closed.eState);
+		await replay(this.getLeaf("tab"), { ...closed.state, active: true }, closed.eState);
 		return true;
 	}
 
