@@ -841,10 +841,14 @@ export class MetadataCache extends Events {
 		this.#names().add(file.name.toLowerCase(), file);
 		const cache = this.#cache.get(oldPath);
 		this.#cache.delete(oldPath);
-		if (cache) this.#cache.set(file.path, cache);
+		// A note keeps its cache; a file that stops being a note loses it, and
+		// one that becomes a note (a.txt to a.md) is read.
+		const note = file.extension === "md";
+		if (cache && note) this.#cache.set(file.path, cache);
+		else if (note) this.#index(file);
 		// Its own links move with it; links to it follow it at once and are re-resolved.
-		const resolved = this.resolvedLinks[oldPath] ?? null;
-		const unresolved = this.unresolvedLinks[oldPath] ?? null;
+		const resolved = note ? (this.resolvedLinks[oldPath] ?? null) : null;
+		const unresolved = note ? (this.unresolvedLinks[oldPath] ?? null) : null;
 		this.#setLinks(oldPath, null, null);
 		if (resolved || unresolved) this.#setLinks(file.path, resolved ?? {}, unresolved ?? {});
 		for (const src of [...(this.#backlinks.get(oldPath) ?? [])]) {

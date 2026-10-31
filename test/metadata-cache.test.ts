@@ -124,6 +124,20 @@ describe("incremental resolution", () => {
 		expect(cache.getBacklinksForFile(vault.getFileByPath("g/y.md")!).keys()).toEqual(["g/x.md"]);
 	});
 
+	// Backlinks and the graph read these maps: a renamed-in note must show its
+	// links at once, a renamed-out one must stop counting as a note.
+	test("a file renamed to a note is read, and a note renamed to another type drops its cache and links", async () => {
+		const { cache, vault } = await makeCache({ "a.txt": "[[b]] #t", "c.md": "[[b]]", "b.md": "" });
+		await vault.rename(vault.getFileByPath("a.txt")!, "a.md");
+		await vault.rename(vault.getFileByPath("c.md")!, "c.txt");
+		await settle();
+		expect(cache.getCache("a.md")?.tags?.[0].tag).toBe("#t");
+		expect(cache.resolvedLinks["a.md"]).toEqual({ "b.md": 1 });
+		expect(cache.getCache("c.txt")).toBeNull();
+		expect(cache.resolvedLinks["c.txt"]).toBeUndefined();
+		expect(cache.getBacklinksForFile(vault.getFileByPath("b.md")!).keys()).toEqual(["a.md"]);
+	});
+
 	test("frontmatter links count as links", async () => {
 		const { cache } = await makeCache({ "a.md": '---\nup: "[[b]]"\n---\n', "b.md": "" });
 		expect(cache.resolvedLinks["a.md"]).toEqual({ "b.md": 1 });
