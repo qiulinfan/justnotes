@@ -1,3 +1,4 @@
+import * as nodePath from "node:path";
 import { getElectron } from "./dom";
 import { FileManager } from "./file-manager";
 import { InternalPlugins } from "./internal-plugins";
@@ -7,10 +8,58 @@ import type { CliFlags, CliHandler } from "./plugin";
 import { Plugins } from "./plugins";
 import { type SecretBackend, SecretStorage } from "./secret-storage";
 import { SettingModal } from "./setting-modal";
+import { Notice } from "./ui/notice";
 import { normalizePath } from "./util";
 import { type TFile, Vault } from "./vault";
 import { ViewRegistry } from "./view";
-import { Workspace } from "./workspace";
+import { type PaneType, Workspace } from "./workspace";
+
+export interface ObsidianProtocolData {
+	action: string;
+	[key: string]: string;
+}
+
+function decodeUriPart(text: string) {
+	try {
+		return decodeURIComponent(text);
+	} catch {
+		return text;
+	}
+}
+
+// Parses an obsidian:// URL into Obsidian's handler argument: the action plus
+// URI-decoded query parameters, where a key without a value is "true" ("+"
+// stays a plus, as encodeURIComponent writes it). The shorthands
+// obsidian://vault/<vault>/<file> and obsidian:///<absolute path> become open
+// actions. Returns null for other URLs.
+export function parseObsidianUrl(url: string): ObsidianProtocolData | null {
+	const m = /^obsidian:\/\/([^?#]*)(?:\?([^#]*))?/i.exec(url);
+	if (!m) return null;
+	const params: Record<string, string> = {};
+	for (const part of (m[2] ?? "").split("&")) {
+		if (!part) continue;
+		const eq = part.indexOf("=");
+		const value = eq < 0 ? "" : decodeUriPart(part.slice(eq + 1));
+		params[decodeUriPart(eq < 0 ? part : part.slice(0, eq))] = value === "" ? "true" : value;
+	}
+	const target = m[1];
+	if (target.startsWith("/")) return { ...params, action: "open", path: decodeUriPart(target) };
+	const [action, ...rest] = target.split("/");
+	if (action === "vault" && rest[0]) {
+		const file = decodeUriPart(rest.slice(1).join("/"));
+		return { ...params, action: "open", vault: decodeUriPart(rest[0]), ...(file ? { file } : {}) };
+	}
+	return { ...params, action: decodeUriPart(action) };
+}
+
+function splitSubpath(linktext: string): [string, string] {
+	const i = linktext.indexOf("#");
+	return i < 0 ? [linktext, ""] : [linktext.slice(0, i), linktext.slice(i)];
+}
+
+function paneTypeOf(value: string | undefined): PaneType | false {
+	return value === "tab" || value === "split" || value === "window" ? value : false;
+}
 
 // Secrets live with the main process (main/ipc.ts), per vault.
 function ipcSecretBackend(vaultId: string): SecretBackend {
@@ -93,6 +142,122 @@ export class App {
 			workspaceEl: this.workspace.containerEl,
 			statusBarEl: this.statusBar,
 		};
+		const electron = getElectron();
+		const takeUrl = (url: string) => this.workspace.onLayoutReady(() => this.handleObsidianUrl(url));
+		electron.ipcRenderer.on("justnotes:obsidian-url", (_evt: unknown, url: string) => takeUrl(url));
+		// Then collect the URLs that arrived before this page listened (launch
+		// arguments, macOS open-url during startup).
+		void electron.ipcRenderer.invoke("justnotes:obsidian-urls").then((urls: string[]) => urls.forEach(takeUrl));
+		// Host code and plugins open links with shell.openExternal, which runs in
+		// this process and would hand obsidian:// URLs to the OS, so to Obsidian.
+		const shell = electron.shell;
+		const openExternal = shell.openExternal;
+		shell.openExternal = (url: string, options?: unknown) =>
+			parseObsidianUrl(url) ? this.handleObsidianUrl(url).then(() => undefined) : openExternal.call(shell, url, options);
+	}
+
+	// Dispatches an obsidian:// URL inside this window: a plugin's protocol
+	// handler, or the built-in open, new and search actions for this vault.
+	// Returns whether the URL was handled.
+	async handleObsidianUrl(url: string) {
+		const params = parseObsidianUrl(url);
+		if (!params) return false;
+		try {
+			const handler = this.protocolHandlers[params.action];
+			if (handler) {
+				await handler(params);
+				return true;
+			}
+			if (!["open", "new", "search"].includes(params.action)) {
+				new Notice(`justnotes does not support obsidian://${params.action}`);
+				return false;
+			}
+			if (params.vault && params.vault !== this.vault.getName() && params.vault !== this.appId) {
+				new Notice(`The vault "${params.vault}" is not open in justnotes`);
+				return false;
+			}
+			if (params.path) {
+				const file = this.#vaultPathOf(params.path);
+				if (file === null) {
+					new Notice(`${params.path} is not in this vault`);
+					return false;
+				}
+				params.file = file;
+			}
+			// A URL from a note or a web page must not reach files outside the vault.
+			const outside = [params.file, params.name].find((p) => p?.split(/[\\/]/).includes(".."));
+			if (outside) {
+				new Notice(`${outside} is not in this vault`);
+				return false;
+			}
+			if (params.action === "search") await this.internalPlugins.getPluginById("global-search")?.instance.openGlobalSearch(params.query ?? "");
+			else if (params.action === "open") await this.#uriOpen(params);
+			else await this.#uriNew(params);
+			return true;
+		} catch (err) {
+			console.error(`obsidian:// URL failed: ${url}`, err);
+			new Notice(`Could not open ${url}`);
+			return false;
+		}
+	}
+
+	#vaultPathOf(fullPath: string) {
+		const rel = nodePath.relative(this.vault.adapter.getBasePath(), fullPath);
+		return rel.startsWith("..") || nodePath.isAbsolute(rel) ? null : normalizePath(rel);
+	}
+
+	async #uriOpen(params: ObsidianProtocolData) {
+		if (!params.file) return;
+		const [path, subpath = ""] = splitSubpath(params.file);
+		const file = this.vault.getFileByPath(path) ?? this.vault.getFileByPath(`${path}.md`) ?? this.metadataCache.getFirstLinkpathDest(path, "");
+		if (!file) {
+			new Notice(`File not found: ${params.file}`);
+			return;
+		}
+		if (params.append || params.prepend) await this.#insertText(file, { append: params.append, prepend: params.prepend });
+		await this.workspace.openLinkText(file.path + subpath, "", paneTypeOf(params.paneType));
+	}
+
+	async #uriNew(params: ObsidianProtocolData) {
+		const content = params.clipboard ? getElectron().clipboard.readText() : (params.content ?? "");
+		const path = params.file ? normalizePath(/\.[^/]+$/.test(params.file) ? params.file : `${params.file}.md`) : null;
+		const existing = path ? this.vault.getFileByPath(path) : null;
+		let file: TFile;
+		if (existing && params.append) {
+			await this.#insertText(existing, { append: content });
+			file = existing;
+		} else if (existing && params.overwrite) {
+			await this.vault.modify(existing, content);
+			file = existing;
+		} else if (path) file = await this.#createAt(path, content);
+		else {
+			const name = (params.name ?? "Untitled").replace(/\.md$/, "");
+			file = await this.fileManager.createNewMarkdownFile(this.fileManager.getNewFileParent(""), name, content);
+		}
+		if (!params.silent) await this.workspace.getLeaf(paneTypeOf(params.paneType)).openFile(file);
+	}
+
+	// Creates the file and its folders, under a free name if the path is taken.
+	async #createAt(path: string, content: string) {
+		const dir = nodePath.posix.dirname(path);
+		if (dir !== "." && !this.vault.getFolderByPath(dir)) await this.vault.createFolder(dir);
+		const ext = nodePath.posix.extname(path);
+		let target = path;
+		for (let i = 1; this.vault.getAbstractFileByPath(target); i++) target = `${path.slice(0, -ext.length)} ${i}${ext}`;
+		return this.vault.create(target, content);
+	}
+
+	// Appended text goes on a new line at the end; prepended text after any
+	// frontmatter.
+	async #insertText(file: TFile, params: { append?: string; prepend?: string }) {
+		await this.vault.process(file, (text) => {
+			if (params.append) text = `${text}${text && !text.endsWith("\n") ? "\n" : ""}${params.append}`;
+			if (params.prepend) {
+				const fm = /^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/.exec(text)?.[0] ?? "";
+				text = `${fm}${params.prepend}\n${text.slice(fm.length)}`;
+			}
+			return text;
+		});
 	}
 
 	// The theme classes on body are written only by the theme code at boot, so
