@@ -131,8 +131,31 @@
 
 /* While a handle is dragged, a page in a <webview> or <iframe> under the
    pointer must not take the pointer from it. */
-body.is-resizing :is(webview, iframe) {
+body.is-resizing :is(webview, iframe),
+body.is-grabbing :is(webview, iframe) {
 	pointer-events: none;
+}
+
+/* Where a dragged tab would go: the part of a pane it would take, or a bar
+   between tab headers. */
+.workspace-drop-overlay {
+	position: fixed;
+	z-index: var(--layer-dragged-item);
+	pointer-events: none;
+	background: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.2);
+	border: 2px solid var(--interactive-accent);
+	border-radius: var(--radius-m);
+	transition:
+		left 80ms ease,
+		top 80ms ease,
+		width 80ms ease,
+		height 80ms ease;
+}
+
+.workspace-drop-overlay.mod-tab {
+	background: var(--interactive-accent);
+	border: none;
+	border-radius: 2px;
 }
 
 .workspace-split.mod-sidedock {

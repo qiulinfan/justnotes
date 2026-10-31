@@ -42,7 +42,7 @@ plain style. Development notes belong in this file.
     `@codemirror/collab` modules; plugins must share the editor's instances.
   - `app.ts` (App, CustomCss, RenderContext, `obsidian://` handling),
     `workspace.ts` (leaf tree, tabs, splits, side docks, placeholders, page
-    preview, history, popout windows; `popout-window.ts`
+    preview, history, tab drag and drop, popout windows; `popout-window.ts`
     opens and styles their documents), `view.ts` (View, ItemView, FileView,
     TextFileView),
     `markdown-view.ts` (editing and reading halves of MarkdownView),
@@ -237,6 +237,14 @@ plain style. Development notes belong in this file.
   in `activeDocument` (the focused window, also set by `setActiveLeaf`),
   menus in the event's document, suggests and popovers in their anchor's.
   MarkdownView's CodeMirror calls `setRoot` on `onWindowMigrated`.
+- Tabs drag with HTML5 drag and drop, across windows too: onto a tab bar
+  (a bar marks the position), onto a pane's middle (into its group) or the
+  outer quarter of an edge (`dropZone`: a new group split off on that side;
+  sidebar panes only above or below). `.workspace-drop-overlay` shows the
+  target; `body.is-grabbing` keeps `<webview>`/`<iframe>` guests from taking
+  the drag. A main-area tab dropped outside every app window moves to a new
+  popout there. Moves go through `removeChild`/`insertChild`, so
+  `layout-change` fires and the layout saves the result.
 - Resize drags end on `lostpointercapture`, and `body.is-resizing` turns off
   pointer events in `<webview>` and `<iframe>` guests, which would otherwise
   swallow the moves and the pointerup (omp-sidebar's webview).
@@ -333,10 +341,10 @@ paid: only within the owner's small test budget), background, kgdistiller
 quickadd, terminal and obsidian-tinymist (0.1.0, its YOLO bridge against a
 local mock provider). Known gaps: a canvas view (QuickAdd's capture into the
 active canvas), a CLI transport for `registerCliHandler`,
-`app.metadataTypeManager`, editable properties, tab drag and drop. In a
-popout window Markdown editing, Completr's and the link suggests,
-latex-live's math, QuickAdd's modals and menus and a terminal moved there
-(its `onWindowMigrated` reopens xterm) were tested live.
+`app.metadataTypeManager`, editable properties. In a popout window Markdown
+editing, Completr's and the link suggests, latex-live's math, QuickAdd's
+modals and menus and a terminal moved there (its `onWindowMigrated` reopens
+xterm) were tested live.
 
 ## Verify
 

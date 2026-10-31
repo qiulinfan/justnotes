@@ -278,6 +278,11 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 		});
 		this.tabHeaderEl.addEventListener("click", () => this.app.workspace.setActiveLeaf(this, { focus: true }));
 		this.tabHeaderEl.addEventListener("contextmenu", (evt) => this.#showTabMenu(evt));
+		// Tabs move by drag and drop: within their group, to another group, to a
+		// pane's edge (a split), into a sidebar, or out of every window (a popout).
+		this.tabHeaderEl.draggable = true;
+		this.tabHeaderEl.addEventListener("dragstart", (evt) => this.app.workspace.onTabDragStart(evt, this));
+		this.tabHeaderEl.addEventListener("dragend", (evt) => this.app.workspace.onTabDragEnd(evt, this));
 		// Clicking into a leaf, or focus moving into it (a view focusing its
 		// own input, as terminal does), makes it the active leaf.
 		this.containerEl.addEventListener("mousedown", () => this.app.workspace.setActiveLeaf(this), true);
@@ -563,6 +568,9 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 	}
 }
 
+// Tab groups by their containerEl, to find the group under a dragged tab.
+const tabsByEl = new WeakMap<Element, WorkspaceTabs>();
+
 // A tab group: tab headers plus one visible leaf.
 export class WorkspaceTabs extends WorkspaceParent {
 	declare parent: WorkspaceSplit | null;
@@ -574,6 +582,7 @@ export class WorkspaceTabs extends WorkspaceParent {
 
 	constructor(app: App, id?: string) {
 		super(app, createDiv("workspace-tabs"), id);
+		tabsByEl.set(this.containerEl, this);
 		this.headerEl = this.containerEl.createDiv("workspace-tab-header-container");
 		this.tabHeaderContainerEl = this.headerEl.createDiv("workspace-tab-header-container-inner");
 		const newTab = this.headerEl.createDiv("workspace-tab-header-new-tab clickable-icon");
@@ -1069,9 +1078,33 @@ function tabGroups(item: WorkspaceItem): WorkspaceTabs[] {
 	return item instanceof WorkspaceParent ? item.children.flatMap(tabGroups) : [];
 }
 
-// Where a moved leaf goes: into a pane's tab group ("center") or into a new
-// group split off at one of the pane's edges.
+// Where a tab dropped on a pane goes: into the pane's tab group ("center") or
+// into a new group split off at one of the pane's edges. The outer quarter of
+// the pane by each allowed side counts as that edge.
 export type DropZone = "center" | "left" | "right" | "top" | "bottom";
+
+export function dropZone(rect: { left: number; top: number; width: number; height: number }, x: number, y: number, sides: DropZone[] = ["left", "right", "top", "bottom"]): DropZone {
+	const fx = rect.width ? (x - rect.left) / rect.width : 0.5;
+	const fy = rect.height ? (y - rect.top) / rect.height : 0.5;
+	const distance: Record<string, number> = { left: fx, right: 1 - fx, top: fy, bottom: 1 - fy };
+	let best: DropZone = "center";
+	let nearest = 0.25;
+	for (const side of sides) {
+		if (side !== "center" && distance[side] < nearest) {
+			best = side;
+			nearest = distance[side];
+		}
+	}
+	return best;
+}
+
+// The position among a group's tab headers (their left edges and widths, in
+// order) that a tab dropped at x takes: before the first header whose middle
+// is right of x.
+export function tabDropIndex(headers: { left: number; width: number }[], x: number) {
+	const index = headers.findIndex((h) => x < h.left + h.width / 2);
+	return index < 0 ? headers.length : index;
+}
 
 // Where a dragged tab goes: at `index` among a group's tabs (dropped on the
 // tab headers, or on the pane), or into a group split off `tabs`.
@@ -1136,6 +1169,7 @@ export class Workspace extends Events {
 	#unloading = false;
 	// While closing a popout window, its leaves are not remembered as closed tabs.
 	#closingWindow = false;
+	#drag: { leaf: WorkspaceLeaf; target: DropTarget | null; dropped: boolean } | null = null;
 	#layoutChanged = debounce(() => {
 		this.#updateWindowTitles();
 		this.trigger("layout-change");
@@ -1661,10 +1695,18 @@ export class Workspace extends Events {
 		for (const ww of [...this.floatingSplit.children]) this.#closeWindow(ww, false);
 	}
 
-	// Listeners each app window needs: resizes, the active window.
+	// Listeners each app window needs: resizes, the active window, tab drops.
 	#watchWindow(win: Window) {
+		const doc = win.document;
 		win.addEventListener("resize", () => this.requestResize());
 		win.addEventListener("focus", () => setActiveWindow(win));
+		doc.addEventListener("dragover", (evt) => this.#onDragOver(evt), true);
+		doc.addEventListener("drop", (evt) => this.#onDrop(evt), true);
+		// Chromium gives dragleave no relatedTarget even between elements; the
+		// pointer leaving the page is what hides the indicator.
+		doc.addEventListener("dragleave", (evt) => {
+			if (evt.clientX <= 0 || evt.clientY <= 0 || evt.clientX >= win.innerWidth || evt.clientY >= win.innerHeight) this.#showDropTarget(doc, null);
+		});
 	}
 
 	// A popout's title is the title of its active, or last active, tab.
@@ -1712,6 +1754,107 @@ export class Workspace extends Events {
 			this.#splitOff(tabs, leaf, direction, target.zone === "left" || target.zone === "top");
 		}
 		this.setActiveLeaf(leaf, { focus: true });
+	}
+
+	onTabDragStart(evt: DragEvent, leaf: WorkspaceLeaf) {
+		if (!evt.dataTransfer) return;
+		this.#drag = { leaf, target: null, dropped: false };
+		evt.dataTransfer.effectAllowed = "move";
+		evt.dataTransfer.setData("application/x-justnotes-leaf", leaf.id);
+		// A <webview> or <iframe> under the pointer would take the drag events.
+		for (const win of appWindows()) win.document.body.addClass("is-grabbing");
+	}
+
+	// Dropped outside every app window, a main-area tab moves to a new popout
+	// window there, as in Obsidian.
+	onTabDragEnd(evt: DragEvent, leaf: WorkspaceLeaf) {
+		const drag = this.#drag;
+		this.#drag = null;
+		for (const win of appWindows()) {
+			win.document.body.removeClass("is-grabbing");
+			this.#showDropTarget(win.document, null);
+		}
+		if (!drag || drag.leaf !== leaf || drag.dropped || evt.dataTransfer?.dropEffect !== "none") return;
+		const { screenX: x, screenY: y } = evt;
+		// A drag cancelled without a pointer position reports the screen origin.
+		if (x === 0 && y === 0) return;
+		const inside = appWindows().some((w) => x >= w.screenX && x < w.screenX + w.outerWidth && y >= w.screenY && y < w.screenY + w.outerHeight);
+		if (inside || !leaf.parent || !this.inMainArea(leaf) || this.isOnlyLeafOfWindow(leaf)) return;
+		const bounds = this.#screenBoundsOf(leaf);
+		this.moveLeafToPopout(leaf, { x: x - 40, y: y - 20, size: bounds.width && bounds.height ? { width: bounds.width, height: bounds.height } : undefined });
+	}
+
+	// The drop target under the pointer: a tab header bar, or a pane. A pane in
+	// a sidebar splits only above or below.
+	#dropTargetAt(evt: DragEvent): DropTarget | null {
+		const el = evt.target as Element | null;
+		const groupEl = el?.closest?.(".workspace-tabs");
+		const tabs = groupEl ? tabsByEl.get(groupEl) : undefined;
+		if (!tabs?.parent || !this.#drag) return null;
+		const leaf = this.#drag.leaf;
+		if (el?.closest(".workspace-tab-header-container")) {
+			const headers = tabs.children.map((l) => l.tabHeaderEl.getBoundingClientRect());
+			return { tabs, index: tabDropIndex(headers, evt.clientX), onHeaders: true };
+		}
+		const sides: DropZone[] = tabs.getRoot() instanceof WorkspaceSidedock ? ["top", "bottom"] : ["left", "right", "top", "bottom"];
+		const zone = dropZone(tabs.tabsContainerEl.getBoundingClientRect(), evt.clientX, evt.clientY, sides);
+		if (zone === "center") return tabs === leaf.parent ? null : { tabs, index: tabs.children.length, onHeaders: false };
+		if (tabs === leaf.parent && tabs.children.length === 1) return null;
+		return { tabs, zone };
+	}
+
+	#onDragOver(evt: DragEvent) {
+		if (!this.#drag) return;
+		const doc = (evt.target as Node).doc;
+		const target = this.#dropTargetAt(evt);
+		this.#drag.target = target;
+		this.#showDropTarget(doc, target);
+		// Kept from the views below (an editor would show its own drop caret).
+		evt.stopPropagation();
+		if (!target) return;
+		evt.preventDefault();
+		if (evt.dataTransfer) evt.dataTransfer.dropEffect = "move";
+	}
+
+	#onDrop(evt: DragEvent) {
+		const drag = this.#drag;
+		if (!drag) return;
+		evt.preventDefault();
+		evt.stopPropagation();
+		const target = this.#dropTargetAt(evt);
+		this.#showDropTarget((evt.target as Node).doc, null);
+		if (!target) return;
+		drag.dropped = true;
+		this.#moveLeaf(drag.leaf, target);
+	}
+
+	// The drop indicator: the part of a pane a dropped tab would take, or a bar
+	// between tab headers where it would go.
+	#showDropTarget(doc: Document, target: DropTarget | null) {
+		let overlay = doc.body.querySelector<HTMLElement>(":scope > .workspace-drop-overlay");
+		if (!target) {
+			overlay?.remove();
+			return;
+		}
+		overlay ??= doc.body.createDiv("workspace-drop-overlay");
+		let rect: { left: number; top: number; width: number; height: number };
+		if (target.zone === undefined && target.onHeaders) {
+			const headers = target.tabs.children.map((l) => l.tabHeaderEl.getBoundingClientRect());
+			const bar = target.tabs.tabHeaderContainerEl.getBoundingClientRect();
+			const x = target.index < headers.length ? headers[target.index].left : (headers.at(-1)?.right ?? bar.left);
+			rect = { left: x - 2, top: bar.top, width: 4, height: bar.height };
+			overlay.addClass("mod-tab");
+		} else {
+			const pane = target.tabs.tabsContainerEl.getBoundingClientRect();
+			const half = { left: pane.left, top: pane.top, width: pane.width, height: pane.height };
+			if (target.zone === "left" || target.zone === "right") half.width /= 2;
+			if (target.zone === "top" || target.zone === "bottom") half.height /= 2;
+			if (target.zone === "right") half.left += half.width;
+			if (target.zone === "bottom") half.top += half.height;
+			rect = half;
+			overlay.removeClass("mod-tab");
+		}
+		overlay.setCssStyles({ left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
 	}
 
 	registerEditorExtension(ext: Extension) {
