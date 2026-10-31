@@ -19,7 +19,10 @@ export class Events {
 		if (list) this._[name] = list.filter((r) => r.fn !== fn);
 	}
 
-	offref(ref: EventRef) {
+	// A missing ref is ignored, as in Obsidian: obsidian-git turns its editor
+	// features off before turning them on, offref-ing refs it never created.
+	offref(ref: EventRef | null | undefined) {
+		if (!ref) return;
 		const list = this._[ref.name];
 		if (list) list.remove(ref);
 	}
