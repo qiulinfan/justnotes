@@ -89,10 +89,12 @@ function registerEditorCommands(app: App) {
 		run: (editor: Editor, view: any) => boolean | void,
 		hotkey?: [Modifier[], string],
 		available: (editor: Editor) => boolean = () => true,
+		plainText = false,
 	) => {
 		const command: Command = {
 			id: `editor:${id}`,
 			name,
+			plainText,
 			hotkeys: hotkey ? [{ modifiers: hotkey[0], key: hotkey[1] }] : undefined,
 			editorCheckCallback: (checking, editor, view) => {
 				if (!(editor instanceof Editor) || view?.getMode?.() === "preview" || !available(editor)) return false;
@@ -105,8 +107,8 @@ function registerEditorCommands(app: App) {
 	};
 	const edit = (id: string, name: string, change: StateEdit, hotkey?: [Modifier[], string]) =>
 		editorCommand(id, name, (editor) => runEdit(editor, change), hotkey);
-	const cm = (id: string, name: string, command: (view: EditorView) => boolean, hotkey?: [Modifier[], string]) =>
-		editorCommand(id, name, (editor) => command(editor.cm), hotkey);
+	const cm = (id: string, name: string, command: (view: EditorView) => boolean, hotkey?: [Modifier[], string], plainText = false) =>
+		editorCommand(id, name, (editor) => command(editor.cm), hotkey, undefined, plainText);
 	const suggest = (editor: Editor, view: any) => app.workspace.editorSuggest.trigger(editor, view?.file ?? null, true);
 
 	edit("toggle-bold", "Toggle bold", toggleMarkup(MARKUP.bold), [["Mod"], "b"]);
@@ -147,11 +149,11 @@ function registerEditorCommands(app: App) {
 	edit("insert-mathblock", "Insert math block", insertMathBlock);
 	edit("insert-table", "Insert table", insertTable);
 
-	cm("swap-line-up", "Swap line up", moveLineUp);
-	cm("swap-line-down", "Swap line down", moveLineDown);
-	cm("delete-paragraph", "Delete paragraph", deleteLine, [["Mod"], "d"]);
-	cm("add-cursor-above", "Add cursor above", addCursorAbove);
-	cm("add-cursor-below", "Add cursor below", addCursorBelow);
+	cm("swap-line-up", "Swap line up", moveLineUp, undefined, true);
+	cm("swap-line-down", "Swap line down", moveLineDown, undefined, true);
+	cm("delete-paragraph", "Delete paragraph", deleteLine, [["Mod"], "d"], true);
+	cm("add-cursor-above", "Add cursor above", addCursorAbove, undefined, true);
+	cm("add-cursor-below", "Add cursor below", addCursorBelow, undefined, true);
 	cm("toggle-fold", "Toggle fold on the current line", toggleFold);
 	cm("fold-all", "Fold all headings and lists", foldAll);
 	cm("unfold-all", "Unfold all headings and lists", unfoldAll);
