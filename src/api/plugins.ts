@@ -109,7 +109,48 @@ export class Plugins {
 		return this.plugins[id] ?? null;
 	}
 
-	async enablePlugin(id: string) {
+	// Each plugin's enables and disables run one at a time, in call order: a
+	// toggle flipped on and off quickly, or `justnotes plugin:enable` during
+	// one, must neither load a second instance (the first would keep its
+	// listeners forever) nor end in the state of an earlier call. A call made
+	// while the plugin's own code runs inside one (a plugin turning itself off
+	// in onload) runs at once instead, since waiting would wait for itself.
+	#ops = new Map<string, Promise<unknown>>();
+	#inPluginCode = new Set<string>();
+
+	#serial<T>(id: string, task: () => Promise<T>): Promise<T> {
+		if (this.#inPluginCode.has(id)) return task();
+		const run = (this.#ops.get(id) ?? Promise.resolve()).then(task);
+		const tail = run.then(
+			() => {},
+			() => {},
+		);
+		this.#ops.set(id, tail);
+		void tail.then(() => {
+			if (this.#ops.get(id) === tail) this.#ops.delete(id);
+		});
+		return run;
+	}
+
+	async #pluginCode<T>(id: string, run: () => T): Promise<Awaited<T>> {
+		this.#inPluginCode.add(id);
+		try {
+			return await run();
+		} finally {
+			this.#inPluginCode.delete(id);
+		}
+	}
+
+	enablePlugin(id: string) {
+		return this.#serial(id, () => this.#enable(id));
+	}
+
+	disablePlugin(id: string) {
+		return this.#serial(id, () => this.#disable(id));
+	}
+
+	// False when it did not load, or was turned off while loading.
+	async #enable(id: string) {
 		if (this.plugins[id]) return true;
 		const manifest = this.manifests[id];
 		if (!manifest) {
@@ -121,20 +162,23 @@ export class Plugins {
 			return false;
 		}
 		this.loadingPluginId = id;
+		let plugin: Plugin | undefined;
 		try {
-			const plugin = await this.#instantiate(manifest);
+			plugin = await this.#instantiate(manifest);
 			this.plugins[id] = plugin;
 			this.enabledPlugins.add(id);
 			await this.#loadStyles(manifest);
-			await plugin.load();
-			return true;
+			const loading = plugin;
+			await this.#pluginCode(id, () => loading.load());
+			return this.plugins[id] === plugin;
 		} catch (err) {
 			console.error(`Plugin "${id}" failed to load`, err);
 			new Notice(`Failed to load plugin ${id}`);
-			const plugin = this.plugins[id];
-			delete this.plugins[id];
-			this.enabledPlugins.delete(id);
-			this.#removeStyles(id);
+			if (plugin && this.plugins[id] === plugin) {
+				delete this.plugins[id];
+				this.enabledPlugins.delete(id);
+				this.#removeStyles(id);
+			}
 			try {
 				plugin?.unload();
 			} catch {}
@@ -144,34 +188,38 @@ export class Plugins {
 		}
 	}
 
-	async disablePlugin(id: string) {
+	async #disable(id: string) {
 		const plugin = this.plugins[id];
 		if (!plugin) return;
 		delete this.plugins[id];
 		this.enabledPlugins.delete(id);
 		this.#removeStyles(id);
 		try {
-			plugin.unload();
+			await this.#pluginCode(id, () => plugin.unload());
 		} catch (err) {
 			console.error(`Plugin "${id}" failed to unload`, err);
 		}
 	}
 
 	// What the Community plugins toggles call: the choice survives a restart.
-	async enablePluginAndSave(id: string) {
-		if (!(await this.enablePlugin(id))) return false;
-		this.#remember(id, true);
-		try {
-			this.plugins[id]?.onUserEnable();
-		} catch (err) {
-			console.error(`Plugin "${id}" failed in onUserEnable`, err);
-		}
-		return true;
+	enablePluginAndSave(id: string) {
+		return this.#serial(id, async () => {
+			if (!(await this.#enable(id))) return false;
+			this.#remember(id, true);
+			try {
+				this.plugins[id]?.onUserEnable();
+			} catch (err) {
+				console.error(`Plugin "${id}" failed in onUserEnable`, err);
+			}
+			return true;
+		});
 	}
 
-	async disablePluginAndSave(id: string) {
-		await this.disablePlugin(id);
-		this.#remember(id, false);
+	disablePluginAndSave(id: string) {
+		return this.#serial(id, async () => {
+			await this.#disable(id);
+			this.#remember(id, false);
+		});
 	}
 
 	saveConfig() {

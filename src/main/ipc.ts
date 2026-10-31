@@ -8,7 +8,7 @@ import * as electron from "electron";
 import type { RawResponse } from "../api/util";
 import { readKnownVaults, realPathOf } from "../cli/vaults";
 
-export { realPathOf, vaultOf } from "../cli/vaults";
+export { realPathOf, vaultNamed, vaultOf } from "../cli/vaults";
 
 // IPC handlers the renderer calls into.
 export function registerIpc() {

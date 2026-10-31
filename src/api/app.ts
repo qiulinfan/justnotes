@@ -56,6 +56,15 @@ export function parseObsidianUrl(url: string): ObsidianProtocolData | null {
 	return { ...params, action: decodeUriPart(action) };
 }
 
+// The file= or name= of an obsidian: URL that names no note of the vault, or
+// undefined. A URL from a note or a web page must not reach files outside the
+// vault, nor its hidden folders: the config folder holds plugins' code and
+// settings, and `new` would write main.js or data.json there, which the vault
+// index (hidden paths stay out of it) does not see as taken.
+export function urlPathOutsideNotes(params: ObsidianProtocolData) {
+	return [params.file, params.name].find((p) => p?.split(/[\\/]/).some((part) => part.startsWith(".")));
+}
+
 function splitSubpath(linktext: string): [string, string] {
 	const i = linktext.indexOf("#");
 	return i < 0 ? [linktext, ""] : [linktext.slice(0, i), linktext.slice(i)];
@@ -72,10 +81,11 @@ function pathInside(folder: string, fullPath: string) {
 }
 
 // The real path of a file that may not exist yet: its nearest existing
-// folder's real path, with the rest of the path.
+// folder's real path, with the rest of the path, each name in its case on
+// disk (the native realpath, as main matches vaults: cli/vaults.ts).
 function realPathOf(file: string): string {
 	try {
-		return fs.realpathSync(file);
+		return fs.realpathSync.native(file);
 	} catch {
 		const parent = nodePath.dirname(file);
 		return parent === file ? file : nodePath.join(realPathOf(parent), nodePath.basename(file));
@@ -392,11 +402,13 @@ export class App {
 	async handleObsidianUrl(url: string) {
 		const params = parseObsidianUrl(url);
 		if (!params) return false;
-		// Obsidian runs a URL in the vault it names; only this one is open here.
-		// The path of open and new overrides vault and finds its own vault below.
+		// Obsidian runs a URL in the vault it names: another vault justnotes has
+		// opened takes it in its own window (main.ts). The path of open and new
+		// overrides vault and finds its own vault below.
 		const byPath = Boolean(params.path) && (params.action === "open" || params.action === "new");
 		if (params.vault && !byPath && params.vault !== this.vault.getName() && params.vault !== this.appId) {
-			new Notice(`The vault "${params.vault}" is not open in justnotes`);
+			if (await getElectron().ipcRenderer.invoke("justnotes:open-vault-named", url, params.vault)) return true;
+			new Notice(`The vault "${params.vault}" is not one justnotes has opened`);
 			return false;
 		}
 		try {
@@ -419,8 +431,7 @@ export class App {
 				}
 				params.file = file;
 			}
-			// A URL from a note or a web page must not reach files outside the vault.
-			const outside = [params.file, params.name].find((p) => p?.split(/[\\/]/).includes(".."));
+			const outside = urlPathOutsideNotes(params);
 			if (outside) {
 				new Notice(`${outside} is not in this vault`);
 				return false;

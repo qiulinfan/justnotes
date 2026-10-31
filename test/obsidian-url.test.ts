@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseObsidianUrl } from "../src/api/app";
+import { parseObsidianUrl, urlPathOutsideNotes } from "../src/api/app";
 
 // What protocol handlers registered with registerObsidianProtocolHandler, and
 // the built-in open/new/search actions, receive.
@@ -35,5 +35,25 @@ describe("parseObsidianUrl", () => {
 
 	test("other URLs are not obsidian URLs", () => {
 		expect(parseObsidianUrl("https://obsidian.md/open?file=x")).toBeNull();
+	});
+});
+
+// The built-in open and new actions refuse these, so a link clicked in a note
+// cannot write outside the notes: obsidian://new once overwrote a plugin's
+// main.js (code the next start runs) because hidden paths are not in the
+// vault index, so the file did not count as existing.
+describe("urlPathOutsideNotes", () => {
+	const target = (url: string) => urlPathOutsideNotes(parseObsidianUrl(url)!);
+
+	test("the config folder and other hidden folders are refused, by file= or name=", () => {
+		expect(target("obsidian://new?file=.obsidian/plugins/demo/main.js&content=x&silent")).toBe(".obsidian/plugins/demo/main.js");
+		expect(target("obsidian://new?file=notes%5C.git%5Cconfig")).toBe("notes\\.git\\config");
+		expect(target("obsidian://new?name=.obsidian%2Fsnippets%2Fx.css")).toBe(".obsidian/snippets/x.css");
+	});
+
+	test("parent folders are refused; notes in nested folders are not", () => {
+		expect(target("obsidian://open?file=..%2Foutside")).toBe("../outside");
+		expect(target("obsidian://new?file=Projects%2FAlpha%20v1.2&content=x")).toBeUndefined();
+		expect(target("obsidian://open?file=Home%23Section")).toBeUndefined();
 	});
 });

@@ -295,6 +295,9 @@ plain style. Development notes belong in this file.
   passes an origin; untagged edits must not look like typing.
 - `Plugin.load()` awaits an async `onload` before children load and before the
   next plugin, as Obsidian does. `Component.load()` stays synchronous.
+- A plugin's enables and disables (`Plugins`, the toggles, the CLI) run one
+  at a time in call order; a call from the plugin's own code while one runs
+  (disabling itself in onload) runs at once, or it would wait for itself.
 - `registerCodeMirror` is a no-op: it only ran in Obsidian's legacy editor.
 - `app.metadataTypeManager` has Obsidian's private members: `properties`
   and `getAllProperties()` (lowercased name to `{name, type, widget, count,
@@ -317,10 +320,14 @@ plain style. Development notes belong in this file.
   system, as in Obsidian. An external link's menu (reading view and Live
   Preview: Open link, Copy URL) fires the workspace's `url-menu`
   (`addUrlMenuItems` in `markdown.ts`).
-- `obsidian://open?path=` into another vault opens (or focuses) that vault's
-  window, but only for vaults opened before with `--vault` or the folder
+- `obsidian://open?path=` into another vault, and a URL whose `vault=` is
+  another vault's folder name (`vaultNamed`: exactly one, never a path),
+  opens (or focuses) that vault's window, which takes the URL, but only for
+  vaults opened before with `--vault` or the folder
   picker (recorded in the profile's `vaults.json`): a link must never load an
-  unknown folder's plugins.
+  unknown folder's plugins. The built-in `open` and `new` refuse a `file=` or
+  `name=` with a `..` or hidden (`.obsidian`, `.git`) segment
+  (`urlPathOutsideNotes`): a link must never write plugin code or settings.
 - The macOS application menu keeps the standard roles (Edit, zoom, developer
   tools, window) but no accelerator on a key the renderer's hotkeys use: menu
   key equivalents fire before the page sees the key, so Electron's default
@@ -632,7 +639,9 @@ plain style. Development notes belong in this file.
   closing the window closes its leaves. The layout stores windows under
   `floating` (`type: "window"`, `x`, `y`, `width`, `height`) and reopens them;
   on unload the page saves the layout first, then closes popouts without
-  saving again. New tabs, splits and `getLeaf(false)` follow the active leaf
+  saving again. While the app quits, main keeps popouts open until their
+  page goes (Electron closes them first otherwise), so the quit flush saves
+  them in the layout. New tabs, splits and `getLeaf(false)` follow the active leaf
   into its popout.
 - Cross-window rules: a node keeps the realm it was made in when it moves
   (`constructorWin`), so DOM `instanceof` checks in host code use

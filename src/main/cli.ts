@@ -19,16 +19,20 @@ import { knownVaults, rememberVault } from "./ipc";
 // before wait for that, up to READY_WAIT.
 const READY_WAIT = 60_000;
 const ready = new WeakSet<WebContents>();
-const readyWaiters = new WeakMap<WebContents, (() => void)[]>();
+const readyWaiters = new WeakMap<WebContents, ((ready: boolean) => void)[]>();
 const pending = new Map<number, { contents: WebContents; resolve: (response: CliResponse) => void }>();
 let nextId = 0;
 // The plugin commands each vault's window last reported, for completion.
 const reported = new Map<string, PluginCommand[]>();
 
+function wakeWaiters(contents: WebContents, isReady: boolean) {
+	for (const wake of readyWaiters.get(contents) ?? []) wake(isReady);
+	readyWaiters.delete(contents);
+}
+
 ipcMain.on("justnotes:cli-ready", (evt) => {
 	ready.add(evt.sender);
-	for (const wake of readyWaiters.get(evt.sender) ?? []) wake();
-	readyWaiters.delete(evt.sender);
+	wakeWaiters(evt.sender, true);
 });
 
 ipcMain.on("justnotes:cli-result", (evt, id: number, response: CliResponse) => {
@@ -39,11 +43,14 @@ ipcMain.on("justnotes:cli-result", (evt, id: number, response: CliResponse) => {
 });
 
 // A page that goes away (reload, crash, closed window) answers its requests
-// with an error instead of leaving the command waiting.
+// with an error instead of leaving the command waiting; a crashed or closed
+// one also stops requests waiting for it to boot (a reloading one boots
+// again).
 export function trackCliWindow(win: BrowserWindow) {
 	const contents = win.webContents;
-	const drop = (why: string) => {
+	const drop = (why: string, gone = true) => {
 		ready.delete(contents);
+		if (gone) wakeWaiters(contents, false);
 		for (const [id, request] of pending) {
 			if (request.contents !== contents) continue;
 			pending.delete(id);
@@ -51,7 +58,7 @@ export function trackCliWindow(win: BrowserWindow) {
 		}
 	};
 	contents.on("did-start-navigation", (details) => {
-		if (details.isMainFrame && !details.isSameDocument) drop("The vault window reloaded before the command finished.");
+		if (details.isMainFrame && !details.isSameDocument) drop("The vault window reloaded before the command finished.", false);
 	});
 	contents.on("render-process-gone", () => drop("The vault window crashed before the command finished."));
 	win.on("closed", () => drop("The vault window closed before the command finished."));
@@ -59,11 +66,12 @@ export function trackCliWindow(win: BrowserWindow) {
 
 function whenReady(contents: WebContents) {
 	if (ready.has(contents)) return Promise.resolve(true);
+	if (contents.isDestroyed()) return Promise.resolve(false);
 	return new Promise<boolean>((resolve) => {
 		const timer = setTimeout(() => resolve(false), READY_WAIT);
-		const wake = () => {
+		const wake = (isReady: boolean) => {
 			clearTimeout(timer);
-			resolve(true);
+			resolve(isReady);
 		};
 		readyWaiters.set(contents, [...(readyWaiters.get(contents) ?? []), wake]);
 	});

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { sameAppPage } from "../src/main/link-policy";
 import { POPOUT_FRAME, isPopoutOpen } from "../src/main/popout";
 import { popoutFeatures } from "../src/api/popout-window";
 
@@ -24,5 +25,23 @@ describe("popoutFeatures", () => {
 	test("bounds are rounded and unknown ones left out", () => {
 		expect(popoutFeatures({ x: 10.6, y: undefined, width: 800.2, height: 600 })).toBe("popup,width=800,height=600,left=11");
 		expect(popoutFeatures({ x: Number.NaN })).toBe("popup");
+	});
+});
+
+// A vault window navigates only within its own page; anything else is a link
+// for the link policy. A link to the app page with another ?vault= once
+// loaded that folder, and its plugins, in the window.
+describe("sameAppPage", () => {
+	const page = "file:///app/dist/index.html?vault=%2Fnotes";
+
+	test("the page itself, with or without a fragment, stays", () => {
+		expect(sameAppPage(page, page)).toBe(true);
+		expect(sameAppPage(`${page}#top`, page)).toBe(true);
+	});
+
+	test("the app page with another vault, or another file, is a link", () => {
+		expect(sameAppPage("file:///app/dist/index.html?vault=%2Ftmp%2Fother", page)).toBe(false);
+		expect(sameAppPage("file:///app/dist/index.html", page)).toBe(false);
+		expect(sameAppPage("file:///etc/passwd", page)).toBe(false);
 	});
 });

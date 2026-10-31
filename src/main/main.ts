@@ -4,9 +4,9 @@ import * as path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell, type WebContents } from "electron";
 import { enclosingVault } from "../cli/vaults";
 import { startCli, trackCliWindow } from "./cli";
-import { knownVaults, realPathOf, registerIpc, rememberVault, vaultOf } from "./ipc";
+import { knownVaults, realPathOf, registerIpc, rememberVault, vaultNamed, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
-import { droppedSchemes } from "./link-policy";
+import { droppedSchemes, sameAppPage } from "./link-policy";
 import { microphoneRequest, systemMicrophoneAccess } from "./media";
 import { isPopoutOpen } from "./popout";
 import { handleSchemes, registerSchemes } from "./protocol";
@@ -95,11 +95,23 @@ ipcMain.handle("justnotes:open-in-vault", (evt, url: string, target: string) => 
 	return true;
 });
 
+// An obsidian: URL whose vault= names another vault (QuickAdd writes
+// obsidian://open?vault=<name>&file=..., and macOS hands URLs to the focused
+// window) goes to that vault's window, opening it if needed, as in Obsidian:
+// the one known vault of that folder name, never a path.
+ipcMain.handle("justnotes:open-vault-named", (evt, url: string, name: string) => {
+	const vault = vaultNamed(name, knownVaults());
+	if (!vault || vaultWindows.get(vault)?.webContents === evt.sender) return false;
+	sendObsidianUrl(url, openVault(vault).webContents);
+	return true;
+});
+
 // A link to a scheme Chromium does not handle, when not caught as a main-frame
 // navigation (from an iframe, say), makes Electron ask the page's session for
 // the openExternal permission and then hand the URL to the OS. openUrl decides
 // instead, in every session: a <webview> guest can have a session of its own
-// (omp-sidebar's partition), and its links count as its embedder's. Media
+// (omp-sidebar's partition), and its links count as its embedder's, as a
+// popout's (an iframe in it) count as its vault page's. Media
 // (microphone and camera) is granted only as media.ts decides: the
 // microphone, to a vault page, once macOS lets the app use it. Every other
 // permission keeps Electron's default (granted).
@@ -115,7 +127,7 @@ function handlePermissions(ses: Session) {
 		if (permission !== "openExternal") return callback(true);
 		callback(false);
 		const url = "externalURL" in details ? details.externalURL : undefined;
-		if (url) openUrl(url, contents.hostWebContents ?? contents);
+		if (url) openUrl(url, contents.hostWebContents ?? popoutOpeners.get(contents) ?? contents);
 	});
 }
 app.on("session-created", handlePermissions);
@@ -185,12 +197,21 @@ function setApplicationMenu() {
 	);
 }
 
+// Each popout's vault page, whose links its own count as (a popout's page
+// listens for no obsidian: URLs).
+const popoutOpeners = new WeakMap<WebContents, WebContents>();
+
+// Set once the app quits (the menu, Cmd+Q, `justnotes quit` or `restart`).
+let quitting = false;
+app.on("before-quit", () => (quitting = true));
+
 // A popout window is a child window of the vault page, in the same renderer:
 // the page's own code builds and drives its document, as in Obsidian. Its links
 // follow the same policy as the page's, it never navigates away from its blank
 // document, and it closes with the page (a reload or the vault window closing).
 function setupPopout(child: BrowserWindow, opener: WebContents) {
 	const contents = child.webContents;
+	popoutOpeners.set(contents, opener);
 	contents.setWindowOpenHandler(({ url }) => {
 		openUrl(url, opener);
 		return { action: "deny" };
@@ -206,6 +227,13 @@ function setupPopout(child: BrowserWindow, opener: WebContents) {
 	const onNavigation = (details: { isMainFrame: boolean; isSameDocument: boolean }) => {
 		if (details.isMainFrame && !details.isSameDocument) close();
 	};
+	// Quitting closes every window at once, popouts first on macOS (Electron
+	// closes the newest first), while the vault window waits for its
+	// before-close flush (lifecycle.ts): the page would drop their leaves and
+	// save a layout without them. They stay until the page goes.
+	child.on("close", (evt) => {
+		if (quitting && !opener.isDestroyed()) evt.preventDefault();
+	});
 	opener.once("destroyed", close);
 	opener.on("did-start-navigation", onNavigation);
 	child.once("closed", () => {
@@ -213,16 +241,6 @@ function setupPopout(child: BrowserWindow, opener: WebContents) {
 		opener.off("destroyed", close);
 		opener.off("did-start-navigation", onNavigation);
 	});
-}
-
-function samePage(target: string, current: string) {
-	try {
-		const a = new URL(target);
-		const b = new URL(current);
-		return a.protocol === b.protocol && a.host === b.host && a.pathname === b.pathname;
-	} catch {
-		return false;
-	}
 }
 
 // One window per vault, by the vault folder's real path. main creates every
@@ -270,7 +288,7 @@ function openVault(vault: string) {
 	// it opens as from window.open instead. Chromium never asks about an about:
 	// URL; the page cancels those navigations itself (boot.ts).
 	contents.on("will-navigate", (evt) => {
-		if (!evt.isMainFrame || samePage(evt.url, contents.getURL())) return;
+		if (!evt.isMainFrame || sameAppPage(evt.url, contents.getURL())) return;
 		evt.preventDefault();
 		openUrl(evt.url, contents);
 	});

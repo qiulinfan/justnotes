@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { vaultOf } from "../src/main/ipc";
+import { vaultNamed, vaultOf } from "../src/main/ipc";
 
 // The vault whose window an obsidian://open?path= (or new?path=) URL for a
 // file outside the current vault goes to: one of the vaults the user opened
@@ -57,5 +57,47 @@ describe("vaultOf", () => {
 		} finally {
 			process.chdir(cwd);
 		}
+	});
+});
+
+// Main matches vaults under Electron's Node, whose JavaScript realpath keeps
+// the case a path was typed in; Bun's is the native one, so this runs the
+// module there. On a case-insensitive volume (macOS's default) vault=~/Notes
+// for an open ~/notes once opened a second window, running the vault's
+// plugins twice, and recorded a second entry in vaults.json.
+describe("vault paths in another case, in main", () => {
+	const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jn-vault-case-")));
+	const vault = path.join(root, "Notes");
+	fs.mkdirSync(path.join(vault, "sub"), { recursive: true });
+	afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+	const insensitive = fs.existsSync(path.join(root, "notes"));
+
+	test.skipIf(!insensitive)("name the open vault, not a new one", async () => {
+		const built = await Bun.build({ entrypoints: [path.join(import.meta.dir, "../src/cli/vaults.ts")], target: "node", format: "cjs" });
+		const module = path.join(root, "vaults.cjs");
+		await Bun.write(module, await built.outputs[0].text());
+		const script = `const v = require(${JSON.stringify(module)}); const open = [${JSON.stringify(vault)}];
+			console.log(JSON.stringify([v.pickVault(["vault=" + ${JSON.stringify(path.join(root, "notes"))}, "x"], "/", open, [], null), v.vaultOf(${JSON.stringify(path.join(root, "NOTES/sub/a.md"))}, open)]));`;
+		const electron = path.join(import.meta.dir, "../node_modules/.bin/electron");
+		const run = Bun.spawnSync([electron, "-e", script], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
+		expect(JSON.parse(run.stdout.toString())).toEqual([{ vault, open: true, argv: ["x"] }, vault]);
+	});
+});
+
+// obsidian://open?vault=<name> for another vault opens the vault of that name
+// among those the user opened on purpose; it once only said that vault was
+// not open, even with its window open beside.
+describe("vaultNamed", () => {
+	const known = ["/v/notes", "/v/work", "/w/work"];
+
+	test("names one known vault by its folder name", () => {
+		expect(vaultNamed("notes", known)).toBe("/v/notes");
+	});
+
+	test("an ambiguous name, an unknown one or a path names none", () => {
+		expect(vaultNamed("work", known)).toBeNull();
+		expect(vaultNamed("other", known)).toBeNull();
+		expect(vaultNamed("/v/notes", known)).toBeNull();
+		expect(vaultNamed("../v/notes", known)).toBeNull();
 	});
 });

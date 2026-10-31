@@ -213,8 +213,10 @@ export class Plugin extends Component {
 	addRibbonIcon(icon: string, title: string, callback: (evt: MouseEvent) => any) {
 		const ribbon = this.app.workspace.leftRibbon;
 		const el = ribbon.addRibbonItemButton(`${this.manifest.id}:${title}`, icon, title, callback);
+		// By its button: removeRibbonAction goes by title, and another plugin's
+		// button, or the host's, can have the same one.
 		this.register(() => {
-			if ("removeRibbonAction" in ribbon && typeof ribbon.removeRibbonAction === "function") ribbon.removeRibbonAction(title);
+			ribbon.items = ribbon.items.filter((item) => item.buttonEl !== el);
 			el.detach();
 		});
 		return el;
