@@ -262,6 +262,14 @@ describe("links", () => {
 		expect(clickableTokenAt(stateOf(doc, 0), doc.indexOf("Other"))).toMatchObject({ type: "internal-link", text: "Known" });
 	});
 
+	// Typora writes paths with bare spaces, which CommonMark leaves as text.
+	test("images and links whose path has bare spaces render", () => {
+		const doc = "![Shot](a.assets/Screenshot 2025-02-09 at 15.04.04.png) [My Note](My Note.md) (just prose)\nend";
+		const decos = decorate(doc, doc.length);
+		expect(decos.filter((d) => d.widget === "ImageWidget").map((d) => doc.slice(d.from, d.to))).toEqual(["![Shot](a.assets/Screenshot 2025-02-09 at 15.04.04.png)"]);
+		expect(clickableTokenAt(stateOf(doc, doc.length), doc.indexOf("My Note") + 1)).toMatchObject({ type: "internal-link", text: "My Note.md" });
+	});
+
 	// ![alt][ref] stayed source in Live Preview while the reading view showed
 	// the image its definition names.
 	test("reference images render from their definition's destination", () => {

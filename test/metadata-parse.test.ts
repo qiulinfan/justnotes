@@ -245,3 +245,12 @@ describe("parseMetadata Markdown link targets", () => {
 		expect(links.embeds?.map((l) => l.link)).toEqual(["my_pic.png"]);
 	});
 });
+
+describe("parseMetadata paths with bare spaces", () => {
+	test("Typora-style links and images with spaces count as links, prose in parentheses does not", () => {
+		const c = parseMetadata("![Shot](a.assets/Screenshot 2025.png) [N](My Note.md#Part one) (a b c)");
+		expect(c.embeds?.map((e) => e.link)).toEqual(["a.assets/Screenshot 2025.png"]);
+		expect(c.links?.map((l) => l.link)).toEqual(["My Note.md#Part one"]);
+	});
+});
+

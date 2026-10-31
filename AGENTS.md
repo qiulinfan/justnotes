@@ -847,6 +847,13 @@ plain style. Development notes belong in this file.
   line syntax (heading marks, quote marks, list bullets, tasks, rules, block
   math) shows while the selection is on those lines.
 - `editorLivePreviewField` false means Source mode: no decorations at all.
+- Paths with bare spaces, as Typora writes them (`![shot](a.assets/Screenshot
+  2025-02-09 at 15.04.04.png)`, `[N](My Note.md#Part one)`), are links and
+  images in all three parsers (reading view `spaced_link`, Live Preview
+  `spacedLinkSyntax`, metadata `SPACED_MDLINK`), though CommonMark leaves them
+  text. One rule decides (`spacedDestination`): the path ends in a file
+  extension (maybe with a `#subpath`) and is not `url "title"`, so prose in
+  parentheses stays prose.
 - Links as Obsidian renders them: a destination is read as CommonMark reads
   it (`destinationText`: no angle brackets, backslash escapes unescaped, so
   `[x](a\_b.md)` opens `a_b.md`); reference links (`[text][ref]`,

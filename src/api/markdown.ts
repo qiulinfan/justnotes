@@ -3,7 +3,7 @@ import type { App } from "./app";
 import { Component } from "./events";
 import { setIcon } from "./icons";
 import { Keymap } from "./keymap";
-import { getLinkpath, parseLinktext, stripHeading } from "./metadata-utils";
+import { getLinkpath, parseLinktext, spacedDestination, stripHeading } from "./metadata-utils";
 import { sanitizeHTML } from "./sanitize";
 import { Menu } from "./ui/menu";
 import { parseYaml } from "./util";
@@ -412,6 +412,49 @@ md.renderer.rules.embed = (tokens, idx) => {
 	const { target, label } = tokens[idx].meta as { target: string; label?: string };
 	return embedPlaceholder(target, label);
 };
+
+// Links and images whose path has bare spaces, as Typora writes them
+// (spacedDestination): markdown-it's own rules need <...> or %20 there.
+md.inline.ruler.before("link", "spaced_link", (state, silent) => {
+	const { src, pos } = state;
+	const image = src.charCodeAt(pos) === 0x21;
+	const open = pos + (image ? 1 : 0);
+	if (src.charCodeAt(open) !== 0x5b) return false;
+	const labelEnd = state.md.helpers.parseLinkLabel(state, open, true);
+	if (labelEnd < 0 || src.charCodeAt(labelEnd + 1) !== 0x28) return false;
+	const close = src.indexOf(")", labelEnd + 2);
+	if (close < 0 || close > state.posMax) return false;
+	const dest = src.slice(labelEnd + 2, close).trim();
+	if (!spacedDestination(dest)) return false;
+	const href = state.md.normalizeLink(dest);
+	if (!state.md.validateLink(href)) return false;
+	if (!silent) {
+		const content = src.slice(open + 1, labelEnd);
+		if (image) {
+			const children: Token[] = [];
+			state.md.inline.parse(content, state.md, state.env, children);
+			const token = state.push("image", "img", 0);
+			token.attrs = [
+				["src", href],
+				["alt", ""],
+			];
+			token.children = children;
+			token.content = content;
+		} else {
+			const max = state.posMax;
+			state.pos = open + 1;
+			state.posMax = labelEnd;
+			state.push("link_open", "a", 1).attrs = [["href", href]];
+			state.linkLevel++;
+			state.md.inline.tokenize(state);
+			state.linkLevel--;
+			state.push("link_close", "a", -1);
+			state.posMax = max;
+		}
+	}
+	state.pos = close + 1;
+	return true;
+});
 
 // [t](https://x) opens in the browser; [t](Other%20note.md) is an internal
 // link like [[Other note]], resolved against the note.

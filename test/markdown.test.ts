@@ -257,3 +257,16 @@ describe("code-block processor registry", () => {
 		expect("test-lang" in MarkdownPreviewRenderer.codeBlockPostProcessors).toBe(false);
 	});
 });
+
+// Typora writes paths with bare spaces; CommonMark (and markdown-it) leave
+// them as text, so 137 images in the owner's vaults showed as source.
+describe("paths with bare spaces", () => {
+	test("an image or note link whose path has spaces renders; prose in parentheses and titled links do not change", () => {
+		const out = html("![Shot](a.assets/Screenshot 2025-02-09 at 15.04.04.png) [My Note](My Note.md#Part one) (see the note) ![t](a.png \"title\")");
+		const spans = tags(out, "span").filter((t) => t.class === "internal-embed");
+		expect(spans.map((t) => t.src)).toEqual(["a.assets/Screenshot 2025-02-09 at 15.04.04.png", "a.png"]);
+		expect(tags(out, "a")[0]).toMatchObject({ "data-href": "My Note.md#Part one" });
+		expect(out).toContain("(see the note)");
+	});
+});
+

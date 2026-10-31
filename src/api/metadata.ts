@@ -1,6 +1,6 @@
 import * as nodePath from "node:path";
 import { Events } from "./events";
-import { destinationText, getAllTags, getLinkpath, locateFrontMatter, parseFrontMatterAliases } from "./metadata-utils";
+import { destinationText, getAllTags, getLinkpath, locateFrontMatter, parseFrontMatterAliases, spacedDestination } from "./metadata-utils";
 import { parseYaml } from "./util";
 import { type TAbstractFile, TFile, type Vault } from "./vault";
 
@@ -123,6 +123,7 @@ const WIKILINK = /(!?)\[\[([^[\]]+?)\]\]/g;
 // [text](dest "title"), dest possibly in <...>, one level of nesting in both.
 const MDLINK = /(!?)\[((?:[^[\]\n]|\[[^[\]\n]*\])*)\]\(\s*(<[^<>\n]*>|(?:[^\s()]|\([^\s()]*\))*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)/g;
 const MDLINK_ONE = new RegExp(MDLINK.source);
+const SPACED_MDLINK = /(!?)\[((?:[^[\]\n]|\[[^[\]\n]*\])*)\]\(([^()<>\n]*\s[^()<>\n]*)\)/g;
 const TAG = /(?<=^|\s)#([\p{L}\p{N}\p{M}\p{Extended_Pictographic}_\-/‍️]+)/gu;
 const FOOTNOTE_REF = /\[\^([^\]\s]+)\](?!:)/g;
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
@@ -367,6 +368,16 @@ export function parseMetadata(text: string): CachedMetadata {
 			const dest = destinationText(m[3]);
 			if (!dest || SCHEME.test(dest)) continue;
 			(m[1] ? embeds : links).push({ link: safeDecode(dest), original, displayText: m[2], position: pos(s, s + m[0].length) });
+			const destAt = hit.index! + hit[0].indexOf("](") + 1;
+			tagText = tagText.slice(0, destAt) + blankOut(hit[0].slice(destAt - hit.index!)) + tagText.slice(hit.index! + hit[0].length);
+		}
+		// Paths with bare spaces, as Typora writes them, which MDLINK cannot match.
+		if (masked.includes("](")) for (const hit of masked.matchAll(SPACED_MDLINK)) {
+			const dest = hit[3].trim();
+			if (!spacedDestination(dest)) continue;
+			const s = base + hit.index!;
+			const original = raw.slice(hit.index!, hit.index! + hit[0].length);
+			(hit[1] ? embeds : links).push({ link: safeDecode(dest), original, displayText: hit[2], position: pos(s, s + hit[0].length) });
 			const destAt = hit.index! + hit[0].indexOf("](") + 1;
 			tagText = tagText.slice(0, destAt) + blankOut(hit[0].slice(destAt - hit.index!)) + tagText.slice(hit.index! + hit[0].length);
 		}

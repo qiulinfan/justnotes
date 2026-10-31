@@ -28,6 +28,16 @@ export function stripHeadingForLink(heading: string) {
 	return heading.replace(/[:#|^\\\r\n]|%%|\[\[|\]\]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+// A Markdown link destination with spaces written bare, as Typora writes
+// paths (`![shot](note.assets/Screenshot 2025-02-09 at 15.04.04.png)`):
+// CommonMark allows no spaces there, but notes are full of these. It counts
+// only when it reads as a file path (ending in an extension, maybe with a
+// `#subpath`) and not as a standard destination with a title (`a.png "t"`),
+// so prose in parentheses stays prose.
+export function spacedDestination(text: string) {
+	return /^[^\s()<>][^()<>\n]*\s[^()<>\n]*$/.test(text) && /\.[A-Za-z0-9]{1,8}(?:#[^()\n]*)?$/.test(text.trimEnd()) && !/\s("[^"\n]*"|'[^'\n]*')\s*$/.test(text);
+}
+
 // A link destination as written, read as CommonMark (and the reading view)
 // reads it: `<...>` (a path with spaces, as in [a](<My note.md>)) without its
 // angle brackets, and backslash escapes unescaped ([x](a\_b.md) is a_b.md).

@@ -21,7 +21,7 @@ import { setIcon } from "./icons";
 import { imageMenu } from "./image-menu";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
 import { inlineMathEnd, mathBlockClose } from "./markdown";
-import { parseLinktext } from "./metadata-utils";
+import { parseLinktext, spacedDestination } from "./metadata-utils";
 import type { MarkdownView } from "./markdown-view";
 import { editorSelectionScroll } from "./selection-scroll";
 import { debounce } from "./util";
@@ -272,6 +272,39 @@ const wikilinkSyntax: MarkdownConfig = {
 	],
 };
 
+// Links and images whose path has bare spaces, as Typora writes them
+// (spacedDestination): lezer-markdown, following CommonMark, leaves them as
+// text. They become the same Link and Image nodes, with LinkMark and URL
+// children, so Live Preview renders and opens them like any other.
+const SPACED_LINK = /^\[((?:[^[\]\n\\]|\\.)*)\]\(([^()\n]*)\)/;
+const spacedLinkSyntax: MarkdownConfig = {
+	parseInline: [
+		{
+			name: "SpacedLink",
+			before: "Link",
+			parse(cx, next, pos) {
+				const open = next === 33 ? pos + 1 : pos;
+				if (cx.char(open) !== 91) return -1;
+				const m = SPACED_LINK.exec(cx.slice(open, cx.end));
+				if (!m || !spacedDestination(m[2].trim())) return -1;
+				const labelEnd = open + 1 + m[1].length;
+				const destFrom = labelEnd + 2 + (m[2].length - m[2].trimStart().length);
+				const destTo = labelEnd + 2 + m[2].trimEnd().length;
+				const end = open + m[0].length;
+				return cx.addElement(
+					cx.elt(next === 33 ? "Image" : "Link", pos, end, [
+						cx.elt("LinkMark", pos, open + 1),
+						cx.elt("LinkMark", labelEnd, labelEnd + 1),
+						cx.elt("LinkMark", labelEnd + 1, labelEnd + 2),
+						cx.elt("URL", destFrom, destTo),
+						cx.elt("LinkMark", end - 1, end),
+					]),
+				);
+			},
+		},
+	],
+};
+
 // A footnote definition is a paragraph, not a link reference definition.
 // This parser runs first and drops the ones after it: the link reference
 // parser would otherwise claim `[^1]: word`.
@@ -374,6 +407,7 @@ export const obsidianMarkdown: MarkdownConfig[] = [
 	highlightSyntax,
 	hashtagSyntax,
 	wikilinkSyntax,
+	spacedLinkSyntax,
 	footnoteSyntax,
 	taskSyntax,
 	formattingClasses,
