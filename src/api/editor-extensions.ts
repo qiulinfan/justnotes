@@ -1,8 +1,10 @@
 import { autocompletion, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
+import { cssLanguage } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
+import { javascriptLanguage } from "@codemirror/lang-javascript";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { bracketMatching, codeFolding, foldGutter, foldNodeProp, foldService, HighlightStyle, indentOnInput, indentUnit, Language, languageDataProp, LanguageDescription, LanguageSupport, ParseContext, syntaxHighlighting, syntaxTree } from "@codemirror/language";
+import { bracketMatching, codeFolding, foldGutter, foldNodeProp, foldService, HighlightStyle, indentOnInput, indentUnit, Language, languageDataProp, LanguageDescription, LanguageSupport, type LRLanguage, ParseContext, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorSelection, EditorState, type Extension, Prec, type Range, type StateCommand } from "@codemirror/state";
@@ -541,10 +543,22 @@ class NestedCode extends Parser {
 	}
 }
 
+// A parser lang-html nests, without its folds and starting at rule `top` when
+// given.
+const foldlessParser = (lang: LRLanguage, top?: string) => lang.parser.configure({ top, props: [foldNodeProp.add(() => noFold)] });
+
+// lang-html parses a style attribute's value as CSS and the value of an event
+// handler on its list (copied from lang-html 6.4.12) as JavaScript; html()
+// tries these, the same parsers without folds, first.
+const handlers = "beforeunload copy cut dragstart dragover dragleave dragenter dragend drag paste focus blur change click load mousedown mouseenter mouseleave mouseup keydown keyup resize scroll unload";
+const handlerCode = foldlessParser(javascriptLanguage);
+const nestedAttributes = [{ name: "style", parser: foldlessParser(cssLanguage, "Styles") }, ...handlers.split(" ").map((name) => ({ name: `on${name}`, parser: handlerCode }))];
+
 // HTML with no folds of its own or of the code in it: every script's as
-// JavaScript and every style's as CSS.
+// JavaScript, every style's as CSS, and its attributes' as lang-html parses
+// them.
 function foldlessHtml(matchClosingTags: boolean) {
-	const support = html({ matchClosingTags, nestedLanguages: [{ tag: "script", parser: new NestedCode("javascript") }, { tag: "style", parser: new NestedCode("css") }] });
+	const support = html({ matchClosingTags, nestedLanguages: [{ tag: "script", parser: new NestedCode("javascript") }, { tag: "style", parser: new NestedCode("css") }], nestedAttributes });
 	return new LanguageSupport(foldless(support.language)!, support.support);
 }
 

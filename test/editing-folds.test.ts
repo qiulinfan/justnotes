@@ -77,6 +77,15 @@ describe("folding", () => {
 		expect(folds(html, true, true)).toEqual([]);
 	});
 
+	// lang-html parses a style attribute's value as CSS and an event handler's
+	// as JavaScript, whose syntax folds where a value spans lines. With both
+	// settings off the fold commands still run.
+	test("style and event handler attribute values in HTML do not fold", () => {
+		const attrs = ['<button onclick="if (a) {', "  run();", '}">go</button>', "", '<p style="@media (width > 1px) {', "  color: red;", '}">t</p>', "", "```html", '<b onkeyup="keys([', "  1", '])">x</b>', "```"].join("\n");
+		expect(folds(attrs, true, true)).toEqual([]);
+		expect(folds(attrs, false, false)).toEqual([]);
+	});
+
 	// A heading in a markdown fence is code, not a section of the note.
 	test("HTML and Markdown fences, with what is nested in them, do not fold", () => {
 		const fences = ["```html", "<style>", ".a {", "  color: red;", "}", "</style>", "<script>", "function a() {", "  return 1;", "}", "</script>", "```", "", "```markdown", "# Inside", "text", "<div>", "<p>text</p>", "</div>", "```"].join("\n");
