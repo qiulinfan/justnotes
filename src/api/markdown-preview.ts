@@ -44,6 +44,14 @@ export class MarkdownEditView implements MarkdownSubView {
 	#isLivePreview = true;
 	#scroll = 0;
 	#destroyed = false;
+	// Plugins follow the active note's unsaved text through 'quick-preview'.
+	#quickPreview = debounce(
+		(file: TFile) => {
+			if (!this.#destroyed && this.view.file === file) this.app.workspace.trigger("quick-preview", file, this.editor.getValue());
+		},
+		300,
+		true,
+	);
 
 	constructor(view: MarkdownView) {
 		this.view = view;
@@ -132,6 +140,7 @@ export class MarkdownEditView implements MarkdownSubView {
 	destroy() {
 		if (this.#destroyed) return;
 		this.#destroyed = true;
+		this.#quickPreview.cancel();
 		this.editor.cm.destroy();
 	}
 
@@ -140,6 +149,8 @@ export class MarkdownEditView implements MarkdownSubView {
 		if (!u.transactions.some((tr) => tr.annotation(mirrored))) this.#forward(u);
 		const preview = this.view.previewMode;
 		if (this.view.currentMode === preview) preview.set(u.state.doc.toString(), false);
+		const file = this.view.file;
+		if (file && this.app.workspace.activeLeaf === this.view.leaf) this.#quickPreview(file);
 	}
 
 	// The other panes of the note follow every change here as it happens.

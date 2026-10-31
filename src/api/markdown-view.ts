@@ -2,11 +2,11 @@ import { openSearchPanel } from "@codemirror/search";
 import { EditorSelection, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { Editor, EditorPosition } from "./editor";
-import type { Component } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import { Keymap, Scope } from "./keymap";
 import { MarkdownEditView, MarkdownPreviewView, type MarkdownSubView, subpathLine } from "./markdown-preview";
 import { Menu } from "./ui/menu";
+import type { HoverPopover } from "./ui/popover";
 import { mirrorEdits, TextFileView, type ViewStateResult } from "./view";
 import type { WorkspaceLeaf } from "./workspace";
 
@@ -27,7 +27,7 @@ export class MarkdownView extends TextFileView {
 	currentMode: MarkdownSubView;
 	modes: { source: MarkdownEditView; preview: MarkdownPreviewView };
 	sourceEl: HTMLElement;
-	hoverPopover: Component | null = null;
+	hoverPopover: HoverPopover | null = null;
 	scope: Scope;
 	// Source mode: editing with Live Preview off.
 	#source: boolean;
@@ -160,7 +160,28 @@ export class MarkdownView extends TextFileView {
 
 	showContextMenu(evt: MouseEvent) {
 		const menu = new Menu();
+		menu.addSections(["selection-link", "selection", "selection.format", "clipboard", "action", "info", "view", "system"]);
 		const editor = this.editor;
+		// A link under the pointer: a note link gets the workspace's link menu,
+		// a URL its own items and the 'url-menu' event.
+		const href = (evt.target as Element | null)?.closest?.("[data-href]")?.getAttribute("data-href");
+		if (href && SCHEME.test(href)) {
+			menu.addItem((i) =>
+				i
+					.setTitle("Open link")
+					.setIcon("external-link")
+					.setSection("selection-link")
+					.onClick(() => require("electron").shell.openExternal(href)),
+			);
+			menu.addItem((i) =>
+				i
+					.setTitle("Copy URL")
+					.setIcon("copy")
+					.setSection("selection-link")
+					.onClick(() => navigator.clipboard.writeText(href)),
+			);
+			this.app.workspace.trigger("url-menu", menu, href);
+		} else if (href) this.app.workspace.handleLinkContextMenu(menu, safeDecode(href), this.file?.path ?? "", this.leaf);
 		menu.addItem((i) =>
 			i
 				.setTitle("Cut")
