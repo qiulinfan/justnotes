@@ -342,7 +342,9 @@ plain style. Development notes belong in this file.
   Obsidian's does (terminal reads `adapter.fs`).
 - Explorer items drag through `app.dragManager` (`drag-manager.ts`), Obsidian's
   private drag API: `draggable` holds `{ type: "file" | "folder" | "files",
-  file | files, title, icon, source }` until `dragend`, and drop targets name
+  file | files, title, icon, source }` until the drag ends (`dragend`, or
+  right after the dispatch of a drop, which a target may stop or which may
+  re-render the dragged row; watched in every app window), and drop targets name
   their action with `setAction` on the ghost that follows the pointer.
   Search results, backlink and outgoing-link rows drag their file;
   `dragLink` (`type: "link"`, `linktext`, `sourcePath`) is what links in

@@ -1,4 +1,5 @@
 import type { App } from "../app";
+import { appWindows } from "../dom";
 import { Component } from "../events";
 import { setIcon } from "../icons";
 import { Scope } from "../keymap";
@@ -178,11 +179,13 @@ export class Menu extends Component {
 	#shown = false;
 	#used = false;
 	#submenuTimer: number | null = null;
-	#doc: Document | null = null;
+	// The windows watched for a click outside the menu.
+	#watched: Window[] = [];
 	#outside = (evt: MouseEvent) => {
 		const target = evt.target as Node;
 		if (!this.#contains(target) && !this.#parentEl?.contains(target)) this.hide();
 	};
+	#gone = () => this.hide();
 
 	constructor() {
 		super();
@@ -346,10 +349,19 @@ export class Menu extends Component {
 		this.#parentEl?.addClass("has-active-menu");
 		globalApp()?.keymap.pushScope(this.scope);
 		this.scope.parent ??= globalApp()?.scope;
-		this.#doc?.removeEventListener("mousedown", this.#outside, true);
-		this.#doc = doc;
-		// Attach after the event that opened the menu has finished.
-		if (!this.parentMenu) window.setTimeout(() => this.#shown && doc.addEventListener("mousedown", this.#outside, true));
+		this.#unwatch();
+		// Attach after the event that opened the menu has finished. A click in
+		// any app window closes it, and so does its window closing: its scope
+		// would otherwise keep taking Enter and the arrows from the editor in
+		// the window the user went on to.
+		if (!this.parentMenu) {
+			window.setTimeout(() => {
+				if (!this.#shown || this.#watched.length) return;
+				this.#watched = appWindows();
+				for (const win of this.#watched) win.document.addEventListener("mousedown", this.#outside, true);
+				doc.defaultView?.addEventListener("pagehide", this.#gone);
+			});
+		}
 		this.#shown = true;
 		this.load();
 		return this;
@@ -382,7 +394,7 @@ export class Menu extends Component {
 		this.#shown = false;
 		if (this.#submenuTimer !== null) window.clearTimeout(this.#submenuTimer);
 		this.closeSubmenu();
-		this.#doc?.removeEventListener("mousedown", this.#outside, true);
+		this.#unwatch();
 		globalApp()?.keymap.popScope(this.scope);
 		this.dom.detach();
 		this.#parentEl?.removeClass("has-active-menu");
@@ -393,6 +405,14 @@ export class Menu extends Component {
 		this.unload();
 		for (const cb of this.#onHide) cb();
 		return this;
+	}
+
+	#unwatch() {
+		for (const win of this.#watched) {
+			win.document.removeEventListener("mousedown", this.#outside, true);
+			win.removeEventListener("pagehide", this.#gone);
+		}
+		this.#watched = [];
 	}
 
 	close() {
