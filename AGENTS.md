@@ -29,7 +29,8 @@ plain style. Development notes belong in this file.
   (`justnotes:before-close` / `justnotes:close-ready`), `ipc.ts` the
   synchronous IPC behind SecretStorage (Electron `safeStorage`) and the
   plugins' clipboard, `protocol.ts` scheme registration, `media.ts` which
-  media requests are granted.
+  media requests are granted, `vault-switcher.ts` the vault switcher's IPC
+  (see Vault switcher).
 - `src/api/`: the `obsidian` module. `index.ts` is exactly the list plugins see:
   the value exports of `obsidian.d.ts`, no more (`test/finish-exports.test.ts`
   checks both directions). Modules that also hold justnotes internals are listed
@@ -323,11 +324,43 @@ plain style. Development notes belong in this file.
 - `obsidian://open?path=` into another vault, and a URL whose `vault=` is
   another vault's folder name (`vaultNamed`: exactly one, never a path),
   opens (or focuses) that vault's window, which takes the URL, but only for
-  vaults opened before with `--vault` or the folder
-  picker (recorded in the profile's `vaults.json`): a link must never load an
+  vaults opened before with `--vault`, the folder picker or the vault
+  switcher (recorded in the profile's `vaults.json`): a link must never load an
   unknown folder's plugins. The built-in `open` and `new` refuse a `file=` or
   `name=` with a `..` or hidden (`.obsidian`, `.git`) segment
   (`urlPathOutsideNotes`): a link must never write plugin code or settings.
+- Vault switcher (`renderer/vault-switcher.ts`, main's side in
+  `main/vault-switcher.ts`): Obsidian's vault profile at the bottom of the
+  left sidebar, `.workspace-sidedock-vault-profile` holding
+  `.workspace-drawer-vault-switcher` (`.workspace-drawer-vault-switcher-icon`,
+  a chevrons-up-down, then `.workspace-drawer-vault-name`) and
+  `.workspace-drawer-vault-actions` (Help first, Settings last, as themes
+  hide them by `:first-child`/`:last-child`). The sidedock keeps it after its
+  panes (`WorkspaceSidedock.footerEl`); the ribbon's settings button shows
+  only while the left sidebar is collapsed. Clicking the switcher (again to
+  close) opens a menu above it: the known vaults (`vaults.json` plus open
+  windows, by name, a vault sharing its name with another labelled with the
+  folder above it; the current one checked, a missing folder disabled), Open
+  another vault… and Manage vaults…. Help runs `app:open-help` (help.obsidian.md
+  through main's link policy), Settings opens settings. `app:open-vault`
+  ("Open another vault") opens Manage vaults, as Obsidian's command opens its
+  vault manager. Manage vaults (a modal, `.mod-vault-manager`, justnotes'
+  own classes) lists the vaults with Open (Switch for one open in another
+  window) and a menu with Reveal in Finder and Remove from list, Open folder
+  as vault, and Create new vault (a name and a location, by default the
+  current vault's parent folder). Main does every step: switching, revealing
+  and removing take only a listed vault's path (`justnotes:switch-vault`,
+  `reveal-vault`, `forget-vault`), opening goes through main's `openVault`,
+  the same as `vault:open` and obsidian:// links. Open folder as vault takes
+  the picked folder itself (`vaultFolderProblem`: an existing folder, not a
+  disk's root, not inside a `.obsidian`), asks first for a folder not opened
+  before (`confirmUnknownVault`, the dialog of files opened from Finder), and
+  remembers it. Create new vault makes only the empty folder
+  (`createVaultFolder`, names checked by `vaultNameProblem`: no separators or
+  Windows-illegal characters, no leading dot or trailing dot or space) and
+  opens it without asking, since it has no plugins. Remove from list rewrites
+  `vaults.json` only (`forgetVault`, by real path), never touching the folder,
+  and is refused while the vault has an open window.
 - The macOS application menu keeps the standard roles (Edit, zoom, developer
   tools, window) but no accelerator on a key the renderer's hotkeys use: menu
   key equivalents fire before the page sees the key, so Electron's default
@@ -763,7 +796,8 @@ plain style. Development notes belong in this file.
   search and link panes) take `--nav-item-size`, `--nav-item-padding`,
   `--nav-item-margin-bottom` and `--line-height-tight`, children
   `--nav-item-children-*` and the indentation guide, tabs `--tab-*`, the
-  ribbon `--ribbon-*`, the status bar `--status-bar-*`, icons `--icon-size`
+  ribbon `--ribbon-*`, the status bar `--status-bar-*`, the vault profile
+  `--vault-profile-*` and the nav item radius and hover, icons `--icon-size`
   and `--icon-stroke` set on their container. docs.obsidian.md names the
   component variables without values; `00-base.css` holds the default
   theme's, as themes restate them. A row's collapse chevron sits in its left
@@ -846,7 +880,12 @@ blogs with five of its plugins.
   `require("@electron/remote").shell.openExternal` patches only the renderer
   proxy; evaluate in main instead (`remote.require("vm").runInThisContext`
   with `process.mainModule.require("electron")`). Stubs in main survive
-  `cdp.ts reload`; the page's do not.
+  `cdp.ts reload`; the page's do not. The vault switcher's folder pickers,
+  its confirmation and Reveal in Finder are main's `dialog.showOpenDialog`,
+  `dialog.showMessageBox` and `shell.showItemInFolder`: replace them there
+  before clicking (a native picker cannot be driven and would open on the
+  desktop). Closing the window `cdp.ts` is attached to (the first vault
+  page) leaves the command waiting.
 - Never record the real microphone or raise macOS's microphone prompt: pass
   `-- --use-fake-device-for-media-stream` to `smoke.ts` (flags after `--` go
   to Electron), which gives getUserMedia Chromium's synthetic input and makes
