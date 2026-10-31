@@ -11,7 +11,7 @@ import type { MarkdownView } from "./markdown-view";
 import type { CachedMetadata } from "./metadata";
 import { debounce } from "./util";
 import type { TFile } from "./vault";
-import { textChanges } from "./view";
+import { mergeText, mirrorsOf, textChanges } from "./view";
 
 // One of a MarkdownView's two modes: editing (MarkdownEditView) and reading
 // (MarkdownPreviewView). Scroll positions are 0-based source lines, so they
@@ -23,9 +23,9 @@ export interface MarkdownSubView {
 	set(data: string, clear: boolean): void;
 }
 
-// Marks edits that come from the file or from another pane showing it: they
-// are not undoable here and are not passed on to other panes.
-const remoteEdit = Annotation.define<boolean>();
+// Marks edits copied from another pane of the note: they are not undoable
+// here and are not passed on again.
+const mirrored = Annotation.define<boolean>();
 
 // The reading view whose find results own the document's search highlights.
 let searching: MarkdownPreviewView | null = null;
@@ -73,8 +73,9 @@ export class MarkdownEditView implements MarkdownSubView {
 		return this.editor.getValue();
 	}
 
-	// A different file resets the editor (and its undo history); new text for
-	// the same file arrives as a minimal change that maps the selection.
+	// A different file resets the editor (and its undo history). New text for
+	// the same file arrives as a minimal change that maps the selection, is not
+	// undoable, and reaches the other panes of the note like an edit.
 	set(data: string, clear: boolean) {
 		if (this.#destroyed) return;
 		const cm = this.editor.cm;
@@ -84,7 +85,7 @@ export class MarkdownEditView implements MarkdownSubView {
 			return;
 		}
 		const changes = textChanges(cm.state.doc.toString(), data);
-		if (changes.length) cm.dispatch({ changes, annotations: [remoteEdit.of(true), Transaction.addToHistory.of(false)] });
+		if (changes.length) cm.dispatch({ changes, annotations: Transaction.addToHistory.of(false) });
 	}
 
 	clear() {
@@ -135,29 +136,48 @@ export class MarkdownEditView implements MarkdownSubView {
 
 	#onUpdate(u: ViewUpdate) {
 		if (!u.docChanged) return;
-		if (!u.transactions.some((tr) => tr.annotation(remoteEdit))) this.#forward(u);
+		if (!u.transactions.some((tr) => tr.annotation(mirrored))) this.#forward(u);
 		const preview = this.view.previewMode;
 		if (this.view.currentMode === preview) preview.set(u.state.doc.toString(), false);
 	}
 
-	// Other panes showing the same file follow every local edit as it happens.
+	// The other panes of the note follow every change here as it happens.
 	#forward(u: ViewUpdate) {
-		const file = this.view.file;
-		if (!file) return;
-		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
-			const other = (leaf.view as { editMode?: unknown }).editMode;
-			if (other instanceof MarkdownEditView && other !== this && other.file === file) other.#applyRemote(u.startState.doc, u);
+		for (const view of mirrorsOf(this.view)) {
+			const other = (view as MarkdownView).editMode;
+			if (other instanceof MarkdownEditView && other !== this) other.#follow(u.startState.doc, u);
 		}
 	}
 
-	// The pane that was edited saves the text; this one only shows it.
-	#applyRemote(start: Text, u: ViewUpdate) {
+	// A change made in another pane of the note. That pane saves it.
+	#follow(start: Text, u: ViewUpdate) {
 		if (this.#destroyed) return;
 		const cm = this.editor.cm;
-		if (cm.state.doc.eq(start)) cm.dispatch({ changes: u.changes, annotations: [remoteEdit.of(true), Transaction.addToHistory.of(false)] });
-		else this.set(u.state.doc.toString(), false);
-		this.view.requestSave.cancel();
-		this.view.dirty = false;
+		if (cm.state.doc.eq(start)) {
+			cm.dispatch({ changes: u.changes, annotations: [mirrored.of(true), Transaction.addToHistory.of(false)] });
+			this.view.requestSave.cancel();
+			this.view.dirty = false;
+			return;
+		}
+		// The panes went apart (a plugin reset one of them): keep the edits of
+		// both, and once this update is done, show the result in every pane.
+		// Each pane then saves it.
+		this.#mirror(mergeText(start.toString(), cm.state.doc.toString(), u.state.doc.toString()).text);
+		queueMicrotask(() => {
+			if (this.#destroyed) return;
+			const text = this.editor.cm.state.doc.toString();
+			for (const view of mirrorsOf(this.view)) {
+				const other = (view as MarkdownView).editMode;
+				if (other instanceof MarkdownEditView) other.#mirror(text);
+			}
+		});
+	}
+
+	#mirror(text: string) {
+		if (this.#destroyed) return;
+		const cm = this.editor.cm;
+		const changes = textChanges(cm.state.doc.toString(), text);
+		if (changes.length) cm.dispatch({ changes, annotations: [mirrored.of(true), Transaction.addToHistory.of(false)] });
 	}
 }
 

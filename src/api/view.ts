@@ -24,9 +24,10 @@ export interface ViewStateResult {
 // Open views by their containerEl, for focus tracking and resize events.
 const viewByEl = new WeakMap<Element, View>();
 
-// File views between taking a new file and showing its contents: their view
-// data still belongs to no file, so nothing may save it or merge into it.
-const loadingFile = new WeakSet<FileView>();
+// File views between taking a new file and showing its contents, with the
+// file they load: their view data still belongs to no file, so nothing may
+// save it or merge into it.
+const loading = new WeakMap<FileView, TFile>();
 
 function viewOf(node: EventTarget | null): View | null {
 	for (let el = node instanceof Element ? node : node instanceof Node ? node.parentElement : null; el; el = el.parentElement) {
@@ -276,11 +277,11 @@ export abstract class FileView extends ItemView {
 		this.file = file;
 		this.#path = file.path;
 		this.titleEl.setText(this.getDisplayText());
-		loadingFile.add(this);
+		loading.set(this, file);
 		try {
 			await this.onLoadFile(file);
 		} finally {
-			loadingFile.delete(this);
+			if (loading.get(this) === file) loading.delete(this);
 		}
 		this.leaf.updateHeader();
 	}
@@ -341,20 +342,59 @@ export abstract class FileView extends ItemView {
 
 export abstract class EditableFileView extends FileView {}
 
-// A text file view keeps three copies of the text apart: the view's own
-// (getViewData), `data` (Obsidian's in-memory copy: the text last loaded,
-// saved or reloaded), and what this view last read from or wrote to the file,
-// which is the base when changes made elsewhere meet unsaved edits.
+// What a text view shows of its file. Views that mirror each other's edits
+// as they happen (the Markdown panes of one note) share one document, so they
+// load from each other and read, merge and write the file as one.
+interface TextDoc {
+	file: TFile;
+	// The file's text as the document last took it in (loaded, written or
+	// merged): the base when changes made elsewhere meet unsaved edits.
+	base: string;
+	// The views showing it, once they have loaded.
+	views: Set<TextFileView>;
+}
+
+const docOf = new WeakMap<TextFileView, TextDoc>();
+const mirroring = new WeakSet<TextFileView>();
+const mirrorDocs = new WeakMap<TFile, TextDoc>();
+
+// Marks a view whose edits reach the other such views of its file as they
+// happen (MarkdownView does the passing on): they share one document.
+export function mirrorEdits(view: TextFileView) {
+	mirroring.add(view);
+}
+
+// The other views showing `view`'s document, which follow its edits.
+export function mirrorsOf(view: TextFileView): TextFileView[] {
+	const doc = docOf.get(view);
+	if (!doc || !mirroring.has(view)) return [];
+	return [...doc.views].filter((v) => v !== view && v.file === doc.file);
+}
+
+// Work on a file's text (loading, reloading, saving) runs one job at a time,
+// in order, for all views of the file: a reload never reads around a save,
+// and two views never write the file at once.
+const fileJobs = new WeakMap<TFile, Promise<unknown>>();
+
+function fileJob<T>(file: TFile, job: () => Promise<T>): Promise<T> {
+	const run = (fileJobs.get(file) ?? Promise.resolve()).then(job);
+	fileJobs.set(file, run.catch(() => {}));
+	return run;
+}
+
+const isMissing = (err: unknown) => (err as { code?: unknown } | null)?.code === "ENOENT";
+
+// A text file view keeps its own text (getViewData), `data` (Obsidian's
+// in-memory copy: the text last loaded, saved or reloaded) and its document's
+// base apart.
 export abstract class TextFileView extends EditableFileView {
 	data = "";
-	// Set by requestSave; cleared once save() takes the text to write.
+	// Set by requestSave; cleared once a save takes the text to write.
 	dirty = false;
 	requestSave: Debouncer<[], Promise<void> | void>;
-	#disk: { file: TFile; text: string } | null = null;
-	// Texts this view is writing (or wrote within the last second): their
-	// modify events are its own.
-	#writes = new Map<string, number>();
-	#writing: Promise<unknown> = Promise.resolve();
+	// The file save(true) cleared the view of: the view data no longer shows
+	// it, so nothing may save it or merge into it.
+	#clearedFrom: TFile | null = null;
 
 	// The workspace flushes saves before a window closes; a page unload it did
 	// not see first (a reload) still writes unsaved text, synchronously,
@@ -363,7 +403,14 @@ export abstract class TextFileView extends EditableFileView {
 	static {
 		if (typeof window !== "undefined") {
 			window.addEventListener("beforeunload", () => {
-				for (const view of TextFileView.#loaded) view.#saveNow();
+				const written = new Set<TextDoc>();
+				for (const view of TextFileView.#loaded) {
+					try {
+						view.#saveNow(written);
+					} catch (err) {
+						console.error(err);
+					}
+				}
 			});
 		}
 	}
@@ -387,27 +434,52 @@ export abstract class TextFileView extends EditableFileView {
 	onload() {
 		super.onload();
 		TextFileView.#loaded.add(this);
-		this.register(() => TextFileView.#loaded.delete(this));
+		this.register(() => {
+			TextFileView.#loaded.delete(this);
+			this.requestSave.cancel();
+			this.#leave();
+		});
 		this.registerEvent(
-			this.app.vault.on("modify", (file: TAbstractFile) => {
-				if (file === this.file) this.#onModify(this.file).catch((err) => console.error(err));
+			this.app.vault.on("modify", (modified: TAbstractFile) => {
+				const file = this.file;
+				if (file && modified === file) fileJob(file, () => this.#reload(file)).catch((err) => console.error(err));
 			}),
 		);
 	}
 
+	// Reads the file, or, when another view already shows it in sync, starts
+	// from that view's text, unsaved edits included, so both show the same.
 	async onLoadFile(file: TFile) {
-		const text = await this.app.vault.read(file);
-		this.data = text;
-		this.#disk = { file, text };
-		this.dirty = false;
-		this.setViewData(text, true);
-		loadingFile.delete(this);
+		this.#leave();
+		this.#clearedFrom = null;
+		await fileJob(file, async () => {
+			if (this.file !== file) return;
+			const shared = mirroring.has(this) ? mirrorDocs.get(file) : undefined;
+			const from = shared && [...shared.views].find((v) => v.file === file);
+			let doc: TextDoc;
+			let text: string;
+			if (shared && from) {
+				doc = shared;
+				text = from.getViewData();
+				this.data = from.data;
+			} else {
+				text = await this.app.vault.read(file);
+				if (this.file !== file) return;
+				doc = { file, base: text, views: new Set() };
+				if (mirroring.has(this)) mirrorDocs.set(file, doc);
+				this.data = text;
+			}
+			this.dirty = false;
+			this.setViewData(text, true);
+			doc.views.add(this);
+			docOf.set(this, doc);
+			if (loading.get(this) === file) loading.delete(this);
+		});
 	}
 
 	// Saves any unsaved changes first; save(true) then clears the view.
 	async onUnloadFile(_file: TFile) {
 		await this.save(true);
-		this.#disk = null;
 	}
 
 	// Writes when there are unsaved changes, never to a file the vault no
@@ -415,79 +487,146 @@ export abstract class TextFileView extends EditableFileView {
 	async save(clear?: boolean) {
 		this.requestSave.cancel();
 		const file = this.file;
-		if (file && !loadingFile.has(this) && this.app.vault.getAbstractFileByPath(file.path) === file) {
-			const data = this.getViewData();
-			if (this.dirty || data !== this.data) {
-				this.dirty = false;
-				this.data = data;
-				this.#disk = { file, text: data };
-				await this.#write(file, data);
-			}
+		if (file && !loading.has(this)) await fileJob(file, () => this.#write(file));
+		if (clear) {
+			this.requestSave.cancel();
+			this.dirty = false;
+			this.#clearedFrom = file;
+			this.#leave();
+			this.clear();
 		}
-		if (clear) this.clear();
 	}
 
-	#saveNow() {
-		const file = this.file;
-		if (!file || loadingFile.has(this) || this.app.vault.getAbstractFileByPath(file.path) !== file) return;
+	#shows(file: TFile) {
+		return this.file === file && !loading.has(this) && this.#clearedFrom !== file;
+	}
+
+	#docFor(file: TFile) {
+		const doc = docOf.get(this);
+		return doc?.file === file ? doc : undefined;
+	}
+
+	// A change on disk the document has not taken in yet (a watcher event on
+	// its way, or one the vault skipped) is merged in first, so the write never
+	// drops it.
+	async #write(file: TFile) {
+		if (!this.#shows(file) || this.app.vault.getAbstractFileByPath(file.path) !== file) return;
+		if (!this.dirty && this.getViewData() === this.data) return;
+		const doc = this.#docFor(file);
+		if (doc) {
+			const disk = await this.#read(file);
+			// Gone from disk: the vault reports the delete soon. The view stays
+			// dirty, so the text is written if the file comes back.
+			if (disk === null || !this.#shows(file) || this.#docFor(file) !== doc) return;
+			if (disk !== doc.base && !this.#takeIn(doc, disk)) return;
+		}
 		const data = this.getViewData();
-		if (!this.dirty && data === this.data) return;
 		this.requestSave.cancel();
 		this.dirty = false;
 		this.data = data;
-		try {
-			fs.writeFileSync(this.app.vault.adapter.getFullPath(file.path), data, "utf8");
-		} catch (err) {
-			console.error(err);
+		// Mirrors showing this text have nothing left to save.
+		for (const view of doc?.views ?? []) {
+			view.data = data;
+			if (view !== this && view.getViewData() === data) {
+				view.requestSave.cancel();
+				view.dirty = false;
+			}
 		}
-	}
-
-	// Writes run one at a time, in the order save() was called, so the file
-	// ends up with the newest text; a queued write skips a file deleted meanwhile.
-	async #write(file: TFile, data: string) {
-		this.#writes.set(data, (this.#writes.get(data) ?? 0) + 1);
-		const run = this.#writing.then(() => {
-			if (this.app.vault.getAbstractFileByPath(file.path) === file) return this.app.vault.modify(file, data);
-		});
-		this.#writing = run.catch(() => {});
 		try {
-			await run;
+			await this.app.vault.modify(file, data);
 		} catch (err) {
 			this.dirty = true;
 			throw err;
-		} finally {
-			setTimeout(() => {
-				const n = (this.#writes.get(data) ?? 1) - 1;
-				if (n > 0) this.#writes.set(data, n);
-				else this.#writes.delete(data);
-			}, 1000);
+		}
+		if (doc) doc.base = data;
+		else this.#adopt(file, data);
+	}
+
+	// The file changed: from another view, a plugin, git or the disk.
+	async #reload(file: TFile) {
+		if (!this.#shows(file)) return;
+		const text = await this.#read(file);
+		if (text === null || !this.#shows(file)) return;
+		// A view whose subclass loads the file itself has only `data` as a base.
+		const doc = this.#docFor(file) ?? this.#adopt(file, this.data);
+		if (text !== doc.base && this.#takeIn(doc, text)) this.requestSave();
+	}
+
+	// Takes the file's new text into the document. Unsaved edits are merged
+	// into it line by line, so neither side is lost; lines both sides changed
+	// differently keep the file's version, then the view's. True when the
+	// result has edits the file lacks, which the caller saves.
+	#takeIn(doc: TextDoc, text: string) {
+		const ours = this.getViewData();
+		const merge = mergeText(doc.base, ours, text);
+		doc.base = text;
+		for (const view of doc.views) view.data = merge.text;
+		this.data = merge.text;
+		// Mirrors follow this view's change as they follow typing.
+		if (merge.text !== ours) this.setViewData(merge.text, false);
+		// Applying the text can look like an edit to a view.
+		for (const view of new Set([this, ...doc.views])) {
+			view.requestSave.cancel();
+			view.dirty = false;
+		}
+		if (merge.conflicts) {
+			new Notice(`${doc.file.name} changed on disk while it had unsaved edits. Lines changed on both sides now appear twice: the file's version, then yours.`, 10000);
+		}
+		return merge.text !== text;
+	}
+
+	// For a page unload: writes unsaved text at once, a document once, with a
+	// change on disk merged in first.
+	#saveNow(written: Set<TextDoc>) {
+		const file = this.file;
+		if (!file || !this.#shows(file) || this.app.vault.getAbstractFileByPath(file.path) !== file) return;
+		const doc = this.#docFor(file);
+		if (doc && written.has(doc)) return;
+		let data = this.getViewData();
+		if (!this.dirty && data === this.data) return;
+		const path = this.app.vault.adapter.getFullPath(file.path);
+		if (doc) {
+			let disk: string;
+			try {
+				disk = fs.readFileSync(path, "utf8");
+			} catch (err) {
+				if (isMissing(err)) return;
+				throw err;
+			}
+			if (disk !== doc.base) data = mergeText(doc.base, data, disk).text;
+		}
+		this.requestSave.cancel();
+		this.dirty = false;
+		this.data = data;
+		fs.writeFileSync(path, data, "utf8");
+		if (doc) {
+			doc.base = data;
+			written.add(doc);
 		}
 	}
 
-	// The file changed outside this view (another pane, a plugin, git, the
-	// disk). Without unsaved edits the view takes the new text. With them, the
-	// edits are merged into it line by line, so neither side is lost; lines
-	// both sides changed differently keep the file's version, then the view's.
-	async #onModify(file: TFile) {
-		if (loadingFile.has(this)) return;
-		const text = await this.app.vault.read(file);
-		if (loadingFile.has(this) || file !== this.file || this.#writes.has(text)) return;
-		const base = this.#disk?.file === file ? this.#disk.text : this.data;
-		if (text === base) return;
-		this.#disk = { file, text };
-		const ours = this.getViewData();
-		const merge = !this.dirty && ours === this.data ? { text, conflicts: 0 } : mergeText(base, ours, text);
-		this.data = merge.text;
-		if (merge.text !== ours) this.setViewData(merge.text, false);
-		// Applying the text can look like an edit to the view; it is saved
-		// only when the merge kept edits the file does not have.
-		if (merge.text === text) {
-			this.requestSave.cancel();
-			this.dirty = false;
-		} else this.requestSave();
-		if (merge.conflicts) {
-			new Notice(`${file.name} changed on disk while it had unsaved edits. Lines changed on both sides now appear twice: the file's version, then yours.`, 10000);
+	async #read(file: TFile) {
+		try {
+			return await this.app.vault.read(file);
+		} catch (err) {
+			if (isMissing(err)) return null;
+			throw err;
 		}
+	}
+
+	#adopt(file: TFile, base: string) {
+		this.#leave();
+		const doc: TextDoc = { file, base, views: new Set([this]) };
+		docOf.set(this, doc);
+		return doc;
+	}
+
+	#leave() {
+		const doc = docOf.get(this);
+		if (!doc) return;
+		docOf.delete(this);
+		doc.views.delete(this);
+		if (!doc.views.size && mirrorDocs.get(doc.file) === doc) mirrorDocs.delete(doc.file);
 	}
 
 	abstract getViewData(): string;

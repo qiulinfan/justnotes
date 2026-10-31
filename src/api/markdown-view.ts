@@ -7,7 +7,7 @@ import { setIcon, setTooltip } from "./icons";
 import { Keymap, Scope } from "./keymap";
 import { MarkdownEditView, MarkdownPreviewView, type MarkdownSubView, subpathLine } from "./markdown-preview";
 import { Menu } from "./ui/menu";
-import { TextFileView, type ViewStateResult } from "./view";
+import { mirrorEdits, TextFileView, type ViewStateResult } from "./view";
 import type { WorkspaceLeaf } from "./workspace";
 
 export class MarkdownView extends TextFileView {
@@ -30,6 +30,8 @@ export class MarkdownView extends TextFileView {
 
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
+		// Panes of one note show one document: each edit reaches the others.
+		mirrorEdits(this);
 		this.scope = new Scope(this.app.scope);
 		this.contentEl.addClass("markdown-view");
 		this.editMode = new MarkdownEditView(this);
