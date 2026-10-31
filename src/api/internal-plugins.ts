@@ -39,6 +39,8 @@ const CORE_PLUGINS = [
 	"sync",
 	"bases",
 	"webviewer",
+	// justnotes' own, not Obsidian's: a terminal (src/renderer/terminal).
+	"terminal",
 ];
 
 // The core plugins whose instances justnotes backs with its own features
@@ -65,11 +67,12 @@ const IMPLEMENTED = new Set([
 	"audio-recorder",
 	"file-recovery",
 	"bookmarks",
+	"terminal",
 ]);
 
 // Core plugins of justnotes' own, which Obsidian's core-plugins.json never
 // lists: they start enabled unless turned off in the Core plugins settings.
-const JUSTNOTES_OWN = new Set<string>();
+const JUSTNOTES_OWN = new Set(["terminal"]);
 
 // File explorer and Search are part of justnotes' window: they stay on.
 export const ALWAYS_ON = new Set(["file-explorer", "global-search"]);
@@ -93,6 +96,11 @@ export const CORE_PLUGIN_INFO: Record<string, { name: string; description: strin
 	slides: { name: "Slides", description: "Presents a note as a slide deck." },
 	"audio-recorder": { name: "Audio recorder", description: "Record audio and save it as an attachment in a note." },
 	"file-recovery": { name: "File recovery", description: "Keeps snapshots of your notes to restore lost work." },
+	terminal: {
+		name: "Terminal",
+		description:
+			"Opens your login shell in a tab, styled from Ghostty's config when there is one. While on, the community plugin terminal is not loaded.",
+	},
 };
 
 export interface InternalPluginInstance {

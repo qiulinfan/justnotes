@@ -38,7 +38,8 @@ plain style. Development notes belong in this file.
   synchronous IPC behind SecretStorage (Electron `safeStorage`) and the
   plugins' clipboard, `protocol.ts` scheme registration, `media.ts` which
   media requests are granted, `vault-switcher.ts` the vault switcher's IPC
-  (see Vault switcher).
+  (see Vault switcher), `pty.ts` the Terminal core plugin's pseudoterminals
+  (see Terminal).
 - `src/api/`: the `obsidian` module. `index.ts` is exactly the list plugins see:
   the value exports of `obsidian.d.ts`, no more (`test/finish-exports.test.ts`
   checks both directions). Modules that also hold justnotes internals are listed
@@ -83,7 +84,8 @@ plain style. Development notes belong in this file.
   `electron-builder.yml` is the packaging configuration.
 - `src/renderer/`: host UI (boot, core commands, file explorer, search, view
   and workspace commands, bases view, the core plugins in `core-plugins.ts`
-  and the modules it installs) and `styles/NN-*.css`, which keep
+  and the modules it installs; `terminal/` is the Terminal core plugin) and
+  `styles/NN-*.css`, which keep
   Obsidian's CSS variable and class names so plugin stylesheets apply.
 
 ## Compatibility rules
@@ -209,7 +211,14 @@ plain style. Development notes belong in this file.
   page's main frame (iframes, `<webview>` guests and the camera are
   refused), after `systemPreferences.askForMediaAccess` on macOS when the
   system has not decided yet; with `--use-fake-device-for-media-stream` it
-  skips the system check. Not there yet: the other core plugins.
+  skips the system check. Terminal (`terminal`, see Terminal) is justnotes'
+  own, not Obsidian's: `JUSTNOTES_OWN` core plugins start on unless turned
+  off on the Core plugins page, and may add a settings tab under "Core
+  plugins" in Settings (`host.addSettingTab`). A core plugin can stand in for
+  a community plugin (`REPLACED_BY` in `plugins.ts`): while it is on, that
+  plugin is not loaded (its enabled choice stays; the Community plugins page
+  says why and `smoke.ts` lists it under `replacedPlugins`), and turning the
+  core plugin off loads it again. Not there yet: the other core plugins.
 - Bookmarks (`bookmarks-data.ts`: format, merge, rename/delete following,
   tested; `bookmarks.ts`: instance, view, dialog, commands, menus). The
   instance (`app.internalPlugins.plugins.bookmarks.instance`, created in
@@ -472,6 +481,83 @@ plain style. Development notes belong in this file.
   `types.json`; an empty type unassigns one). The language
   is localStorage `language`, else `en`; never the OS locale.
 
+## Terminal
+
+- The Terminal core plugin (`src/renderer/terminal`, on by default) replaces
+  the community plugin `terminal` (polyipseity), which keeps working in
+  Obsidian. Views are `terminal` (state `{cwd}`: the shell's folder, followed
+  through OSC 7, so a restored layout starts there); xterm.js 6 with the fit,
+  WebGL (on context loss or failure, xterm's DOM renderer; xterm 6 has no
+  canvas renderer), web-links, search and unicode11 addons.
+- The shells are node-pty in main (`main/pty.ts`), not in the page: the page
+  asks over IPC (`justnotes:pty-spawn`, `-input`, `-resize`, `-ack`, `-kill`;
+  main sends `-data`, batched per 4 ms, and `-exit`), every pty belongs to the
+  page that started it (popouts have no Node and go through their vault page)
+  and is killed when its view closes, when that page navigates (reload) or is
+  destroyed. Flow control: main pauses a pty while more than 100k characters
+  wait for the page's acknowledgement of what xterm has written. The shell is
+  the settings' shell, else `$SHELL`, else the account's, with `-l`
+  (PowerShell on Windows); its environment is main's without `ELECTRON_*`,
+  with `TERM=xterm-256color`, `COLORTERM=truecolor`, `TERM_PROGRAM=justnotes`
+  and `LANG=en_US.UTF-8` when no locale is set (a Finder launch). Never log
+  the environment or config values; spawn errors name only the shell.
+- node-pty is pinned to `1.2.0-beta.15`: Microsoft's package with prebuilt
+  N-API binaries for macOS (arm64, x64), Windows (ConPTY) and Linux, so
+  Electron needs no rebuild and no compiler (1.1.0's `spawn-helper` is not
+  executable and every spawn fails). Bun trusts it by default, so its install
+  script runs; it finds the prebuilds and builds nothing. Main loads it with
+  `createRequire` on first use; it stays outside the bundle and the asar (see
+  Packaging and releases). It produces no output under Bun, so its wiring is
+  checked live only.
+- Keys: the view's scope (no parent) lets through only hotkeys of
+  window-level commands (`WINDOW_COMMANDS` in `keys.ts`: palette, switcher,
+  settings, tabs, splits, sidebars, navigation), the `terminal:` commands,
+  and on macOS any Cmd shortcut; everything else goes to the shell, as the
+  plugin's "intercept keys when focused" does. A key the keymap handled is
+  default-prevented, which the xterm key handler then drops.
+  `terminalKeyAction` answers before both: macOS Cmd+C (with a selection),
+  Cmd+V, Cmd+K (clear), Cmd+F (find), Cmd+A, Ghostty's default line keys
+  (Cmd+Left/Right as ^A/^E, Cmd+Backspace ^U, Option+Left/Right ESC b/f) and
+  Option+Delete ESC d (the owner's plugin keymap); elsewhere the Ctrl+Shift
+  forms, and Ctrl+C copies only while text is selected. The macOS Edit
+  menu's copy, paste and select-all reach xterm as DOM events.
+- Links: URLs open with `window.open` (main's link policy); file paths a line
+  names (`findPathCandidates`: tokens with a separator or an extension,
+  `:line:col` allowed) resolved from the shell's folder (`vaultPathOf`) that
+  are vault files open on click (Mod-click in a new tab). Explorer drags
+  (`app.dragManager.draggable` files, action "Insert path") and system file
+  drops paste the full paths, shell-quoted (`shellQuote`).
+- Look (`appearance.ts`, `ghostty-config.ts`): Ghostty's config files as
+  Ghostty loads them (`~/.config/ghostty/config[.ghostty]`, then macOS
+  `~/Library/Application Support/com.mitchellh.ghostty/config[.ghostty]`,
+  `config-file` includes after the naming file), read only and polled every
+  2 s with `fs.watchFile`; else the theme's `--background-primary`,
+  `--text-normal`, `--text-selection`, `--text-accent`, re-read on
+  `css-change`. The xterm canvas is transparent (`allowTransparency`); the
+  backdrop below draws the background colour at `background-opacity` over
+  the pane and the image (a blob: URL, so popouts show it) with its opacity,
+  fit, position and repeat. Mapped: font-family (with fallbacks),
+  font-size, font-style/-bold weights, font-feature (as CSS, for the DOM
+  renderer; WebGL never joins ligatures), adjust-cell-height (xterm refuses
+  line heights below 1, so a negative one does nothing), background,
+  foreground, selection colours, cursor colour, text, style and blink,
+  palette 0-255, bold-color `bright`, minimum-contrast, macos-option-as-alt,
+  window-padding-x/y, the background image options. Not mapped: a
+  bold-color colour (xterm has none), keybind, font-family-bold/-italic,
+  font-thicken, scrollback-limit (bytes; the settings take lines), window
+  and shell-integration options. Every option a config may set gets a value
+  in each look, so turning Ghostty off restores xterm's defaults.
+- Settings (localStorage `terminal-settings`, the Terminal tab under Core
+  plugins): shell, starting folder (vault or the active note's), Use
+  Ghostty's config, font size, copy on select, scrollback. Commands:
+  `terminal:open`, `-open-in-current-folder`, `-open-right`, `-open-below`,
+  `-toggle` (Ctrl+`: into the last terminal, out of a focused one, or a new
+  one below), `-clear`, `-find`, `-restart`; a ribbon button and "Open in
+  terminal" in the file menu. A view opened in a hidden tab opens xterm when
+  first shown (it measures cells on open). Moved to a popout, xterm is opened
+  again on its element (it follows the new window) and the WebGL addon is
+  made again there. An exited shell shows a bar: Restart, Close, or Enter.
+
 ## Command line
 
 - `justnotes [--profile <dir>] [--offline] [vault=<name|path>] <command>
@@ -620,10 +706,15 @@ plain style. Development notes belong in this file.
   `justnotes` user data folder the source build uses.
 - The asar holds `package.json`, `dist/` without source maps and the
   command, and of node_modules only `@electron/remote`, which main and the
-  page require at runtime; every other dependency is bundled by esbuild or
-  copied into `dist/lib` (MathJax, pdf.js, Mermaid, Prism). A new runtime
-  `require` of a package needs an entry in `files`. There are no native
-  modules (`npmRebuild: false`). Nothing reads the repo at runtime:
+  page require at runtime, and node-pty (unpacked: `asarUnpack`, since its
+  `.node` files, `spawn-helper` and Windows worker cannot run from inside
+  the asar); every other dependency is bundled by esbuild or copied into
+  `dist/lib` (MathJax, pdf.js, Mermaid, Prism). A new runtime `require` of a
+  package needs an entry in `files`. node-pty, the one native module, ships
+  prebuilt N-API binaries, so nothing is rebuilt (`npmRebuild: false`). Its
+  `prebuilds/{darwin,win32}-${arch}` both go into every package: a
+  platform-level `files` entry never reaches node_modules, and `${platform}`
+  is the building machine's when cross-building. Nothing reads the repo at runtime:
   `__dirname` is `app.asar/dist`, and `file:///lib/` maps into it.
 - The command: `build.ts` bundles `src/cli/justnotes.ts` to
   `dist/cli/justnotes.mjs` (ESM for its top-level await, with a `require`
@@ -970,7 +1061,7 @@ copies: copy-location, quick-latex, obsidian-completr, yolo (live completion,
 paid: only within the owner's small test budget), background, kgdistiller
 (0.1.5 and 3.0.2), latex-live (0.1.0, 0.1.7 and 0.2.0), obsidian-git (2.41.1
 and 2.42.0), omp-sidebar, quickadd (2.24.2 and 2.33.1), terminal (3.27.2 and
-3.29.0). QuickAdd's capture into the active canvas and into a configured
+3.29.0; not loaded while the Terminal core plugin is on). QuickAdd's capture into the active canvas and into a configured
 card were tested on a synthetic vault. In a popout window Markdown editing,
 Completr's and the link suggests, latex-live's math, QuickAdd's modals and
 menus and a terminal moved there (its `onWindowMigrated` reopens xterm) were
@@ -990,8 +1081,10 @@ blogs with five of its plugins.
 ## Verify
 
 - `bun run check` (TypeScript), `bun run build`, `bun run test`; after a
-  change to packaging, main's startup or the command, `bun run dist:mac`
-  and the package checks in Packaging and releases.
+  change to packaging, main's startup, the command or the terminal's pty,
+  `bun run dist:mac` and the package checks in Packaging and releases (for
+  the terminal: open one in the packaged app and run `echo`, which proves
+  node-pty loaded from `app.asar.unpacked`).
 - Test against a copy of a vault, never the owner's real vaults:
   `bun scripts/test-vault.ts <vault> <dest> [plugin-id ...]`. Plugins write
   their `data.json`, and some run external programs. The copy holds no link
@@ -1043,7 +1136,9 @@ blogs with five of its plugins.
   them with a local Git server that asks for Basic auth (`git http-backend`
   behind a small Bun server); quickadd keeps online features off; terminal shells
   are the owner's login shell, so launch with `fish_private_mode=1` and type
-  nothing that should not run; latex-live keeps shell escape off and builds in
+  nothing that should not run (the Terminal core plugin's shells too: echo,
+  ls, pwd in throwaway folders; `SHELL=` or the shell setting picks fish);
+  latex-live keeps shell escape off and builds in
   the system temp folder, but copies hold no `.tex`: copy a project's whole TeX
   tree in (notes' projects `\input` sibling projects and `../toolchain`), and
   stub `dialog.showSaveDialog` in main before Export to HTML, which opens a

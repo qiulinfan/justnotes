@@ -19,7 +19,7 @@ export interface SettingPageEntry {
 // back out of a page before it closes the window.
 export class SettingModal extends Modal {
 	settingTabs: SettingTab[];
-	// The options of core plugins that have any (justnotes' own).
+	// The options of core plugins that have any (justnotes' own Terminal).
 	coreTabs: SettingTab[] = [];
 	pluginTabs: SettingTab[] = [];
 	activeTab: SettingTab | null = null;
