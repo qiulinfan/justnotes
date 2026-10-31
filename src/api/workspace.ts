@@ -315,11 +315,16 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 		// The type may have been registered while its placeholder was opening.
 		if (needsView()) await this.open(workspace.createView(this, viewState.type, viewState));
 		const result = { history: false };
-		await this.view.setState(viewState.state ?? {}, result);
+		try {
+			await this.view.setState(viewState.state ?? {}, result);
+		} finally {
+			// A view whose setState throws (a plugin view revived before its plugin
+			// is ready) still has its title in the tab.
+			this.updateHeader();
+		}
 		if (eState) this.view.setEphemeralState(eState);
 		const swapped = this.view !== before || fileOf(this.view) !== beforeFile;
 		if (entry && (result.history || swapped)) this.history.pushState(entry);
-		this.updateHeader();
 		workspace.onLeafViewChanged(this, swapped);
 		if (viewState.active) workspace.setActiveLeaf(this, { focus: true });
 		if (swapped) this.#syncGroup();
