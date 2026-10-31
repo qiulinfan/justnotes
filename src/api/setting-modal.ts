@@ -205,8 +205,10 @@ export class SettingModal extends Modal {
 		}
 	}
 
+	// An imperative tab's container is its own, as in Obsidian: display()
+	// clears it if it redraws, and some tabs (terminal) build their settings
+	// once at load and only refresh them in display().
 	#display(tab: SettingTab) {
-		tab.containerEl.empty();
 		this.#update(tab);
 		try {
 			if (tab.settingItems.length) renderTab(tab);

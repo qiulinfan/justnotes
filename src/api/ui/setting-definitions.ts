@@ -568,8 +568,10 @@ export function openDefinitionPage(tab: SettingTab, def: SettingDefinitionPage, 
 	tab.app.setting.openPage(page);
 }
 
+// Definitions own the whole container, including what an earlier display() drew.
 export function renderTab(tab: SettingTab) {
 	teardownTab(tab);
+	tab.containerEl.empty();
 	const state = stateOf(tab);
 	state.view = new DefinitionView(hostOf(tab), tab.containerEl, []);
 	state.view.render(tab.settingItems);
