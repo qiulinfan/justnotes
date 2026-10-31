@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, type Session, session, shell, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, nativeTheme, type Session, session, shell, type WebContents } from "electron";
 import { enclosingVault } from "../cli/vaults";
 import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultNamed, vaultOf } from "./ipc";
@@ -164,18 +164,55 @@ app.on("web-contents-created", (_evt, contents) => {
 
 // The application menu, like Obsidian's. Electron's default menu had Close
 // Window on Cmd+W and Reload on Cmd+R, so those keys could close the window or
-// reload the page instead of running the close-tab and reload commands; no
-// item here takes a key the renderer's hotkeys use (Minimize leaves Cmd+M to
-// Quick LaTeX's inline math). The Edit roles stay because text fields and
-// <webview> guests undo, copy and paste through them. View keeps the default
-// menu's zoom (Cmd+0, Cmd+Plus, Cmd+-), which zooms the whole app as
-// Obsidian's does, and full screen. Quit closes each window through its
-// before-close flush (lifecycle.ts). Windows and Linux get no menu bar.
+// reload the page instead of running the close-tab and reload commands. Items
+// that run a command show its default key without registering it
+// (`registerAccelerator: false`): the key still reaches the renderer, where
+// hotkeys.json may rebind it, and Minimize leaves Cmd+M to Quick LaTeX's
+// inline math. The Edit roles stay because text fields and <webview> guests
+// undo, copy and paste through them. View keeps the default menu's zoom
+// (Cmd+0, Cmd+Plus, Cmd+-), which zooms the whole app as Obsidian's does, and
+// full screen. Quit closes each window through its before-close flush
+// (lifecycle.ts). Windows and Linux get no menu bar.
 function setApplicationMenu() {
 	if (process.platform !== "darwin") return Menu.setApplicationMenu(null);
+	app.setAboutPanelOptions({ applicationName: "justnotes", applicationVersion: app.getVersion() });
+	const command = (label: string, id: string, accelerator?: string): MenuItemConstructorOptions => ({
+		label,
+		accelerator,
+		registerAccelerator: false,
+		click: () => runCommand(id),
+	});
 	Menu.setApplicationMenu(
 		Menu.buildFromTemplate([
-			{ role: "appMenu", submenu: [{ role: "about" }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, { role: "quit" }] },
+			{
+				label: "justnotes",
+				submenu: [
+					{ role: "about", label: "About justnotes" },
+					{ type: "separator" },
+					command("Settings…", "app:open-settings", "CmdOrCtrl+,"),
+					{ type: "separator" },
+					{ role: "services" },
+					{ type: "separator" },
+					{ role: "hide", label: "Hide justnotes" },
+					{ role: "hideOthers" },
+					{ role: "unhide" },
+					{ type: "separator" },
+					{ role: "quit", label: "Quit justnotes" },
+				],
+			},
+			{
+				label: "File",
+				submenu: [
+					command("New note", "file-explorer:new-file", "CmdOrCtrl+N"),
+					command("New tab", "workspace:new-tab", "CmdOrCtrl+T"),
+					{ type: "separator" },
+					command("Quick switcher…", "switcher:open", "CmdOrCtrl+O"),
+					{ label: "Open vault…", click: () => void pickVault() },
+					{ type: "separator" },
+					command("Close tab", "workspace:close", "CmdOrCtrl+W"),
+					{ label: "Close window", accelerator: "Shift+CmdOrCtrl+W", click: (_item, win) => win?.close() },
+				],
+			},
 			{
 				label: "Edit",
 				submenu: [
@@ -188,11 +225,19 @@ function setApplicationMenu() {
 					{ role: "pasteAndMatchStyle" },
 					{ role: "delete" },
 					{ role: "selectAll" },
+					{ type: "separator" },
+					command("Search in all files", "global-search:open", "Shift+CmdOrCtrl+F"),
 				],
 			},
 			{
 				label: "View",
 				submenu: [
+					command("Command palette…", "command-palette:open", "CmdOrCtrl+P"),
+					{ type: "separator" },
+					command("Toggle left sidebar", "app:toggle-left-sidebar"),
+					command("Toggle right sidebar", "app:toggle-right-sidebar"),
+					{ type: "separator" },
+					command("Reload", "app:reload", "CmdOrCtrl+R"),
 					{ role: "toggleDevTools" },
 					{ type: "separator" },
 					{ role: "resetZoom" },
@@ -203,8 +248,29 @@ function setApplicationMenu() {
 				],
 			},
 			{ role: "window", submenu: [{ label: "Minimize", click: (_item, win) => win?.minimize() }, { role: "zoom" }, { type: "separator" }, { role: "front" }] },
+			{
+				role: "help",
+				submenu: [
+					{ label: "justnotes on GitHub", click: () => void shell.openExternal("https://github.com/qiulinfan/justnotes") },
+					{ label: "Report an issue", click: () => void shell.openExternal("https://github.com/qiulinfan/justnotes/issues") },
+				],
+			},
 		]),
 	);
+}
+
+// Runs a command in the focused window's vault page (a popout's being its
+// vault page's, which drives it).
+function runCommand(id: string) {
+	const focused = BrowserWindow.getFocusedWindow()?.webContents;
+	const page = focused ? (popoutOpeners.get(focused) ?? focused) : [...vaultWindows.values()][0]?.webContents;
+	page?.executeJavaScript(`window.app?.commands.executeCommandById(${JSON.stringify(id)})`).catch((err) => console.error("Could not run", id, err));
+}
+
+// File > Open vault…: a folder the user picks opens in its own window.
+async function pickVault() {
+	const picked = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"], title: "Open vault" });
+	if (!picked.canceled && picked.filePaths[0]) await openLaunch({ vaults: [picked.filePaths[0]], files: [], urls: [] });
 }
 
 // Each popout's vault page, whose links its own count as (a popout's page
