@@ -129,6 +129,12 @@
 	left: -3px;
 }
 
+/* While a handle is dragged, a page in a <webview> or <iframe> under the
+   pointer must not take the pointer from it. */
+body.is-resizing :is(webview, iframe) {
+	pointer-events: none;
+}
+
 .workspace-split.mod-sidedock {
 	position: relative;
 	flex-shrink: 0;

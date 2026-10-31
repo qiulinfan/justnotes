@@ -59,6 +59,27 @@ function safeDecode(text: string) {
 	}
 }
 
+// Follows a resize handle's drag until the pointer lets go. Meanwhile
+// body.is-resizing lets the pointer through <webview> and <iframe> pages: one
+// under the pointer would take the moves and the release from the handle, so
+// the drag would stop following and stay attached to the handle.
+function dragHandle(evt: PointerEvent, move: (e: PointerEvent) => void, end: () => void) {
+	const handle = evt.currentTarget as HTMLElement;
+	handle.setPointerCapture(evt.pointerId);
+	document.body.addClass("is-resizing");
+	// The capture ends at the handle, or at the document when the handle went
+	// away mid-drag (a plugin closed its split).
+	const done = (e: PointerEvent) => {
+		if (e.target !== handle && handle.isConnected) return;
+		handle.removeEventListener("pointermove", move);
+		document.removeEventListener("lostpointercapture", done);
+		document.body.removeClass("is-resizing");
+		end();
+	};
+	handle.addEventListener("pointermove", move);
+	document.addEventListener("lostpointercapture", done);
+}
+
 // Leaves showing a recorded state again (going back or forward, a restored
 // layout, a reopened tab); such a load adds no history entry.
 const replaying = new WeakSet<WorkspaceLeaf>();
@@ -683,21 +704,16 @@ export class WorkspaceSplit extends WorkspaceParent {
 		const start = vertical ? evt.clientX : evt.clientY;
 		const pair = sizes[index] + sizes[index + 1];
 		const min = Math.min(80, pair / 2);
-		const handle = evt.currentTarget as HTMLElement;
-		handle.setPointerCapture(evt.pointerId);
-		const move = (e: PointerEvent) => {
-			const a = Math.clamp(sizes[index] + (vertical ? e.clientX : e.clientY) - start, min, pair - min);
-			child.setDimension((a / total) * 100);
-			next.setDimension(((pair - a) / total) * 100);
-			this.app.workspace.requestResize();
-		};
-		const up = () => {
-			handle.removeEventListener("pointermove", move);
-			handle.removeEventListener("pointerup", up);
-			this.app.workspace.onLayoutChange();
-		};
-		handle.addEventListener("pointermove", move);
-		handle.addEventListener("pointerup", up);
+		dragHandle(
+			evt,
+			(e) => {
+				const a = Math.clamp(sizes[index] + (vertical ? e.clientX : e.clientY) - start, min, pair - min);
+				child.setDimension((a / total) * 100);
+				next.setDimension(((pair - a) / total) * 100);
+				this.app.workspace.requestResize();
+			},
+			() => this.app.workspace.onLayoutChange(),
+		);
 	}
 }
 
@@ -793,19 +809,14 @@ export class WorkspaceSidedock extends WorkspaceSplit {
 		evt.preventDefault();
 		const start = evt.clientX;
 		const width = this.width;
-		const handle = evt.currentTarget as HTMLElement;
-		handle.setPointerCapture(evt.pointerId);
-		const move = (e: PointerEvent) => {
-			this.setWidth(width + (this.side === "left" ? e.clientX - start : start - e.clientX));
-			this.app.workspace.requestResize();
-		};
-		const up = () => {
-			handle.removeEventListener("pointermove", move);
-			handle.removeEventListener("pointerup", up);
-			this.app.workspace.onLayoutChange();
-		};
-		handle.addEventListener("pointermove", move);
-		handle.addEventListener("pointerup", up);
+		dragHandle(
+			evt,
+			(e) => {
+				this.setWidth(width + (this.side === "left" ? e.clientX - start : start - e.clientX));
+				this.app.workspace.requestResize();
+			},
+			() => this.app.workspace.onLayoutChange(),
+		);
 	}
 }
 
@@ -1437,9 +1448,14 @@ export class Workspace extends Events {
 		await leaf.openFile(file, { ...openViewState, active, eState });
 	}
 
+	// Stopgap until popout windows exist: a new tab in the main window. It is
+	// shown at once, as a popout window would be (a view such as terminal's
+	// starts only once visible), and takes focus only if the caller makes it
+	// active.
 	openPopoutLeaf(_data?: unknown) {
-		// Stopgap until popout windows exist: a new tab in the main window.
-		return this.getLeaf("tab");
+		const leaf = this.getLeaf("tab");
+		leaf.parent?.selectTab(leaf);
+		return leaf;
 	}
 
 	moveLeafToPopout(_leaf: WorkspaceLeaf, _data?: unknown): WorkspaceWindow {
