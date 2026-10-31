@@ -43,7 +43,7 @@ function pluginRequire(id: string) {
 // Community plugins a core plugin of justnotes' own replaces: while that core
 // plugin is on, the community one is not loaded (both would register the same
 // views, extensions and commands). In Obsidian it keeps working unchanged.
-export const REPLACED_BY: Record<string, string> = { "latex-live": "latex" };
+export const REPLACED_BY: Record<string, string> = { "latex-live": "latex", terminal: "terminal" };
 
 // The user's own enable/disable choices, applied over the vault's
 // community-plugins.json, which justnotes reads but never writes.

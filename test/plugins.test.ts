@@ -90,3 +90,57 @@ describe("turning a plugin on and off", () => {
 		expect(plugins.getPlugin("demo")).toBeNull();
 	});
 });
+
+// While justnotes' own Terminal core plugin is on, the community plugin
+// `terminal` it replaces is not loaded (both would register a terminal and
+// its commands); turned off, the community plugin loads again.
+describe("community plugins replaced by a core plugin", () => {
+	const PLAIN = "module.exports = class { constructor(app, m) { this.manifest = m; } async load() {} unload() {} };";
+
+	function replacedHost() {
+		const files: Record<string, string> = {
+			".obsidian/community-plugins.json": JSON.stringify(["terminal"]),
+			".obsidian/plugins/terminal/manifest.json": JSON.stringify({ id: "terminal", name: "Terminal", version: "3.29.0", minAppVersion: "", author: "", description: "" }),
+			".obsidian/plugins/terminal/main.js": PLAIN,
+		};
+		const core = { enabled: true };
+		const app = {
+			vault: {
+				configDir: ".obsidian",
+				adapter: {
+					read: async (path: string) => {
+						if (!(path in files)) throw new Error(`ENOENT ${path}`);
+						return files[path];
+					},
+					list: async () => ({ files: [], folders: [".obsidian/plugins/terminal"] }),
+				},
+			},
+			internalPlugins: { getPluginById: (id: string) => (id === "terminal" ? core : null) },
+			loadLocalStorage: () => null,
+			saveLocalStorage: () => {},
+		} as unknown as App;
+		const plugins = new Plugins(app);
+		(app as { plugins?: Plugins }).plugins = plugins;
+		return { plugins, core };
+	}
+
+	beforeEach(() => {
+		(globalThis as { window?: unknown }).window = { eval: (code: string) => (0, eval)(code) };
+	});
+	afterEach(() => {
+		delete (globalThis as { window?: unknown }).window;
+	});
+
+	test("enabled in community-plugins.json, it stays unloaded while the core plugin is on, and loads when it goes off", async () => {
+		const { plugins, core } = replacedHost();
+		await plugins.initialize();
+		expect([plugins.getPlugin("terminal"), plugins.replacedBy("terminal")]).toEqual([null, "terminal"]);
+		core.enabled = false;
+		plugins.coreReplacementStopped("terminal");
+		await Bun.sleep(20);
+		expect(plugins.getPlugin("terminal")).not.toBeNull();
+		core.enabled = true;
+		await plugins.coreReplacementStarted("terminal");
+		expect(plugins.getPlugin("terminal")).toBeNull();
+	});
+});

@@ -46,9 +46,9 @@ await Promise.all([
 
 await Bun.write("dist/index.html", Bun.file("src/renderer/index.html"));
 // Stylesheets are split per area under src/renderer/styles and concatenated
-// in file-name order.
-const styles = [...new Bun.Glob("*.css").scanSync("src/renderer/styles")].sort();
-const css = await Promise.all(styles.map((name) => Bun.file(`src/renderer/styles/${name}`).text()));
+// in file-name order, after xterm.js's own (the Terminal core plugin).
+const styles = [...new Bun.Glob("*.css").scanSync("src/renderer/styles")].sort().map((name) => `src/renderer/styles/${name}`);
+const css = await Promise.all(["node_modules/@xterm/xterm/css/xterm.css", ...styles].map((file) => Bun.file(file).text()));
 await Bun.write("dist/app.css", css.join("\n"));
 
 // The libraries Obsidian exposes (loadMathJax, loadPdfJs, loadPrism,

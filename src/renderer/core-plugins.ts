@@ -13,6 +13,7 @@ import { registerLinkPanes } from "./link-panes";
 import { installNoteComposer } from "./note-composer";
 import { installSlides } from "./slides";
 import { TagView } from "./tag-pane";
+import { installTerminal } from "./terminal";
 import { registerTemplateCommands } from "./templates";
 import { installWordCount } from "./word-count";
 
@@ -73,6 +74,7 @@ function installers(): Record<string, CorePluginInstaller> {
 	result.slides = installSlides;
 	result["audio-recorder"] = installAudioRecorder;
 	result.latex = LatexLive.install;
+	result.terminal = installTerminal;
 	return result;
 }
 

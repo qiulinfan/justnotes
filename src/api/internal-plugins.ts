@@ -39,8 +39,10 @@ const CORE_PLUGINS = [
 	"sync",
 	"bases",
 	"webviewer",
-	// justnotes' own, not Obsidian's: obsidian-latex-live built in (src/latex).
+	// justnotes' own, not Obsidian's: obsidian-latex-live built in (src/latex)
+	// and a terminal (src/renderer/terminal).
 	"latex",
+	"terminal",
 ];
 
 // The core plugins whose instances justnotes backs with its own features
@@ -68,11 +70,12 @@ const IMPLEMENTED = new Set([
 	"file-recovery",
 	"bookmarks",
 	"latex",
+	"terminal",
 ]);
 
 // Core plugins of justnotes' own, which Obsidian's core-plugins.json never
 // lists: they start enabled unless turned off in the Core plugins settings.
-const JUSTNOTES_OWN = new Set(["latex"]);
+const JUSTNOTES_OWN = new Set(["latex", "terminal"]);
 
 // File explorer and Search are part of justnotes' window: they stay on.
 export const ALWAYS_ON = new Set(["file-explorer", "global-search"]);
@@ -100,6 +103,11 @@ export const CORE_PLUGIN_INFO: Record<string, { name: string; description: strin
 		name: "LaTeX",
 		description:
 			"Edits, compiles and previews .tex files with the installed TeX: completion, live preview, PDF preview with SyncTeX, HTML export (obsidian-latex-live, built in). While on, the community plugin latex-live is not loaded.",
+	},
+	terminal: {
+		name: "Terminal",
+		description:
+			"Opens your login shell in a tab, styled from Ghostty's config when there is one. While on, the community plugin terminal is not loaded.",
 	},
 };
 

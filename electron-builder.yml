@@ -10,8 +10,9 @@ directories:
   buildResources: packaging
 
 # main.js and renderer.js bundle their libraries; at runtime the app loads
-# only dist/ and @electron/remote, which main and the page require from
-# node_modules. Every other dependency is build-time only.
+# only dist/, @electron/remote, which main and the page require from
+# node_modules, and node-pty, which main requires for the terminal. Every
+# other dependency is build-time only.
 files:
   - package.json
   - dist/**/*
@@ -20,6 +21,25 @@ files:
   - "!node_modules${/*}"
   - node_modules/@electron/remote/**/*
   - "!node_modules/@electron/remote/{README.md,docs,*.ts}"
+  # node-pty's JavaScript and its prebuilt N-API binaries (no rebuild for
+  # Electron) for the target: pty.node and spawn-helper on macOS;
+  # conpty.node, conpty_console_list.node, conpty.dll and OpenConsole.exe on
+  # Windows. Both platforms' folders go in every package (1.5 MB of Windows
+  # binaries in a Mac one): platform-level `files` do not reach into
+  # node_modules, and ${platform} is the building machine's, not the
+  # target's, when cross-building Windows on a Mac.
+  - node_modules/node-pty/package.json
+  - node_modules/node-pty/LICENSE
+  - node_modules/node-pty/lib/**/*.js
+  - "!node_modules/node-pty/lib/**/*.test.js"
+  - node_modules/node-pty/prebuilds/{darwin,win32}-${arch}/**/*
+  - "!node_modules/node-pty/prebuilds/**/*.pdb"
+
+# Native code cannot run from inside the asar: node-pty's binaries, its
+# spawn-helper (which it looks for in app.asar.unpacked) and the worker its
+# Windows side starts stay outside it.
+asarUnpack:
+  - node_modules/node-pty/**/*
 
 # The justnotes command runs outside the asar archive: the bundled command
 # and its launchers in Resources/cli (macOS) or resources\cli (Windows).
@@ -27,7 +47,8 @@ extraResources:
   - from: dist/cli/justnotes.mjs
     to: cli/justnotes.mjs
 
-# No native modules to rebuild.
+# The one native module, node-pty, ships prebuilt N-API binaries: nothing
+# to rebuild, and no compiler needed.
 npmRebuild: false
 publish: null
 
