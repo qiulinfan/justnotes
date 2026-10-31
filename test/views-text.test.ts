@@ -67,6 +67,20 @@ describe("mergeText", () => {
 		expect(mergeText(base, ours, theirs)).toEqual({ text: "# Notes\n\nfirst line, edited\nsecond line, edited outside\n", conflicts: 0 });
 	});
 
+	// QuickAdd captures under a heading while the heading line has unsaved
+	// edits: the heading must not appear twice.
+	test("lines added on disk next to a line edited locally merge without a conflict", () => {
+		const ours = "# Notes, renamed\n\nfirst line\nsecond line\n";
+		const theirs = "# Notes\n- captured\n\nfirst line\nsecond line\n";
+		expect(mergeText(base, ours, theirs)).toEqual({ text: "# Notes, renamed\n- captured\n\nfirst line\nsecond line\n", conflicts: 0 });
+	});
+
+	test("lines added locally next to a line changed on disk merge without a conflict", () => {
+		const ours = "# Notes\n\nfirst line\ntyped line\nsecond line\n";
+		const theirs = "# Notes\n\nfirst line, edited outside\nsecond line\n";
+		expect(mergeText(base, ours, theirs)).toEqual({ text: "# Notes\n\nfirst line, edited outside\ntyped line\nsecond line\n", conflicts: 0 });
+	});
+
 	test("a note rewritten on both sides loses neither rewrite", () => {
 		const lines = (tag: string) => Array.from({ length: 3000 }, (_, i) => `${tag} ${i}`).join("\n");
 		const merged = mergeText(lines("base"), lines("mine"), lines("theirs"));

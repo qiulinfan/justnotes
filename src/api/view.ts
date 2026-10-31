@@ -764,9 +764,18 @@ export function matchLines(a: string[], b: string[], budget = 1e7): [number, num
 
 const sameLines = (a: string[], b: string[]) => a.length === b.length && a.every((l, i) => l === b[i]);
 
+// Where `lines` holds all of `run` in a row, or -1.
+function indexOfLines(lines: string[], run: string[]) {
+	for (let k = 0; k + run.length <= lines.length; k++) {
+		if (run.every((line, j) => lines[k + j] === line)) return k;
+	}
+	return -1;
+}
+
 // A three-way line merge (diff3) of two edits of `base`. Changes on one side,
 // the same change on both, and changes to different lines next to each other
-// merge cleanly. Where the sides changed the same lines differently, both
+// merge cleanly, as do lines one side added next to lines the other changed.
+// Where the sides changed the same lines differently, both
 // versions are kept, `theirs` first, and the region counts as a conflict. Two
 // insertions at one place are both kept the same way, but no line was changed
 // twice, so that is no conflict.
@@ -794,6 +803,14 @@ export function mergeText(base: string, ours: string, theirs: string): { text: s
 		else if (as.length === os.length && bs.length === os.length && os.every((line, k) => as[k] === line || bs[k] === line || as[k] === bs[k])) {
 			// Edits on adjacent lines: the sides replaced different lines one for one.
 			os.forEach((line, k) => out.push(as[k] === line ? bs[k] : as[k]));
+		} else if (os.length && indexOfLines(bs, os) >= 0) {
+			// The file kept the lines and only added some around them (a capture
+			// under the heading being edited): the additions go around our edit.
+			const k = indexOfLines(bs, os);
+			out.push(...bs.slice(0, k), ...as, ...bs.slice(k + os.length));
+		} else if (os.length && indexOfLines(as, os) >= 0) {
+			const k = indexOfLines(as, os);
+			out.push(...as.slice(0, k), ...bs, ...as.slice(k + os.length));
 		} else {
 			let head = 0;
 			while (head < as.length && head < bs.length && as[head] === bs[head]) head++;
