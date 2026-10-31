@@ -1,8 +1,73 @@
 import { isolateHistory } from "@codemirror/commands";
 import { syntaxTree } from "@codemirror/language";
-import { type ChangeSpec, EditorSelection, type EditorState, type SelectionRange, type TransactionSpec } from "@codemirror/state";
+import { type ChangeSpec, EditorSelection, type EditorState, type SelectionRange, type Text, type TransactionSpec } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
-import { type Editor, selectedLines } from "./editor";
+import type { Editor, EditorPosition, EditorTransaction } from "./editor";
+
+// Position and transaction helpers shared by Editor and the commands. They
+// live here so they stay out of the obsidian module's exports.
+
+// CodeMirror 5's clipPos, which Obsidian's Editor keeps: a line before the
+// first is the document start, a line past the last is the document end, and
+// ch is clamped to the line (a missing ch means the line end).
+export function posToOffset(doc: Text, pos: EditorPosition) {
+	if (!(pos.line >= 0)) return 0;
+	if (pos.line >= doc.lines) return doc.length;
+	const line = doc.line(Math.floor(pos.line) + 1);
+	if (pos.ch < 0) return line.from;
+	return pos.ch <= line.length ? line.from + pos.ch : line.to;
+}
+
+export function offsetToPos(doc: Text, offset: number): EditorPosition {
+	const clamped = offset > 0 ? Math.min(offset, doc.length) : 0;
+	const line = doc.lineAt(clamped);
+	return { line: line.number - 1, ch: clamped - line.from };
+}
+
+// One CodeMirror transaction for an EditorTransaction: `changes` and the
+// replaced selection are positions in the current document, the new
+// selection is read in the document those changes produce.
+export function transactionSpec(state: EditorState, tx: EditorTransaction): TransactionSpec {
+	const doc = state.doc;
+	const specs: ChangeSpec[] = [];
+	for (const c of tx.changes ?? []) {
+		const a = posToOffset(doc, c.from);
+		const b = c.to ? posToOffset(doc, c.to) : a;
+		specs.push({ from: Math.min(a, b), to: Math.max(a, b), insert: c.text });
+	}
+	const ranges = state.selection.ranges;
+	if (tx.replaceSelection !== undefined) {
+		for (const r of ranges) specs.push({ from: r.from, to: r.to, insert: tx.replaceSelection });
+	}
+	const changes = state.changes(specs);
+	const wanted = tx.selections?.length ? tx.selections : tx.selection ? [tx.selection] : null;
+	let selection: EditorSelection | undefined;
+	if (wanted) {
+		const next = changes.apply(doc);
+		selection = EditorSelection.create(wanted.map((s) => EditorSelection.range(posToOffset(next, s.from), posToOffset(next, s.to ?? s.from))));
+	} else if (tx.replaceSelection !== undefined) {
+		selection = EditorSelection.create(
+			ranges.map((r) => EditorSelection.cursor(changes.mapPos(r.to, 1))),
+			state.selection.mainIndex,
+		);
+	}
+	return { changes, selection, scrollIntoView: !!selection };
+}
+
+// The 0-based numbers of the lines the selections cover. A range that ends
+// at the start of a line does not cover that line.
+export function selectedLines(state: EditorState) {
+	const lines = new Set<number>();
+	for (const r of state.selection.ranges) {
+		const first = state.doc.lineAt(r.from).number;
+		const last = state.doc.lineAt(r.to).number;
+		for (let n = first; n <= last; n++) {
+			if (n === last && n > first && r.to === state.doc.line(n).from) break;
+			lines.add(n - 1);
+		}
+	}
+	return [...lines].sort((a, b) => a - b);
+}
 
 // Edits behind Obsidian's built-in editor commands. Each takes the editor
 // state and returns one transaction covering every selection range, so a

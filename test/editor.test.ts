@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { EditorSelection, EditorState, Text } from "@codemirror/state";
-import { offsetToPos, posToOffset, selectedLines, transactionSpec } from "../src/api/editor";
+import { EditorSelection, EditorState, Text, type TransactionSpec } from "@codemirror/state";
+import { offsetToPos, posToOffset, selectedLines, transactionSpec } from "../src/api/editor-commands";
 
 const doc = Text.of(["alpha", "beta", "gamma"]);
 
-function apply(state: EditorState, spec: ReturnType<typeof transactionSpec>) {
+function apply(state: EditorState, spec: TransactionSpec) {
 	const next = state.update(spec).state;
 	return { text: next.doc.toString(), ranges: next.selection.ranges.map((r) => [r.anchor, r.head]) };
 }
