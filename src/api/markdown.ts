@@ -99,51 +99,128 @@ md.block.ruler.before("fence", "math_block", (state, start, end, silent) => {
 md.renderer.rules.math_inline = (tokens, idx) => `<span class="math math-inline" data-tex="${md.utils.escapeHtml(tokens[idx].content)}"></span>`;
 md.renderer.rules.math_block = (tokens, idx) => `<div class="math math-block" data-tex="${md.utils.escapeHtml(tokens[idx].content)}"></div>`;
 
-// MathJax 3 with SVG output and a local font cache, so every rendered formula
-// is self-contained and finishRenderMath has nothing to flush.
-let mathJaxReady: Promise<void> | null = null;
+// The libraries Obsidian exposes load on first use from dist/lib (build.ts),
+// each once, and end up as the same window globals Obsidian sets.
+const libUrl = (file: string) => new URL(`lib/${file}`, document.baseURI).href;
+
+function loadScript(src: string) {
+	return new Promise<void>((resolve, reject) => {
+		const script = document.head.createEl("script", { attr: { src } });
+		script.addEventListener("load", () => resolve());
+		script.addEventListener("error", () => reject(new Error(`${src} failed to load`)));
+	});
+}
+
+// MathJax 3.2 with CHTML output, like Obsidian's: plugins call tex2chtml,
+// chtmlStylesheet, startup.output and the MathJax._ internals of the full
+// combined build. Glyph CSS accumulates in one stylesheet that
+// finishRenderMath refreshes, so the woff fonts must sit at fontURL. As in
+// Obsidian there is no menu and no assistive MathML, and the safe extension
+// filters \href protocols and styles. latex-live passes config.options to its
+// own MathDocument, so it may only hold options the build knows.
+let mathJax: Promise<void> | null = null;
 
 export function loadMathJax() {
-	mathJaxReady ??= new Promise<void>((resolve, reject) => {
-		(window as any).MathJax = {
-			tex: { inlineMath: [["$", "$"]], displayMath: [["$$", "$$"]], processEscapes: true },
-			svg: { fontCache: "local" },
-			startup: { typeset: false, ready: () => (window as any).MathJax.startup.defaultReady() },
+	mathJax ??= new Promise<void>((resolve, reject) => {
+		const w = window as any;
+		w.MathJax = {
+			tex: { inlineMath: [["$", "$"], ["\\(", "\\)"]], displayMath: [["$$", "$$"], ["\\[", "\\]"]], processEscapes: true },
+			chtml: { fontURL: libUrl("mathjax/output/chtml/fonts/woff-v2") },
+			// The menu component applies its own assistiveMml setting even when disabled.
+			options: { enableMenu: false, enableAssistiveMml: false, menuOptions: { settings: { assistiveMml: false } } },
+			loader: { load: ["ui/safe"] },
+			startup: { typeset: false },
 		};
-		const script = document.head.createEl("script", { attr: { src: "mathjax/tex-svg-full.js" } });
-		script.addEventListener("error", () => reject(new Error("MathJax failed to load")));
-		script.addEventListener("load", () =>
-			(window as any).MathJax.startup.promise.then(() => {
-				// Hides the assistive MathML copy that sits beside each SVG.
-				document.head.appendChild((window as any).MathJax.svgStylesheet());
-				resolve();
-			}, reject),
+		loadScript(libUrl("mathjax/tex-chtml-full.js")).then(
+			() =>
+				w.MathJax.startup.promise.then(() => {
+					// In the head from the start, so plugin stylesheets added later
+					// keep their precedence over MathJax's rules.
+					document.head.appendChild(w.MathJax.chtmlStylesheet());
+					resolve();
+				}, reject),
+			reject,
 		);
 	});
-	return mathJaxReady;
+	return mathJax;
 }
+
+let finishQueued = false;
 
 export function renderMath(source: string, display: boolean): HTMLElement {
 	const mj = (window as any).MathJax;
-	if (mj?.tex2svg) {
-		try {
-			return mj.tex2svg(source, { display });
-		} catch (err) {
-			return createSpan({ cls: "math-error", text: String(err) });
-		}
+	if (typeof mj?.tex2chtml !== "function") return createSpan({ cls: "math", text: display ? `$$${source}$$` : `$${source}$` });
+	let el: HTMLElement;
+	try {
+		el = mj.tex2chtml(source, { display });
+	} catch (err) {
+		return createSpan({ cls: "math-error", text: String(err) });
 	}
-	return createSpan({ cls: "math", text: display ? `$$${source}$$` : `$${source}$` });
+	// Callers that never call finishRenderMath (Live Preview widgets) still get
+	// their glyph CSS once the current task ends.
+	if (!finishQueued) {
+		finishQueued = true;
+		queueMicrotask(() => {
+			finishQueued = false;
+			finishRenderMath();
+		});
+	}
+	return el;
 }
 
-export async function finishRenderMath() {}
-export async function loadPrism() {
-	return (window as any).Prism;
+// Adds the CSS for glyphs rendered since the last call. chtmlStylesheet()
+// returns the same element each time; it moves into the head only when it is
+// not there yet.
+export async function finishRenderMath() {
+	const mj = (window as any).MathJax;
+	if (typeof mj?.chtmlStylesheet !== "function") return;
+	const sheet: HTMLStyleElement = mj.chtmlStylesheet();
+	if (!sheet.isConnected) document.head.appendChild(sheet);
 }
-export async function loadPdfJs() {
-	return (window as any).pdfjsLib;
+
+let prism: Promise<any> | null = null;
+
+export function loadPrism() {
+	prism ??= loadScript(libUrl("prism/prism.js")).then(() => (window as any).Prism);
+	return prism;
 }
-export async function loadMermaid() {
-	return (window as any).mermaid;
+
+// pdf.js 5 ships only as ES modules; the page imports them from file:// (web
+// security is off). Its worker cannot reach the /lib/ redirect, so getDocument
+// fills in and rewrites the asset folders as absolute URLs.
+let pdfjs: Promise<any> | null = null;
+const PDF_ASSETS = { cMapUrl: "cmaps/", standardFontDataUrl: "standard_fonts/", wasmUrl: "wasm/", iccUrl: "iccs/" };
+
+export function loadPdfJs() {
+	pdfjs ??= (async () => {
+		const base = libUrl("pdfjs/");
+		const lib = await import(`${base}pdf.min.mjs`);
+		lib.GlobalWorkerOptions.workerSrc = `${base}pdf.worker.min.mjs`;
+		const withAssets = (src: any) => {
+			const params = typeof src === "string" || src instanceof URL ? { url: src } : ArrayBuffer.isView(src) ? { data: src } : { ...src };
+			for (const [key, dir] of Object.entries(PDF_ASSETS)) {
+				const value = params[key];
+				if (typeof value !== "string") params[key] = base + dir;
+				else if (value.startsWith("/lib/pdfjs/")) params[key] = base + value.slice("/lib/pdfjs/".length);
+			}
+			return params;
+		};
+		const pdfjsLib = { ...lib, getDocument: (src: any) => lib.getDocument(withAssets(src)) };
+		(window as any).pdfjsLib = pdfjsLib;
+		return pdfjsLib;
+	})();
+	return pdfjs;
+}
+
+let mermaid: Promise<any> | null = null;
+
+export function loadMermaid() {
+	mermaid ??= loadScript(libUrl("mermaid/mermaid.min.js")).then(() => {
+		const m = (window as any).mermaid;
+		m.initialize({ startOnLoad: false });
+		return m;
+	});
+	return mermaid;
 }
 
 export class MarkdownRenderChild extends Component {
@@ -176,10 +253,11 @@ export class MarkdownRenderer extends MarkdownRenderChild {
 		el.appendChild(tpl.content);
 		for (const m of el.findAll(".math[data-tex]")) {
 			const display = m.hasClass("math-block");
-			const wrap = createEl(display ? "div" : "span", { cls: ["math", display ? "math-block" : "math-inline"] });
+			const wrap = createEl(display ? "div" : "span", { cls: ["math", display ? "math-block" : "math-inline", "is-loaded"] });
 			wrap.appendChild(renderMath(m.getAttribute("data-tex") ?? "", display));
 			m.replaceWith(wrap);
 		}
+		await finishRenderMath();
 		const ctx: MarkdownPostProcessorContext = {
 			docId: Math.random().toString(36).slice(2),
 			sourcePath,
