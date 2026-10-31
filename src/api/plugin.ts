@@ -226,14 +226,21 @@ export class Plugin extends Component {
 		this.register(() => this.app.workspace.editorSuggest.removeSuggest(suggest));
 	}
 
+	// Unloading removes the registration only while it is still this one.
 	registerObsidianProtocolHandler(action: string, handler: (params: any) => any) {
-		this.app.protocolHandlers[action] = handler;
-		this.register(() => delete this.app.protocolHandlers[action]);
+		const handlers = this.app.protocolHandlers;
+		handlers[action] = handler;
+		this.register(() => {
+			if (handlers[action] === handler) delete handlers[action];
+		});
 	}
 
 	registerHoverLinkSource(id: string, info: any) {
-		this.app.workspace.hoverLinkSources[id] = info;
-		this.register(() => delete this.app.workspace.hoverLinkSources[id]);
+		const sources = this.app.workspace.hoverLinkSources;
+		sources[id] = info;
+		this.register(() => {
+			if (sources[id] === info) delete sources[id];
+		});
 	}
 
 	// CodeMirror 5 hooks only ran in Obsidian's legacy editor.
