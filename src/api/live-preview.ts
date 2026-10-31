@@ -536,6 +536,19 @@ class CodeBlockWidget extends WidgetType {
 	}
 }
 
+// The text of a math node without the quote marks of the lines it goes on
+// to, which are its children inside a quote.
+function mathText(state: EditorState, node: SyntaxNode) {
+	let text = "";
+	let at = node.from;
+	for (let mark = node.getChild("QuoteMark"); mark; mark = mark.nextSibling) {
+		if (mark.name !== "QuoteMark") continue;
+		text += state.sliceDoc(at, mark.from);
+		at = /[ \t]/.test(state.sliceDoc(mark.to, mark.to + 1)) ? mark.to + 1 : mark.to;
+	}
+	return text + state.sliceDoc(at, node.to);
+}
+
 // The frontmatter shows as YAML once the selection enters it, and until the
 // selection leaves it. A note opens with the cursor at offset 0, which is
 // inside the frontmatter, so a cursor there that the user did not move
@@ -829,13 +842,13 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (touches(from, to)) return false;
 					const content = node.getChild("math");
 					const display = state.sliceDoc(from, from + 2) === "$$";
-					decos.push(Decoration.replace({ widget: new MathWidget(content ? state.sliceDoc(content.from, content.to) : "", display) }).range(from, to));
+					decos.push(Decoration.replace({ widget: new MathWidget(content ? mathText(state, content) : "", display) }).range(from, to));
 					return false;
 				}
 				case "BlockMath": {
 					if (touchesLines(from, to)) return false;
 					const content = node.getChild("math");
-					const widget = new MathWidget(content ? state.sliceDoc(content.from, content.to).trim() : "", true);
+					const widget = new MathWidget(content ? mathText(state, content).trim() : "", true);
 					if (ownsLines(node)) decos.push(Decoration.replace({ widget, block: true }).range(doc.lineAt(from).from, doc.lineAt(to).to));
 					else decos.push(Decoration.replace({ widget }).range(from, to));
 					return false;

@@ -8,11 +8,12 @@ import { Compartment, EditorSelection, EditorState, type Extension, Prec, type R
 import { Decoration, type DecorationSet, drawSelection, dropCursor, EditorView, keymap, lineNumbers, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { IterMode, NodeProp, type SyntaxNode } from "@lezer/common";
 import { styleTags, Tag, tags as t } from "@lezer/highlight";
-import type { BlockContext, LeafBlock, LeafBlockParser, MarkdownConfig } from "@lezer/markdown";
+import type { BlockContext, Element, LeafBlock, LeafBlockParser, Line, MarkdownConfig } from "@lezer/markdown";
 import type { App } from "./app";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
 import { setIcon } from "./icons";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
+import { inlineMathEnd, mathBlockClose } from "./markdown";
 import type { MarkdownView } from "./markdown-view";
 import { debounce, moment } from "./util";
 import type { TFile } from "./vault";
@@ -31,19 +32,21 @@ function token(cls: string) {
 
 const mathTag = token("cm-math");
 const DOLLAR = 36;
-const BACKSLASH = 92;
 const isSpace = (c: number) => c === 32 || c === 9 || c === 10 || c === 13;
-const isDigit = (c: number) => c >= 48 && c <= 57;
+
+// How many of the blocks around the parse (quotes, list items) a line
+// continues; lezer's own parsers read Line.depth, which it does not type.
+const continuedBlocks = (line: Line) => (line as Line & { depth: number }).depth;
 
 const MATH_BEGIN = "formatting_formatting-math_formatting-math-begin_keyword_math";
 const MATH_END = "formatting_formatting-math_formatting-math-end_keyword_math";
 const MATH_BLOCK_BEGIN = `${MATH_BEGIN}_math-block`;
 const MATH_BLOCK_END = `${MATH_END}_math-block`;
 
-// `$…$` ends at the next unescaped `$`. As in pandoc, the opening `$` needs
-// a non-space after it and the closing one a non-space before it and no
-// digit after it, so "costs $5 and $10" stays text. `$$…$$` inside a
-// paragraph is display math.
+// `$…$`, `$$…$$` and `$$` blocks by the renderer's rules (inlineMathEnd,
+// mathBlockClose), so Live Preview renders the formulas the reading view
+// renders. A block inside a quote keeps the quote marks of its lines as
+// children of its math node.
 const mathSyntax: MarkdownConfig = {
 	defineNodes: [
 		{ name: "InlineMath" },
@@ -60,24 +63,13 @@ const mathSyntax: MarkdownConfig = {
 			before: "Escape",
 			parse(cx, next, pos) {
 				if (next !== DOLLAR) return -1;
-				const fence = cx.char(pos + 1) === DOLLAR ? 2 : 1;
-				if (fence === 1 && isSpace(cx.char(pos + 1))) return -1;
-				for (let i = pos + fence; i < cx.end; i++) {
-					const c = cx.char(i);
-					if (c === BACKSLASH) {
-						i++;
-						continue;
-					}
-					if (c !== DOLLAR) continue;
-					if (fence === 2 && cx.char(i + 1) !== DOLLAR) continue;
-					if (i === pos + fence) return -1;
-					if (fence === 1 && (isSpace(cx.char(i - 1)) || isDigit(cx.char(i + 1)))) return -1;
-					const [begin, end] = fence === 2 ? [MATH_BLOCK_BEGIN, MATH_BLOCK_END] : [MATH_BEGIN, MATH_END];
-					return cx.addElement(
-						cx.elt("InlineMath", pos, i + fence, [cx.elt(begin, pos, pos + fence), cx.elt("math", pos + fence, i), cx.elt(end, i, i + fence)]),
-					);
-				}
-				return -1;
+				const text = cx.slice(pos, cx.end);
+				const length = inlineMathEnd(text, 0, text.length);
+				if (length < 0) return -1;
+				const fence = text.charCodeAt(1) === DOLLAR ? 2 : 1;
+				const end = pos + length;
+				const [begin, close] = fence === 2 ? [MATH_BLOCK_BEGIN, MATH_BLOCK_END] : [MATH_BEGIN, MATH_END];
+				return cx.addElement(cx.elt("InlineMath", pos, end, [cx.elt(begin, pos, pos + fence), cx.elt("math", pos + fence, end - fence), cx.elt(close, end - fence, end)]));
 			},
 		},
 	],
@@ -86,31 +78,35 @@ const mathSyntax: MarkdownConfig = {
 			name: "BlockMath",
 			before: "FencedCode",
 			parse(cx, line) {
-				if (!line.text.slice(line.pos).startsWith("$$")) return false;
+				const firstClose = line.next === DOLLAR ? mathBlockClose(line.text.slice(line.pos)) : null;
+				if (firstClose === null) return false;
 				const start = cx.lineStart + line.pos;
-				const rest = line.text.slice(line.pos + 2).trimEnd();
-				let close = -1;
+				const marks: Element[] = [];
+				let close = firstClose >= 0 ? start + firstClose : -1;
 				let end = cx.lineStart + line.text.length;
-				// `$$ x $$` on one line is a complete block.
-				if (rest.length >= 2 && rest.endsWith("$$")) close = start + rest.length;
-				else {
-					while (cx.nextLine()) {
-						const text = line.text.trimEnd();
-						end = cx.lineStart + line.text.length;
-						if (text.endsWith("$$")) {
-							close = cx.lineStart + text.length - 2;
-							break;
-						}
+				// Whether the parser still stands on a line of the block: the block
+				// can also end where its quote or list does, or with the note.
+				let onBlock = true;
+				while (close < 0) {
+					if (!cx.nextLine() || continuedBlocks(line) < cx.depth) {
+						onBlock = false;
+						break;
 					}
+					marks.push(...line.markers);
+					end = cx.lineStart + line.text.length;
+					const at = line.text.indexOf("$$", line.pos);
+					if (at >= 0) close = cx.lineStart + at;
 				}
-				cx.nextLine();
+				if (onBlock) cx.nextLine();
 				const children = [cx.elt(MATH_BLOCK_BEGIN, start, start + 2)];
 				const contentEnd = close >= 0 ? close : end;
-				if (contentEnd > start + 2) children.push(cx.elt("math", start + 2, contentEnd));
+				if (contentEnd > start + 2) children.push(cx.elt("math", start + 2, contentEnd, marks));
 				if (close >= 0) children.push(cx.elt(MATH_BLOCK_END, close, close + 2));
 				cx.addElement(cx.elt("BlockMath", start, close >= 0 ? close + 2 : end, children));
 				return true;
 			},
+			// A `$$` line ends a paragraph, as in the renderer.
+			endLeaf: (_cx, line) => line.next === DOLLAR && mathBlockClose(line.text.slice(line.pos)) !== null,
 		},
 	],
 };

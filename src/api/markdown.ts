@@ -213,23 +213,66 @@ md.block.ruler.before("table", "front_matter", (state, startLine, endLine, silen
 md.renderer.rules.front_matter = (tokens, idx) =>
 	`<pre class="frontmatter language-yaml" tabindex="0" style="display: none;"><code class="language-yaml is-loaded">${esc(tokens[idx].content)}</code></pre>\n`;
 
-// $$ blocks may interrupt a paragraph; `$$x$$ text` on one line is inline.
+// The math syntax rules, shared with Live Preview's grammar so both find the
+// same formulas.
+
+// A line starting with `$$` opens a block, unless the same line closes it and
+// goes on after the closing `$$` (`$$x$$ text` is display math inside a
+// paragraph). The index of the line's own closing `$$`, -1 when the block
+// continues on the next lines, or null when the line opens no block. The
+// next line holding `$$` closes an open block.
+export function mathBlockClose(line: string): number | null {
+	if (!line.startsWith("$$")) return null;
+	const close = line.indexOf("$$", 2);
+	if (close < 0) return -1;
+	return line.slice(close + 2).trim() ? null : close;
+}
+
+const isSpace = (c: number) => c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d;
+const isDigit = (c: number) => c >= 0x30 && c <= 0x39;
+
+// Inline math follows Pandoc: a `$` with a non-space after it opens, and the
+// next unescaped `$` closes when a non-space comes before it and no digit
+// after it; otherwise there is no math at this `$`, so "$5 and $6" stays
+// text. `$$…$$` inside a paragraph is display math. The end of the math that
+// starts at `start`, or -1.
+export function inlineMathEnd(src: string, start: number, max: number): number {
+	if (src.charCodeAt(start) !== 0x24) return -1;
+	const display = src.charCodeAt(start + 1) === 0x24;
+	const open = start + (display ? 2 : 1);
+	if (open >= max || (!display && isSpace(src.charCodeAt(open)))) return -1;
+	for (let i = open; i < max; i++) {
+		const c = src.charCodeAt(i);
+		if (c === 0x5c) {
+			i++;
+			continue;
+		}
+		if (c !== 0x24) continue;
+		if (display) {
+			if (i + 1 >= max || src.charCodeAt(i + 1) !== 0x24) continue;
+			return i === open ? -1 : i + 2;
+		}
+		if (i === open || isSpace(src.charCodeAt(i - 1)) || (i + 1 < max && isDigit(src.charCodeAt(i + 1)))) return -1;
+		return i + 1;
+	}
+	return -1;
+}
+
+// $$ blocks may interrupt a paragraph.
 md.block.ruler.before(
 	"fence",
 	"math_block",
 	(state, startLine, endLine, silent) => {
 		if (state.sCount[startLine] - state.blkIndent >= 4) return false;
 		const first = lineText(state, startLine);
-		if (!first.startsWith("$$")) return false;
-		const rest = first.slice(2);
-		const close = rest.indexOf("$$");
+		const close = mathBlockClose(first);
+		if (close === null) return false;
 		let next = startLine;
 		let content: string;
 		if (close >= 0) {
-			if (rest.slice(close + 2).trim()) return false;
-			content = rest.slice(0, close);
+			content = first.slice(2, close);
 		} else {
-			const lines = [rest];
+			const lines = [first.slice(2)];
 			for (next = startLine + 1; next < endLine; next++) {
 				const text = lineText(state, next);
 				const end = text.indexOf("$$");
@@ -253,34 +296,18 @@ md.block.ruler.before(
 	{ alt: ["paragraph", "reference", "blockquote", "list"] },
 );
 
-// Inline math follows Pandoc: no space after the opening $ or before the
-// closing one, and no digit right after it, so "$5 and $6" stays text.
-// $$...$$ inside a paragraph is display math.
 md.inline.ruler.after("escape", "math_inline", (state, silent) => {
-	const { src, posMax } = state;
 	const start = state.pos;
-	if (src.charCodeAt(start) !== 0x24) return false;
-	const display = src.charCodeAt(start + 1) === 0x24;
-	const open = start + (display ? 2 : 1);
-	if (open >= posMax || (!display && /\s/.test(src[open]))) return false;
-	for (let i = open; i < posMax; i++) {
-		const c = src.charCodeAt(i);
-		if (c === 0x5c) {
-			i++;
-			continue;
-		}
-		if (c !== 0x24) continue;
-		if (display ? src.charCodeAt(i + 1) !== 0x24 : /\s/.test(src[i - 1]) || /\d/.test(src[i + 1] ?? "")) continue;
-		if (i === open) return false;
-		if (!silent) {
-			const token = state.push("math_inline", "math", 0);
-			token.content = src.slice(open, i);
-			token.markup = display ? "$$" : "$";
-		}
-		state.pos = i + (display ? 2 : 1);
-		return true;
+	const end = inlineMathEnd(state.src, start, state.posMax);
+	if (end < 0) return false;
+	if (!silent) {
+		const fence = state.src.charCodeAt(start + 1) === 0x24 ? 2 : 1;
+		const token = state.push("math_inline", "math", 0);
+		token.content = state.src.slice(start + fence, end - fence);
+		token.markup = fence === 2 ? "$$" : "$";
 	}
-	return false;
+	state.pos = end;
+	return true;
 });
 md.renderer.rules.math_inline = (tokens, idx) => {
 	const token = tokens[idx];
