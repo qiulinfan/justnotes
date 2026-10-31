@@ -1,13 +1,13 @@
 import { syntaxTree } from "@codemirror/language";
-import { type EditorState, type Extension, type Range, StateEffect, StateField } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
+import { type EditorState, type Extension, Prec, type Range, StateEffect, StateField } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, keymap, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 import type { App } from "./app";
 import type { Component } from "./events";
 import { setIcon } from "./icons";
 import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, onCodeBlockProcessorsChange, renderMath, resolveHtmlSrc } from "./markdown";
+import { editorMetadataHost, MetadataEditor, type MetadataEditorHost, metadataEditorOf } from "./metadata-editor";
 import { getLinkpath } from "./metadata-utils";
-import { parseYaml } from "./util";
 import type { TFile } from "./vault";
 
 export interface LivePreviewHost {
@@ -330,21 +330,25 @@ class FlairWidget extends WidgetType {
 	}
 }
 
-function propertyValue(el: HTMLElement, value: unknown) {
-	if (Array.isArray(value)) {
-		const list = el.createDiv("multi-select-container");
-		for (const v of value) list.createDiv("multi-select-pill").createDiv({ cls: "multi-select-pill-content", text: String(v) });
-	} else if (typeof value === "boolean") {
-		el.createEl("input", { type: "checkbox", cls: "metadata-input-checkbox", attr: { disabled: true } }).checked = value;
-	} else if (value !== null && value !== undefined) {
-		el.createDiv({ cls: "metadata-input-longtext", text: typeof value === "object" ? JSON.stringify(value) : String(value) });
-	}
+// Each editor's Properties block talks to the note through one host, which
+// also remembers whether the block is collapsed while CodeMirror re-creates
+// the widget.
+const metadataHosts = new WeakMap<EditorView, MetadataEditorHost>();
+
+function metadataHost(view: EditorView, host: LivePreviewHost): MetadataEditorHost {
+	let h = metadataHosts.get(view);
+	if (!h) metadataHosts.set(view, (h = editorMetadataHost(view, host.app, () => host.sourcePath())));
+	return h;
 }
 
-// A read-only stand-in for Obsidian's Properties editor. A click reveals
-// the YAML for editing.
+// Obsidian's Properties editor over the frontmatter. The editor lives with
+// the widget's DOM: a new YAML updates it in place, so a field being edited
+// keeps its focus.
 class PropertiesWidget extends WidgetType {
-	constructor(readonly yaml: string) {
+	constructor(
+		readonly yaml: string,
+		readonly host: LivePreviewHost,
+	) {
 		super();
 	}
 
@@ -353,32 +357,21 @@ class PropertiesWidget extends WidgetType {
 	}
 
 	toDOM(view: EditorView) {
-		const el = createDiv("metadata-container");
-		el.createDiv("metadata-properties-heading").createDiv({ cls: "metadata-properties-title", text: "Properties" });
-		const content = el.createDiv("metadata-content");
-		let data: unknown = null;
-		try {
-			data = this.yaml.trim() ? parseYaml(this.yaml) : {};
-		} catch {}
-		if (!data || typeof data !== "object" || Array.isArray(data)) {
-			content.createDiv({ cls: "metadata-error", text: "Invalid properties" });
-		} else {
-			const list = content.createDiv("metadata-properties");
-			const entries = Object.entries(data);
-			el.setAttr("data-property-count", entries.length);
-			for (const [key, value] of entries) {
-				const row = list.createDiv({ cls: "metadata-property", attr: { "data-property-key": key, tabindex: 0 } });
-				const keyEl = row.createDiv("metadata-property-key");
-				setIcon(keyEl.createSpan("metadata-property-icon"), Array.isArray(value) ? "list" : typeof value === "boolean" ? "check-square" : "text");
-				keyEl.createSpan({ cls: "metadata-property-key-input", text: key });
-				propertyValue(row.createDiv("metadata-property-value"), value);
-			}
-		}
-		el.addEventListener("mousedown", (evt) => {
-			evt.preventDefault();
-			reveal(view, innerStart(view, el));
-		});
-		return el;
+		const editor = new MetadataEditor(metadataHost(view, this.host));
+		editor.load();
+		editor.sync(this.yaml);
+		return editor.containerEl;
+	}
+
+	updateDOM(dom: HTMLElement) {
+		const editor = metadataEditorOf(dom);
+		if (!editor) return false;
+		editor.sync(this.yaml);
+		return true;
+	}
+
+	destroy(dom: HTMLElement) {
+		metadataEditorOf(dom)?.unload();
 	}
 
 	ignoreEvent() {
@@ -718,7 +711,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const mode = host.app.vault.getConfig("propertiesInDocument") ?? "visible";
 					if (!live || mode === "source" || state.field(frontmatterRevealed)) return false;
 					const yaml = doc.sliceString(doc.line(1).to + 1, doc.lineAt(to).from);
-					decos.push(Decoration.replace({ block: true, widget: mode === "hidden" ? undefined : new PropertiesWidget(yaml) }).range(from, to));
+					decos.push(Decoration.replace({ block: true, widget: mode === "hidden" ? undefined : new PropertiesWidget(yaml, host) }).range(from, to));
 					return false;
 				}
 				case "HeaderMark": {
@@ -1015,7 +1008,21 @@ export function livePreview(host: LivePreviewHost): Extension {
 			return true;
 		},
 	});
-	return [frontmatterRevealed, field, tagClicks, processorRefresh];
+	return [frontmatterRevealed, field, tagClicks, processorRefresh, Prec.high(keymap.of([{ key: "ArrowUp", run: enterProperties }]))];
+}
+
+// ArrowUp out of the note's first line goes to the Properties block above it.
+function enterProperties(view: EditorView) {
+	const { state } = view;
+	const sel = state.selection.main;
+	const node = syntaxTree(state).topNode.firstChild;
+	if (!sel.empty || node?.name !== "hmd-frontmatter") return false;
+	const end = state.doc.lineAt(node.to).to;
+	if (sel.head <= end || view.moveVertically(sel, false).head > end) return false;
+	const editor = metadataEditorOf(view.contentDOM.querySelector(".metadata-container"));
+	if (!editor) return false;
+	editor.focusLast();
+	return true;
 }
 
 // A plugin that loads or unloads a code-block processor changes which fences

@@ -1,6 +1,7 @@
 import type { App } from "../api/app";
 import { installBacklinksInDocument } from "./backlinks-in-document";
 import { installCanvas } from "./canvas-view";
+import { registerAllPropertiesView } from "./all-properties";
 import { installDailyNotes } from "./daily-notes";
 import { installFileRecovery } from "./file-recovery";
 import { installGraph, registerGraphViews } from "./graph-view";
@@ -17,6 +18,7 @@ const PANES = [
 	{ plugin: "outgoing-link", type: "outgoing-link", command: "outgoing-links:open", name: "Outgoing links: Show outgoing links" },
 	{ plugin: "tag-pane", type: "tag", command: "tag-pane:open", name: "Tags view: Show tags" },
 	{ plugin: "outline", type: "outline", command: "outline:open", name: "Outline: Show outline" },
+	{ plugin: "properties", type: "all-properties", command: "properties:open", name: "Properties view: Show all properties" },
 ];
 
 // Views register before the layout is restored, so a saved layout gets its
@@ -25,6 +27,7 @@ export function registerCorePluginViews(app: App) {
 	registerLinkPanes(app);
 	app.viewRegistry.registerView("tag", (leaf) => new TagView(leaf));
 	registerGraphViews(app);
+	registerAllPropertiesView(app);
 }
 
 // The rest follows core-plugins.json, as in Obsidian: a disabled core plugin

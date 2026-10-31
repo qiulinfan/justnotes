@@ -52,6 +52,7 @@ const IMPLEMENTED = new Set([
 	"outgoing-link",
 	"tag-pane",
 	"outline",
+	"properties",
 	"daily-notes",
 	"templates",
 	"note-composer",

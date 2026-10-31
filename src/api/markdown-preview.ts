@@ -6,8 +6,10 @@ import { markdownEditorExtensions } from "./editor-extensions";
 import type { Component } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import { Keymap } from "./keymap";
+import { locateFrontmatter } from "./frontmatter-edit";
 import { MarkdownPreviewRenderer, MarkdownRenderer } from "./markdown";
 import type { MarkdownView } from "./markdown-view";
+import { editorMetadataHost, MetadataEditor } from "./metadata-editor";
 import type { CachedMetadata } from "./metadata";
 import { resolveSubpath } from "./metadata-utils";
 import type { HoverPopover } from "./ui/popover";
@@ -257,6 +259,7 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 	hoverPopover: HoverPopover | null = null;
 	previewEl: HTMLElement;
 	renderer: MarkdownPreviewRenderer;
+	metadataEditor: MetadataEditor;
 	#data = "";
 	// The text whose render last finished; null until the file has one.
 	#rendered: string | null = null;
@@ -278,6 +281,25 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		});
 		// It hands clicks, hovers and context menus in the sections to this view.
 		this.renderer = new MarkdownPreviewRenderer(this, this.previewEl);
+		// Properties edit the note here too, through the editor's document.
+		const cm = view.editor.cm;
+		const host = editorMetadataHost(cm, this.app, () => this.view.file?.path ?? "");
+		const showSource = host.showSource;
+		host.focusBody = () => this.focus();
+		host.showSource = () => void this.view.setMode(this.view.editMode).then(() => showSource?.());
+		this.metadataEditor = this.addChild(new MetadataEditor(host));
+		this.renderer.headerEl.appendChild(this.metadataEditor.containerEl);
+		this.registerEvent(this.app.vault.on("config-changed", () => this.#syncProperties()));
+	}
+
+	// "Properties in document": visible shows the editor, source the YAML.
+	#syncProperties() {
+		const mode = this.app.vault.getConfig("propertiesInDocument") ?? "visible";
+		const fm = locateFrontmatter(this.#data);
+		this.previewEl.toggleClass("show-properties", mode === "visible");
+		this.previewEl.toggleClass("show-frontmatter", mode === "source");
+		this.metadataEditor.containerEl.toggle(mode === "visible" && !!fm);
+		if (mode === "visible" && fm) this.metadataEditor.sync(this.#data.slice(fm.yamlFrom, fm.yamlTo));
 	}
 
 	get file(): TFile {
@@ -291,6 +313,7 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 	// A different file (`clear`) starts at the top, rendered afresh.
 	set(data: string, clear: boolean) {
 		this.#data = data;
+		this.#syncProperties();
 		if (clear) {
 			this.#reset();
 			this.#scroll = 0;
@@ -303,6 +326,7 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 
 	clear() {
 		this.#data = "";
+		this.#syncProperties();
 		this.#reset();
 	}
 

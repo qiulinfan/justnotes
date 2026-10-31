@@ -1031,6 +1031,24 @@ export class MetadataCache extends Events {
 
 	// Body and frontmatter tags of every note, counted per tag; spellings that
 	// differ only in case count as one, under the first one seen.
+	// The distinct values notes give a property (list items one by one), as
+	// strings, for suggestions.
+	getFrontmatterPropertyValuesForKey(key: string): string[] {
+		const values = new Set<string>();
+		const lower = key.toLowerCase();
+		for (const cache of this.#cache.values()) {
+			const fm = cache.frontmatter;
+			if (!fm) continue;
+			for (const [k, v] of Object.entries(fm)) {
+				if (k.toLowerCase() !== lower) continue;
+				for (const item of Array.isArray(v) ? v : [v]) {
+					if (typeof item === "string" ? item.trim() : typeof item === "number" || typeof item === "boolean") values.add(String(item));
+				}
+			}
+		}
+		return [...values];
+	}
+
 	getTags() {
 		const counts: Record<string, number> = {};
 		const spelling = new Map<string, string>();

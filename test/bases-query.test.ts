@@ -4,10 +4,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { BaseDocument, BasesViewConfig } from "../src/api/bases/config";
 import { QueryRun } from "../src/api/bases/entry";
-import { loadPropertyTypes } from "../src/api/bases/frontmatter";
 import { executeQuery } from "../src/api/bases/query";
 import { DateValue, ErrorValue, LinkValue, NumberValue, StringValue } from "../src/api/bases/values";
 import { MetadataCache } from "../src/api/metadata";
+import { MetadataTypeManager } from "../src/api/metadata-types";
 import { Vault } from "../src/api/vault";
 
 // A small vault on disk, indexed by the real Vault and MetadataCache.
@@ -35,11 +35,13 @@ beforeAll(async () => {
 	await vault.load();
 	const metadataCache = new MetadataCache(vault);
 	await metadataCache.initialize();
-	app = { vault, metadataCache };
-	await loadPropertyTypes(app);
+	app = { vault, metadataCache, loadLocalStorage: () => null, saveLocalStorage() {} };
+	app.metadataTypeManager = new MetadataTypeManager(app);
+	await app.metadataTypeManager.load();
 });
 
 afterAll(async () => {
+	app.metadataTypeManager.unload();
 	vault.close();
 	await fs.rm(dir, { recursive: true, force: true });
 });

@@ -5,6 +5,7 @@ import { FileManager } from "./file-manager";
 import { InternalPlugins } from "./internal-plugins";
 import { Commands, HotkeyManager, Keymap, Scope } from "./keymap";
 import { MetadataCache } from "./metadata";
+import { MetadataTypeManager } from "./metadata-types";
 import type { CliFlags, CliHandler } from "./plugin";
 import { Plugins } from "./plugins";
 import { type SecretBackend, SecretStorage } from "./secret-storage";
@@ -274,6 +275,7 @@ export class App {
 	vault: Vault;
 	workspace: Workspace;
 	metadataCache: MetadataCache;
+	metadataTypeManager: MetadataTypeManager;
 	fileManager: FileManager;
 	viewRegistry = new ViewRegistry();
 	scope: Scope;
@@ -307,6 +309,7 @@ export class App {
 		this.commands = new Commands(this);
 		this.scope.register(null, null, (evt, ctx) => this.hotkeyManager.onTrigger(evt, ctx));
 		this.metadataCache = new MetadataCache(this.vault);
+		this.metadataTypeManager = new MetadataTypeManager(this);
 		this.workspace = new Workspace(this);
 		this.fileManager = new FileManager(this);
 		this.plugins = new Plugins(this);

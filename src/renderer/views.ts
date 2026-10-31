@@ -308,7 +308,7 @@ class MoveModal extends FuzzySuggestModal<TFolder> {
 	}
 }
 
-class PromptModal extends Modal {
+export class PromptModal extends Modal {
 	constructor(app: App, title: string, value: string, onSubmit: (value: string) => any) {
 		super(app);
 		this.setTitle(title);

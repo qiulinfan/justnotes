@@ -658,7 +658,15 @@ function followVault(view: MarkdownView) {
 	following.add(view);
 	const { app } = view;
 	const editor = () => view.editor?.cm;
-	view.registerEvent(app.vault.on("config-changed", () => editor()?.dispatch({ effects: indentation.reconfigure(indentConfig(app)) })));
+	// "Properties in document" decides how the frontmatter shows.
+	view.registerEvent(
+		app.vault.on("config-changed", () => {
+			const cm = editor();
+			if (!cm) return;
+			cm.dispatch({ effects: indentation.reconfigure(indentConfig(app)) });
+			refreshLivePreview(cm);
+		}),
+	);
 	const filesChanged = debounce(
 		() => {
 			const cm = editor();

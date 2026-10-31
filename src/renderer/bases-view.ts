@@ -3,7 +3,6 @@
 import type { App } from "../api/app";
 import { QueryController } from "../api/bases/controller";
 import { renderBaseBlock, renderBaseEmbeds } from "../api/bases/embed";
-import { loadPropertyTypes } from "../api/bases/frontmatter";
 import { CARDS_VIEW } from "../api/bases/cards-view";
 import { LIST_VIEW } from "../api/bases/list-view";
 import { TABLE_VIEW } from "../api/bases/table-view";
@@ -153,5 +152,4 @@ export function installBases(app: App) {
 	app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile) => {
 		if (file instanceof TFolder) menu.addItem((item) => item.setTitle("New base").setIcon("table").setSection("action-primary").onClick(() => createBase(app, file)));
 	});
-	loadPropertyTypes(app);
 }
