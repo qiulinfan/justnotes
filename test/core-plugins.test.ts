@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseMetadata } from "../src/api/metadata";
 import { moment } from "../src/api/util";
 import { dailyNoteDate, dailyNotePath } from "../src/renderer/daily-notes";
+import { lineDiff, snapshotDue } from "../src/renderer/file-recovery";
 import { findMentions, headingAt, headingTree, mentionSkips, outlineMatches } from "../src/renderer/link-panes";
 import { addText, composeText, headingSection, mergeText, noteName, sectionReplacement } from "../src/renderer/note-composer";
 import { sortTags, type TagNode, tagTree } from "../src/renderer/tag-pane";
@@ -123,6 +124,23 @@ describe("note composer", () => {
 
 	test("a note name drops what links and file systems reject", () => {
 		expect(noteName(" Limits: [part] #1 / x ")).toBe("Limits part 1 x");
+	});
+});
+
+describe("file recovery", () => {
+	const minute = 60_000;
+
+	test("a note is snapshotted at once without a recent snapshot, else when the interval ends, never unchanged", () => {
+		expect(snapshotDue(null, "a", 0, 5 * minute)).toBe("now");
+		expect(snapshotDue({ ts: 0, data: "a" }, "b", 6 * minute, 5 * minute)).toBe("now");
+		expect(snapshotDue({ ts: 0, data: "a" }, "b", 2 * minute, 5 * minute)).toBe(5 * minute);
+		expect(snapshotDue({ ts: 0, data: "a" }, "a", 60 * minute, 5 * minute)).toBe("skip");
+	});
+
+	test("changes list kept, removed and added lines in order, a changed line as removed then added", () => {
+		const shape = (a: string, b: string) => lineDiff(a, b).map((l) => `${l.type === "same" ? " " : l.type === "added" ? "+" : "-"}${l.text}`);
+		expect(shape("a\nb\nc", "a\nB\nc\nd")).toEqual([" a", "-b", "+B", " c", "+d"]);
+		expect(shape("x\ny", "y")).toEqual(["-x", " y"]);
 	});
 });
 

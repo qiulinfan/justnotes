@@ -54,6 +54,7 @@ const IMPLEMENTED = new Set([
 	"templates",
 	"note-composer",
 	"word-count",
+	"file-recovery",
 ]);
 
 export interface InternalPluginInstance {

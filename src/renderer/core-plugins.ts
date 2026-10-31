@@ -1,6 +1,7 @@
 import type { App } from "../api/app";
 import { installBacklinksInDocument } from "./backlinks-in-document";
 import { installDailyNotes } from "./daily-notes";
+import { installFileRecovery } from "./file-recovery";
 import { registerLinkPanes } from "./link-panes";
 import { installNoteComposer } from "./note-composer";
 import { TagView } from "./tag-pane";
@@ -39,6 +40,7 @@ export function installCorePlugins(app: App) {
 	if (enabled("daily-notes")) installDailyNotes(app);
 	if (enabled("templates")) registerTemplateCommands(app);
 	if (enabled("note-composer")) installNoteComposer(app);
+	if (enabled("file-recovery")) installFileRecovery(app);
 	if (enabled("word-count")) installWordCount(app);
 }
 
