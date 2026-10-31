@@ -213,7 +213,8 @@ function identity(item: BookmarkItem) {
 interface Placed {
 	item: BookmarkItem;
 	parent: string | null;
-	prev: string | null;
+	// Every earlier item of the same list, nearest first.
+	prevs: string[];
 }
 
 function keyed(items: BookmarkItem[]) {
@@ -226,8 +227,11 @@ function keyed(items: BookmarkItem[]) {
 		seen.set(id, n + 1);
 		const key = n ? `${id}#${n}` : id;
 		keyOf.set(item, key);
-		const before = list[list.indexOf(item) - 1];
-		map.set(key, { item, parent: parent ? keyOf.get(parent)! : null, prev: before ? keyOf.get(before)! : null });
+		const prevs = list
+			.slice(0, list.indexOf(item))
+			.reverse()
+			.map((other) => keyOf.get(other)!);
+		map.set(key, { item, parent: parent ? keyOf.get(parent)! : null, prevs });
 	});
 	return map;
 }
@@ -252,10 +256,10 @@ export function mergeBookmarks(base: BookmarksData, ours: BookmarksData, theirs:
 	};
 	const place = (item: BookmarkItem, at: Placed) => {
 		const list = listOf(at.parent !== null && R.has(at.parent) ? at.parent : null);
-		const prev = at.prev === null ? undefined : R.get(at.prev)?.item;
-		const index = prev ? list.indexOf(prev) : -1;
-		if (index >= 0) list.splice(index + 1, 0, item);
-		else if (at.prev === null) list.unshift(item);
+		// After the nearest earlier item that is still in that list.
+		const prev = at.prevs.map((k) => R.get(k)?.item).find((p) => p && list.includes(p));
+		if (prev) list.splice(list.indexOf(prev) + 1, 0, item);
+		else if (!at.prevs.length) list.unshift(item);
 		else list.push(item);
 		R = keyed(result.items);
 	};
@@ -281,7 +285,10 @@ export function mergeBookmarks(base: BookmarksData, ours: BookmarksData, theirs:
 			if (node.item[field] === undefined) delete target.item[field];
 			else target.item[field] = cloneBookmarks(node.item[field]);
 		}
-		if (old.parent !== node.parent || old.prev !== node.prev) {
+		// Moved when its group or the item before it changed, counting only
+		// items both sides have: one we added or removed next to it moves nothing.
+		const before = (at: Placed, other: Map<string, Placed>) => at.prevs.find((k) => other.has(k)) ?? null;
+		if (old.parent !== node.parent || before(old, O) !== before(node, B)) {
 			detach(key);
 			place(target.item, node);
 		}

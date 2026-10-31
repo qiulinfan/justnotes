@@ -16,12 +16,14 @@ import { PromptModal } from "./views";
 
 export const ALL_PROPERTIES_VIEW = "all-properties";
 
-// The notes whose frontmatter has the property, by its exact name.
-function notesWith(app: App, name: string): TFile[] {
+// The notes whose frontmatter has the property, its name in any case, as
+// the pane counts them.
+export function notesWith(app: App, name: string): TFile[] {
 	const files: TFile[] = [];
+	const key = name.toLowerCase();
 	for (const path of app.metadataCache.getCachedFiles()) {
 		const fm = app.metadataCache.getCache(path)?.frontmatter;
-		const file = fm && Object.hasOwn(fm, name) ? app.vault.getFileByPath(path) : null;
+		const file = fm && Object.keys(fm).some((k) => k.toLowerCase() === key) ? app.vault.getFileByPath(path) : null;
 		if (file) files.push(file);
 	}
 	return files.sort((a, b) => a.path.localeCompare(b.path));

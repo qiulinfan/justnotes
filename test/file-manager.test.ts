@@ -55,6 +55,18 @@ describe("FileManager.renameFile", () => {
 		expect(read("index.md")).toBe("[x](archive/a/x.md)");
 	});
 
+	// The blogs vault keeps Markdown links with Chinese folder names written
+	// as they read; a rename must not turn them into percent escapes.
+	test("Markdown links keep letters beyond ASCII as written, spaces still encoded", async () => {
+		const { vault, fm, read } = await setup(
+			{ "posts/p.md": "![图](附件/a%20b.png) [笔记](笔记%201.md#第一%20节)", "posts/附件/a b.png": "", "posts/笔记 1.md": "" },
+			{ alwaysUpdateLinks: true, useMarkdownLinks: true, newLinkFormat: "relative" },
+		);
+		await fm.renameFile(vault.getFileByPath("posts/附件/a b.png")!, "posts/附件/图 2.png");
+		await fm.renameFile(vault.getFileByPath("posts/笔记 1.md")!, "posts/笔记 (2).md");
+		expect(read("posts/p.md")).toBe("![图](附件/图%202.png) [笔记](笔记%20(2).md#第一%20节)");
+	});
+
 	test("links that still reach the note after a move are left as written", async () => {
 		const { vault, fm, read } = await setup({ "a/note.md": "", "src.md": "[[note]] [[a/note]]" });
 		await fm.renameFile(vault.getFileByPath("a/note.md")!, "b/note.md");
@@ -145,6 +157,32 @@ describe("FileManager.processFrontMatter", () => {
 		expect(modified).toEqual([]);
 	});
 
+	// QuickAdd and Bases set one property through processFrontMatter; the
+	// note's other properties must come out as they were written.
+	test("only the properties fn changes are rewritten: comments, quoting and number spellings survive", async () => {
+		const yaml = "# kept\nzip: 02134\ntitle: 'A: b'\ntags: [x, y]\nstatus: todo # c\nold: 1\n";
+		const { vault, fm, read } = await setup({ "n.md": `---\n${yaml}---\nbody` });
+		await fm.processFrontMatter(vault.getFileByPath("n.md")!, (f) => {
+			f.status = "done";
+			f.tags.push("z");
+			delete f.old;
+			f.added = true;
+		});
+		expect(read("n.md")).toBe("---\n# kept\nzip: 02134\ntitle: 'A: b'\ntags: [x, y, z]\nstatus: done # c\nadded: true\n---\nbody");
+	});
+
+	// A note may open with a paragraph between two rules, which reads as a
+	// frontmatter block holding a string; a plugin setting a property must not
+	// replace that text.
+	test("a block that is no map of properties throws and leaves the note unchanged", async () => {
+		const { vault, fm, read } = await setup({ "p.md": "---\nAn opening paragraph.\n---\nbody", "l.md": "---\n- a\n- b\n---\n" });
+		for (const name of ["p.md", "l.md"]) {
+			const before = read(name);
+			await expect(fm.processFrontMatter(vault.getFileByPath(name)!, (f) => (f.k = 1))).rejects.toThrow("not a map");
+			expect(read(name)).toBe(before);
+		}
+	});
+
 	test("invalid YAML throws and leaves the note unchanged", async () => {
 		const { vault, fm, read } = await setup({ "bad.md": "---\nk: [1\n---\nx" });
 		await expect(fm.processFrontMatter(vault.getFileByPath("bad.md")!, (f) => (f.k = 2))).rejects.toThrow();
@@ -186,6 +224,15 @@ describe("FileManager paths", () => {
 		vault.setConfig("newFileLocation", "folder");
 		vault.setConfig("newFileFolderPath", "a");
 		expect(fm.getNewFileParent("a/b/n.md").path).toBe("a");
+	});
+
+	// Clicking an unresolved link creates its note; the owner's Markdown
+	// links carry '.md', which must not be doubled.
+	test("a note created from link text written with '.md' gets that name, not '.md.md'", async () => {
+		const { fm } = await setup({ "a/n.md": "" });
+		expect((await fm.createNewMarkdownFileFromLinktext("New Note.md", "a/n.md")).path).toBe("New Note.md");
+		expect((await fm.createNewMarkdownFileFromLinktext("sub/Other.MD", "a/n.md")).path).toBe("sub/Other.md");
+		expect((await fm.createNewMarkdownFileFromLinktext("Plain", "a/n.md")).path).toBe("Plain.md");
 	});
 
 	test("trashOption 'local' moves to .trash and 'none' deletes permanently", async () => {

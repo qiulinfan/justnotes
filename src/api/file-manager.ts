@@ -1,6 +1,7 @@
 import * as nodePath from "node:path";
 import * as YAML from "yaml";
 import type { App } from "./app";
+import { insertProperty, locateFrontmatter, readProperties, removeProperty, replaceFrontmatter, setProperty } from "./frontmatter-edit";
 import { parseMetadata, type Reference, type ReferenceCache } from "./metadata";
 import { getLinkpath, locateFrontMatter, parseLinktext } from "./metadata-utils";
 import { Modal } from "./ui/modal";
@@ -8,9 +9,12 @@ import { normalizePath } from "./util";
 import { type DataWriteOptions, type TAbstractFile, TFile, TFolder, Vault } from "./vault";
 
 // Markdown link destinations: spaces and '#' in a path must be encoded; a
-// block subpath keeps its '^' readable.
-const encodePath = (path: string) => encodeURI(path).replace(/#/g, "%23");
-const encodeSubpath = (subpath: string) => encodeURI(subpath).replace(/%5E/g, "^");
+// block subpath keeps its '^' readable. Letters beyond ASCII stay as written
+// (附件/图 1.png gives 附件/图%201.png), as in Obsidian's links and the
+// owner's notes.
+const encodeAscii = (text: string) => text.replace(/[\0-\x7f]+/g, (run) => encodeURI(run));
+const encodePath = (path: string) => encodeAscii(path).replace(/#/g, "%23");
+const encodeSubpath = (subpath: string) => encodeAscii(subpath).replace(/%5E/g, "^");
 
 // Takes the ref written as `original` nearest to `offset` out of `refs`.
 function claim(refs: ReferenceCache[], original: string, offset: number) {
@@ -20,6 +24,21 @@ function claim(refs: ReferenceCache[], original: string, offset: number) {
 		if (refs[i].original === original && (best < 0 || distance(i) < distance(best))) best = i;
 	}
 	return best < 0 ? null : refs.splice(best, 1)[0];
+}
+
+// The note with its frontmatter turned from `before` into `after` one
+// property at a time; null when the YAML cannot be edited line by line.
+function editProperties(text: string, before: Record<string, unknown>, after: Record<string, unknown>) {
+	const at = locateFrontmatter(text);
+	let yaml = at ? text.slice(at.yamlFrom, at.yamlTo) : "";
+	if (!readProperties(yaml)) return null;
+	const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+	for (const key of Object.keys(before)) if (after[key] === undefined) yaml = removeProperty(yaml, key);
+	for (const [key, value] of Object.entries(after)) {
+		if (value === undefined || (key in before && same(before[key], value))) continue;
+		yaml = key in before ? setProperty(yaml, key, value) : insertProperty(yaml, key, value);
+	}
+	return replaceFrontmatter(text, yaml);
 }
 
 export class FileManager {
@@ -63,7 +82,8 @@ export class FileManager {
 		const dir = nodePath.posix.dirname(linktext);
 		const folderPath = dir === "." ? parent.path : normalizePath(`${parent.isRoot() ? "" : parent.path}/${dir}`);
 		const folder = this.#folder(folderPath) ?? (await this.app.vault.createFolder(folderPath));
-		return this.createNewMarkdownFile(folder, nodePath.posix.basename(linktext));
+		// A Markdown link names the note with its extension ([x](New.md)).
+		return this.createNewMarkdownFile(folder, nodePath.posix.basename(linktext).replace(/\.md$/i, ""));
 	}
 
 	// Moves the file or folder, then rewrites every link that no longer
@@ -232,9 +252,12 @@ export class FileManager {
 		return `${embed}[[${cache.fileToLinktext(file, sourcePath, true)}${subpath}${alias ? `|${alias}` : ""}]]`;
 	}
 
-	// fn mutates the parsed frontmatter. Key order is kept, nothing is written
-	// when fn changes nothing, an emptied block is removed, and the note keeps
-	// its line endings. Invalid YAML throws before anything is written.
+	// fn mutates the parsed frontmatter. Only the properties fn changed are
+	// rewritten (frontmatter-edit.ts): the others keep their bytes, so a
+	// comment or `zip: 02134` survives a plugin setting another property. New
+	// ones go at the end, nothing is written when fn changes nothing, an
+	// emptied block is removed, and the note keeps its line endings. Invalid
+	// YAML, or YAML that is no map, throws before anything is written.
 	async processFrontMatter(file: TFile, fn: (frontmatter: any) => void, options?: DataWriteOptions) {
 		if (!(file instanceof TFile) || file.extension !== "md") throw new Error(`${file?.path ?? "File"} is not a Markdown file`);
 		await this.app.vault.process(
@@ -242,10 +265,15 @@ export class FileManager {
 			(text) => {
 				const fm = locateFrontMatter(text);
 				const parsed = fm ? YAML.parse(text.slice(fm.from, fm.to)) : null;
-				const data = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+				// A block that holds text or a list, not properties (a note opening
+				// with a paragraph between two rules), would be replaced.
+				if (parsed !== null && (typeof parsed !== "object" || Array.isArray(parsed))) throw new Error(`${file.path}'s frontmatter is not a map of properties`);
+				const data = parsed ?? {};
 				const before = JSON.stringify(data);
 				fn(data);
 				if (JSON.stringify(data) === before) return text;
+				const edited = editProperties(text, JSON.parse(before), data);
+				if (edited !== null) return edited;
 				const eol = text.includes("\r\n") ? "\r\n" : "\n";
 				const body = fm ? text.slice(fm.end) : `${eol}${text}`;
 				if (!Object.keys(data).length) return body.replace(/^\r?\n/, "");
