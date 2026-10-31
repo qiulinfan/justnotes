@@ -1,5 +1,8 @@
+import type { App } from "../api/app";
 import { setIcon } from "../api/icons";
+import { Keymap } from "../api/keymap";
 import { searchTag } from "../api/live-preview";
+import { tagTerms } from "./search";
 import { getAllTags } from "../api/metadata-utils";
 import { Menu } from "../api/ui/menu";
 import { debounce } from "../api/util";
@@ -191,7 +194,10 @@ export class TagView extends ItemView {
 			const icon = self.createDiv("tree-item-icon collapse-icon");
 			self.createDiv({ cls: "tree-item-inner tag-pane-tag-text", text: node.name });
 			self.createDiv({ cls: "tree-item-flair-outer" }).createSpan({ cls: "tree-item-flair tag-pane-tag-count", text: String(node.count) });
-			self.addEventListener("click", () => searchTag(this.app, node.tag));
+			self.addEventListener("click", (evt) => {
+				if (Keymap.isModifier(evt, "Mod")) addTagToSearch(this.app, node.tag);
+				else searchTag(this.app, node.tag);
+			});
 			if (!node.children.length) continue;
 			const open = this.#expanded.has(key);
 			setIcon(icon, open ? "chevron-down" : "chevron-right");
@@ -203,4 +209,21 @@ export class TagView extends ItemView {
 			if (open) this.#add(item.createDiv("tree-item-children"), node.children);
 		}
 	}
+}
+
+// The search query with `tag:#x` added: Mod-click on a tag in the Tags view
+// narrows the current search to notes that also carry it. A query of other
+// terms is replaced, since the search view joins tags only with tags.
+export function queryWithTag(query: string, tag: string) {
+	const term = `tag:${tag.startsWith("#") ? tag : `#${tag}`}`;
+	const tags = tagTerms(query);
+	if (!tags) return term;
+	return tags.includes(tagTerms(term)![0]) ? query.trim() : `${query.trim()} ${term}`;
+}
+
+function addTagToSearch(app: App, tag: string) {
+	const search = app.internalPlugins.getPluginById("global-search")?.instance;
+	const query = search?.getGlobalSearchQuery?.() ?? "";
+	if (search?.openGlobalSearch) search.openGlobalSearch(queryWithTag(query, tag));
+	else searchTag(app, tag);
 }

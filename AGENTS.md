@@ -122,7 +122,9 @@ plain style. Development notes belong in this file.
   outline marks the heading the editor's cursor (the reading view's top line)
   is under and filters by its search box. The Tags view counts notes per tag
   (case-insensitive, nested tags count the notes of their subtree) and
-  searches `tag:#x` on click. Note composer reads note-composer.json
+  searches `tag:#x` on click; Mod-click adds the tag to a search of tags
+  (`queryWithTag`; the search view and the CLI's search read `tag:` terms
+  joined by spaces as AND, `tagTerms`) and replaces any other search. Note composer reads note-composer.json
   (`askBeforeMerging`, `replacementText` link/embed/none, `template` with
   `{{content}}`, `{{fromTitle}}`, `{{newTitle}}`, `{{date:...}}`): Enter adds
   at the end, Shift+Enter at the start (after the frontmatter), Mod+Enter (or
@@ -177,8 +179,7 @@ plain style. Development notes belong in this file.
   refused), after `systemPreferences.askForMediaAccess` on macOS when the
   system has not decided yet; with `--use-fake-device-for-media-stream` it
   skips the system check. Not there yet: the other core plugins,
-  the Tags view's Mod-click to add a tag to the search, links to an
-  extracted heading (`[[Note#Heading]]`) are not redirected to the new note.
+  links to an extracted heading (`[[Note#Heading]]`) are not redirected to the new note.
 - Bookmarks (`bookmarks-data.ts`: format, merge, rename/delete following,
   tested; `bookmarks.ts`: instance, view, dialog, commands, menus). The
   instance (`app.internalPlugins.plugins.bookmarks.instance`, created in

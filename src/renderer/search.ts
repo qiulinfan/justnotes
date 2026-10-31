@@ -29,10 +29,27 @@ export function compileSearch(query: string, caseSensitive?: boolean): RegExp | 
 	}
 }
 
-// The tag a `tag:#x` (or `tag:x`) query asks for, lowercased and without '#';
-// rendered tags and Bases search this way.
-export function tagQuery(query: string) {
-	return /^tag:#?([^\s#]+)$/i.exec(query)?.[1].toLowerCase() ?? null;
+// The tags a query of `tag:#x` (or `tag:x`) terms joined by spaces asks for,
+// lowercased and without '#', all of which a note must carry; null when any
+// term is something else. Rendered tags and Bases search with one term, the
+// Tags view's Mod-click adds more.
+export function tagTerms(query: string): string[] | null {
+	const terms = query.trim().split(/\s+/);
+	const tags = terms.map((term) => /^tag:#?([^\s#]+)$/i.exec(term)?.[1].toLowerCase());
+	if (!terms[0] || !tags.every((tag) => tag)) return null;
+	return [...new Set(tags as string[])];
+}
+
+// Whether a note carries every one of `tags` (see isTag), from its cache
+// alone, so only such notes are read.
+export function hasTags(cache: CachedMetadata | null, tags: string[]) {
+	const names = getAllTags(cache) ?? [];
+	return tags.every((tag) => names.some((name) => isTag(name, tag)));
+}
+
+// Where a note carries any of `tags`, in text order.
+export function tagsMatches(cache: CachedMetadata | null, text: string, tags: string[]): SearchMatch[] {
+	return tags.flatMap((tag) => tagMatches(cache, text, tag)).sort((a, b) => a.line - b.line || a.from - b.from);
 }
 
 // Whether `name` (with or without '#') is `tag` or a tag nested under it
@@ -125,9 +142,9 @@ export class SearchView extends ItemView {
 		this.#resultsEl.empty();
 		this.#summaryEl.empty();
 		if (!query) return;
-		const tag = tagQuery(query);
-		const re = tag === null ? compileSearch(query) : null;
-		if (tag === null && !re) {
+		const tags = tagTerms(query);
+		const re = tags === null ? compileSearch(query) : null;
+		if (tags === null && !re) {
 			this.#summaryEl.setText("Invalid regular expression");
 			return;
 		}
@@ -136,14 +153,14 @@ export class SearchView extends ItemView {
 		let matches = 0;
 		const all = this.app.vault.getMarkdownFiles().sort((a, b) => b.stat.mtime - a.stat.mtime);
 		for (const file of all) {
-			const cache = tag === null ? null : this.app.metadataCache.getFileCache(file);
-			// Only a tagged note is worth reading for a tag.
-			if (tag !== null && !getAllTags(cache)?.some((name) => isTag(name, tag))) continue;
+			const cache = tags === null ? null : this.app.metadataCache.getFileCache(file);
+			// Only a note with the tags is worth reading for them.
+			if (tags !== null && !hasTags(cache, tags)) continue;
 			const text = await this.app.vault.cachedRead(file);
 			if (generation !== this.#generation) return;
-			const found = tag !== null ? tagMatches(cache, text, tag) : textMatches(text, re!);
+			const found = tags !== null ? tagsMatches(cache, text, tags) : textMatches(text, re!);
 			const nameHit = !!nameRe && file.basename.search(nameRe) >= 0;
-			if (!found.length && !nameHit && tag === null) continue;
+			if (!found.length && !nameHit && tags === null) continue;
 			this.#show(file, text, found.slice(0, MAX_MATCHES_PER_FILE));
 			files++;
 			matches += found.length || 1;

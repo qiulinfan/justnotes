@@ -9,7 +9,7 @@ import type { CliData } from "../../api/plugin";
 import { apiVersion, moment, normalizePath } from "../../api/util";
 import { TFile, TFolder } from "../../api/vault";
 import { dailyNoteOptions, dailyNotePath } from "../../renderer/daily-notes";
-import { compileSearch, isTag, type SearchMatch, tagMatches, tagQuery, textMatches } from "../../renderer/search";
+import { compileSearch, hasTags, isTag, type SearchMatch, tagsMatches, tagTerms, textMatches } from "../../renderer/search";
 import { fillTemplate, findTemplatesFolder, templateFiles, dateFormat, timeFormat } from "../../renderer/templates";
 import { countWords } from "../../renderer/word-count";
 import { CliError, intParam, keyValues, list, oneOf, on, type Row, result, usage } from "../output";
@@ -107,9 +107,9 @@ async function search(ctx: Ctx, params: CliData): Promise<Hit[]> {
 	if (!query) throw usage("query must not be empty.");
 	const folder = folderParam(ctx, params, "path");
 	const limit = intParam(params, "limit", Number.POSITIVE_INFINITY, 1);
-	const tag = tagQuery(query);
-	const re = tag === null ? compileSearch(query, on(params, "case") ? true : false) : null;
-	if (tag === null && !re) throw usage("Invalid regular expression.");
+	const tags = tagTerms(query);
+	const re = tags === null ? compileSearch(query, on(params, "case") ? true : false) : null;
+	if (tags === null && !re) throw usage("Invalid regular expression.");
 	const nameRe = re && new RegExp(re.source, re.flags.replace("g", ""));
 	const { vault, metadataCache } = ctx.app;
 	const hits: Hit[] = [];
@@ -118,11 +118,11 @@ async function search(ctx: Ctx, params: CliData): Promise<Hit[]> {
 		.filter((f) => inFolder(f.path, folder))
 		.sort((a, b) => sortPaths(a.path, b.path));
 	for (const f of all) {
-		const cache = tag === null ? null : metadataCache.getFileCache(f);
-		if (tag !== null && !getAllTags(cache)?.some((name) => isTag(name, tag))) continue;
+		const cache = tags === null ? null : metadataCache.getFileCache(f);
+		if (tags !== null && !hasTags(cache, tags)) continue;
 		const text = await vault.cachedRead(f);
-		const found = tag !== null ? tagMatches(cache, text, tag) : textMatches(text, re!);
-		if (!found.length && !(nameRe && f.basename.search(nameRe) >= 0) && tag === null) continue;
+		const found = tags !== null ? tagsMatches(cache, text, tags) : textMatches(text, re!);
+		if (!found.length && !(nameRe && f.basename.search(nameRe) >= 0) && tags === null) continue;
 		hits.push({ file: f, matches: found, lines: text.split("\n") });
 		if (hits.length >= limit) break;
 	}
