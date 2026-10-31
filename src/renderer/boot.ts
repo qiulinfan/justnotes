@@ -6,6 +6,7 @@ import { MarkdownView } from "../api/markdown-view";
 import { Notice } from "../api/ui/notice";
 import { registerCoreCommands } from "./commands";
 import { SearchView } from "./search";
+import { registerViewCommands } from "./view-commands";
 import { EmptyView, FileExplorerView } from "./views";
 
 async function applyTheme(app: App) {
@@ -64,6 +65,7 @@ async function boot() {
 	await app.hotkeyManager.load();
 	await loadMathJax().catch((err) => console.error(err));
 	registerCoreCommands(app);
+	registerViewCommands(app);
 	await app.workspace.getLeftLeaf(false).setViewState({ type: "file-explorer" });
 	await app.workspace.getLeftLeaf(false).setViewState({ type: "search" });
 	app.workspace.revealLeaf(app.workspace.getLeavesOfType("file-explorer")[0]);

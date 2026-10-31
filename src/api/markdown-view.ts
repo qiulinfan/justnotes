@@ -1,29 +1,48 @@
 import { openSearchPanel } from "@codemirror/search";
-import { Compartment, EditorState } from "@codemirror/state";
+import { EditorSelection, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { bindEditorFields, Editor } from "./editor";
-import { markdownEditorExtensions } from "./editor-extensions";
-import { Keymap } from "./keymap";
+import type { Editor, EditorPosition } from "./editor";
+import type { Component } from "./events";
+import { setIcon, setTooltip } from "./icons";
+import { Keymap, Scope } from "./keymap";
+import { MarkdownEditView, MarkdownPreviewView, type MarkdownSubView, subpathLine } from "./markdown-preview";
 import { Menu } from "./ui/menu";
-import { TFile } from "./vault";
-import { TextFileView } from "./view";
+import { TextFileView, type ViewStateResult } from "./view";
 import type { WorkspaceLeaf } from "./workspace";
 
 export class MarkdownView extends TextFileView {
 	editor: Editor;
+	editMode: MarkdownEditView;
+	previewMode: MarkdownPreviewView;
+	currentMode: MarkdownSubView;
+	modes: { source: MarkdownEditView; preview: MarkdownPreviewView };
 	sourceEl: HTMLElement;
-	previewMode = { containerEl: createDiv("markdown-preview-view"), rerender: () => {} };
-	currentMode: { type: "source"; editor?: Editor };
-	#plugins = new Compartment();
+	hoverPopover: Component | null = null;
+	scope: Scope;
+	// Source mode: editing with Live Preview off.
+	#source: boolean;
+	#backlinks = false;
+	#crlf = false;
+	// The exact text the editor's document stands for while unedited, so an
+	// untouched file saves back byte for byte (line endings included).
+	#pristine: { doc: Text; text: string } | null = null;
+	#modeButton: HTMLElement;
 
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
+		this.scope = new Scope(this.app.scope);
 		this.contentEl.addClass("markdown-view");
-		this.sourceEl = this.contentEl.createDiv("markdown-source-view cm-s-obsidian mod-cm6 is-live-preview is-readable-line-width");
-		const cm = new EditorView({ state: this.#createState(""), parent: this.sourceEl });
-		this.editor = new Editor(cm);
-		this.currentMode = { type: "source", editor: this.editor };
-		bindEditorFields(cm, this);
+		this.editMode = new MarkdownEditView(this);
+		this.editor = this.editMode.editor;
+		this.sourceEl = this.editMode.containerEl;
+		this.previewMode = this.addChild(new MarkdownPreviewView(this));
+		this.modes = { source: this.editMode, preview: this.previewMode };
+		this.currentMode = this.editMode;
+		this.#source = this.app.vault.getConfig("livePreview") === false;
+		if (this.#source) this.editMode.setLivePreview(false);
+		this.#modeButton = this.addAction("book-open", "", () => this.toggleMode());
+		if (this.app.vault.getConfig("defaultViewMode") === "preview") this.#showMode(this.previewMode);
+		this.#syncModeUi();
 	}
 
 	getViewType() {
@@ -31,32 +50,76 @@ export class MarkdownView extends TextFileView {
 	}
 
 	getIcon() {
-		return "lucide-file-text";
+		return "lucide-file";
 	}
 
-	getMode() {
-		return "source" as const;
+	getMode(): "source" | "preview" {
+		return this.currentMode === this.previewMode ? "preview" : "source";
 	}
 
 	canAcceptExtension(extension: string) {
 		return extension === "md";
 	}
 
-	onload() {
-		this.registerEvent(
-			this.app.vault.on("modify", async (file: TFile) => {
-				if (file !== this.file || this.getViewData() !== this.data) return;
-				const text = await this.app.vault.read(file);
-				if (text !== this.data) {
-					this.data = text;
-					this.setViewData(text, false);
-				}
-			}),
-		);
+	getState(): Record<string, any> {
+		return { ...super.getState(), mode: this.getMode(), source: this.#source, backlinks: this.#backlinks };
 	}
 
-	#createState(doc: string) {
-		return EditorState.create({ doc, extensions: markdownEditorExtensions(this, this.#plugins) });
+	// A state without a mode (a file opened in this leaf) keeps the leaf's mode.
+	async setState(state: any, result: ViewStateResult) {
+		await super.setState(state, result);
+		if (typeof state?.source === "boolean") this.setSource(state.source);
+		if (typeof state?.backlinks === "boolean") this.#backlinks = state.backlinks;
+		if (state?.mode === "preview") await this.setMode(this.previewMode);
+		else if (state?.mode === "source") await this.setMode(this.editMode);
+	}
+
+	async setMode(mode: MarkdownSubView) {
+		if (mode === this.currentMode || (mode !== this.editMode && mode !== this.previewMode)) return;
+		const scroll = this.currentMode.getScroll();
+		const focused = this.containerEl.contains(document.activeElement);
+		if (mode === this.previewMode) this.previewMode.set(this.editor.getValue(), false);
+		await this.#showMode(mode);
+		mode.applyScroll(scroll);
+		if (focused) this.#focusMode();
+		this.app.workspace.trigger("layout-change");
+		this.app.workspace.requestSaveLayout();
+	}
+
+	toggleMode() {
+		return this.setMode(this.getMode() === "preview" ? this.editMode : this.previewMode);
+	}
+
+	setSource(source: boolean) {
+		if (source === this.#source) return;
+		this.#source = source;
+		this.editMode.setLivePreview(!source);
+		this.app.workspace.requestSaveLayout();
+	}
+
+	toggleSource() {
+		this.setSource(!this.#source);
+	}
+
+	#showMode(mode: MarkdownSubView) {
+		this.currentMode = mode;
+		const preview = mode === this.previewMode;
+		this.editMode.containerEl.toggle(!preview);
+		this.#syncModeUi();
+		if (preview) return this.previewMode.show();
+		this.previewMode.hide();
+	}
+
+	#syncModeUi() {
+		const preview = this.getMode() === "preview";
+		this.containerEl.setAttr("data-mode", this.getMode());
+		setIcon(this.#modeButton, preview ? "pencil" : "book-open");
+		setTooltip(this.#modeButton, preview ? "Current view: reading. Click to edit." : "Current view: editing. Click to read.");
+	}
+
+	#focusMode() {
+		if (this.getMode() === "preview") this.previewMode.focus();
+		else this.editor.focus();
 	}
 
 	resolveImage(link: string) {
@@ -77,7 +140,7 @@ export class MarkdownView extends TextFileView {
 	}
 
 	reconfigureExtensions() {
-		this.editor.cm.dispatch({ effects: this.#plugins.reconfigure(this.app.workspace.editorExtensions) });
+		this.editMode.reconfigure();
 	}
 
 	showContextMenu(evt: MouseEvent) {
@@ -118,44 +181,133 @@ export class MarkdownView extends TextFileView {
 		menu.showAtMouseEvent(evt);
 	}
 
-	getViewData() {
-		return this.editor.getValue();
+	onPaneMenu(menu: Menu, source: string) {
+		if (source === "more-options") {
+			const preview = this.getMode() === "preview";
+			menu.addItem((i) =>
+				i
+					.setTitle(preview ? "Editing view" : "Reading view")
+					.setIcon(preview ? "pencil" : "book-open")
+					.setSection("view")
+					.onClick(() => this.toggleMode()),
+			);
+			if (!preview) {
+				menu.addItem((i) =>
+					i
+						.setTitle("Source mode")
+						.setIcon("code")
+						.setChecked(this.#source)
+						.setSection("view")
+						.onClick(() => this.toggleSource()),
+				);
+			}
+			menu.addItem((i) =>
+				i
+					.setTitle("Find...")
+					.setIcon("search")
+					.setSection("find")
+					.onClick(() => this.showSearch(false)),
+			);
+			if (!preview) {
+				menu.addItem((i) =>
+					i
+						.setTitle("Replace...")
+						.setIcon("replace")
+						.setSection("find")
+						.onClick(() => this.showSearch(true)),
+				);
+			}
+		}
+		super.onPaneMenu(menu, source);
 	}
 
+	getViewData() {
+		const doc = this.editor.cm.state.doc;
+		if (this.#pristine?.doc === doc) return this.#pristine.text;
+		const text = doc.toString();
+		return this.#crlf ? text.replace(/\n/g, "\r\n") : text;
+	}
+
+	// CodeMirror keeps LF line breaks; a file whose first line break is CRLF
+	// is written back with CRLF.
 	setViewData(data: string, clear: boolean) {
-		const cm = this.editor.cm;
-		if (clear) {
-			cm.setState(this.#createState(data));
-			bindEditorFields(cm, this);
-		} else {
-			const head = Math.min(cm.state.selection.main.head, data.length);
-			cm.dispatch({ changes: { from: 0, to: cm.state.doc.length, insert: data }, selection: { anchor: head } });
-		}
+		if (clear) this.#crlf = /^[^\n]*\r\n/.test(data);
+		const text = data.replace(/\r\n?/g, "\n");
+		this.editMode.set(text, clear);
+		if (clear) this.previewMode.set(text, true);
+		this.#pristine = { doc: this.editor.cm.state.doc, text: data };
 	}
 
 	clear() {
-		this.editor.cm.setState(this.#createState(""));
-		bindEditorFields(this.editor.cm, this);
+		this.editMode.clear();
+		this.previewMode.clear();
+		this.#pristine = null;
 	}
 
-	async onLoadFile(file: TFile) {
-		await super.onLoadFile(file);
-		this.containerEl.setAttr("data-type", "markdown");
-	}
-
-	showSearch(_replace?: boolean) {
-		openSearchPanel(this.editor.cm);
+	showSearch(replace = false) {
+		if (this.getMode() === "preview") return this.previewMode.showSearch();
+		const cm = this.editor.cm;
+		openSearchPanel(cm);
+		if (replace) cm.dom.querySelector<HTMLInputElement>(".cm-search input[name=replace]")?.focus();
 	}
 
 	onResize() {
 		this.editor.cm.requestMeasure();
 	}
 
-	setEphemeralState(state: any) {
-		if (state?.line !== undefined) {
-			const pos = { line: state.line, ch: 0 };
-			this.editor.setCursor(pos);
-			this.editor.scrollIntoView({ from: pos, to: pos }, true);
-		}
+	// The editor is destroyed with the view, so plugin ViewPlugins stop.
+	onunload() {
+		const suggest = this.app.workspace.editorSuggest;
+		if ((suggest.currentSuggest as { context?: { editor?: unknown } | null } | null)?.context?.editor === this.editor) suggest.close();
+		this.editMode.destroy();
+		super.onunload();
 	}
+
+	getEphemeralState(): Record<string, any> {
+		const state: Record<string, any> = {};
+		if (this.getMode() === "source") state.cursor = { from: this.editor.getCursor("anchor"), to: this.editor.getCursor("head") };
+		state.scroll = this.currentMode.getScroll();
+		return state;
+	}
+
+	// cursor {from, to}, scroll (a top line), line, subpath (#heading or
+	// #^block) and focus, as Obsidian's openFile/openLinkText eState carries them.
+	setEphemeralState(state: any) {
+		if (!state || typeof state !== "object") return;
+		const subpath = typeof state.subpath === "string" && state.subpath ? this.#subpathLine(state.subpath) : null;
+		const line = subpath ?? (typeof state.line === "number" ? state.line : null);
+		const cursor = isRange(state.cursor) ? state.cursor : null;
+		const scroll = typeof state.scroll === "number" ? state.scroll : null;
+		const cm = this.editor.cm;
+		const doc = cm.state.doc;
+		const offset = (pos: EditorPosition) => {
+			const l = doc.line(Math.min(Math.max(Math.floor(pos.line) + 1, 1), doc.lines));
+			return Math.min(l.from + Math.max(0, pos.ch), l.to);
+		};
+		const selection = cursor
+			? EditorSelection.single(offset(cursor.from), offset(cursor.to))
+			: line !== null
+				? EditorSelection.single(offset({ line, ch: 0 }))
+				: null;
+		if (this.getMode() === "preview") {
+			if (selection) cm.dispatch({ selection });
+			const top = scroll ?? line;
+			if (top !== null) this.previewMode.applyScroll(top);
+		} else if (scroll !== null) {
+			if (selection) cm.dispatch({ selection });
+			this.editMode.applyScroll(scroll);
+		} else if (selection) {
+			cm.dispatch({ selection, effects: EditorView.scrollIntoView(selection.main.head, { y: subpath !== null ? "start" : "center" }) });
+		}
+		if (state.focus) this.#focusMode();
+	}
+
+	#subpathLine(subpath: string) {
+		return subpathLine(this.file ? this.app.metadataCache.getFileCache(this.file) : null, subpath);
+	}
+}
+
+function isRange(value: any): value is { from: EditorPosition; to: EditorPosition } {
+	const pos = (p: any) => typeof p?.line === "number" && typeof p?.ch === "number";
+	return !!value && pos(value.from) && pos(value.to);
 }

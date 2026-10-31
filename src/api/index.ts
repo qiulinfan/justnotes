@@ -6,6 +6,7 @@ export * from "./file-manager";
 export * from "./icons";
 export * from "./keymap";
 export * from "./markdown";
+export * from "./markdown-preview";
 export * from "./markdown-view";
 export * from "./metadata";
 export * from "./metadata-utils";
