@@ -832,8 +832,10 @@ plain style. Development notes belong in this file.
   it (`destinationText`: no angle brackets, backslash escapes unescaped, so
   `[x](a\_b.md)` opens `a_b.md`); reference links (`[text][ref]`,
   `[text][]`, `[text]`) render with the destination of the note's definition,
-  found in the same tree pass and applied after it, and a definition line
-  shows its label small (`cm-link-ref-label`) and its destination as a link.
+  found in the same tree pass and applied after it; reference images
+  (`![alt][ref]`) take theirs from `referenceDefinitions`, computed once per
+  state; a definition line shows its label small (`cm-link-ref-label`) and its
+  destination as a link.
   Ordered tasks keep their number before the box (a bullet gives way to it),
   in both views. Footnote references (`[^1]`) show their source as a faint
   superscript (`sup.cm-footref-rendered`); a definition's `[^id]: ` becomes

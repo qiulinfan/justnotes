@@ -262,6 +262,15 @@ describe("links", () => {
 		expect(clickableTokenAt(stateOf(doc, 0), doc.indexOf("Other"))).toMatchObject({ type: "internal-link", text: "Known" });
 	});
 
+	// ![alt][ref] stayed source in Live Preview while the reading view showed
+	// the image its definition names.
+	test("reference images render from their definition's destination", () => {
+		const doc = "![Chart][fig] and ![none][missing]\n\n[fig]: <my\\_chart.png>\nend";
+		const images = decorate(doc, doc.length).filter((d) => d.widget === "ImageWidget");
+		expect(images.map((d) => doc.slice(d.from, d.to))).toEqual(["![Chart][fig]"]);
+		expect(clickableTokenAt(stateOf(doc, doc.length), 2)).toMatchObject({ type: "internal-link", text: "my_chart.png" });
+	});
+
 	// Page preview and the click handler read data-href as link text, as the
 	// reading view's links have it; an encoded path found no note to preview.
 	test("a Markdown link to a note carries its decoded path, a wikilink its text as written", () => {

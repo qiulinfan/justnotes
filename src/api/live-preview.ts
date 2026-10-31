@@ -141,9 +141,14 @@ function referenceLabel(state: EditorState, node: SyntaxNode) {
 }
 
 // The destination of each link reference definition ([ref]: url "title") in
-// the note, by label; the first definition of a label wins.
+// the note, by label; the first definition of a label wins. Computed once per
+// state, which every reference link and image of a rebuild shares.
+const definitionsByState = new WeakMap<EditorState, Map<string, string>>();
 function referenceDefinitions(state: EditorState) {
+	const known = definitionsByState.get(state);
+	if (known) return known;
 	const defs = new Map<string, string>();
+	definitionsByState.set(state, defs);
 	syntaxTree(state).iterate({
 		enter: (ref) => {
 			if (ref.name !== "LinkReference") return;
@@ -162,10 +167,11 @@ function definitionOf(state: EditorState, node: SyntaxNode) {
 	return { key: labelKey(state.sliceDoc(label.from + 1, label.to - 1)), href: destinationText(state.sliceDoc(url.from, url.to)), label, url };
 }
 
-// A Markdown link's destination, inline or from the definition its label names.
+// A Markdown link's or image's destination, inline or from the definition its
+// label names (![alt][ref] as well as [text][ref]).
 function linkDestination(state: EditorState, node: SyntaxNode) {
 	const href = destination(state, node);
-	if (href !== null || node.name !== "Link") return href;
+	if (href !== null || (node.name !== "Link" && node.name !== "Image")) return href;
 	const key = referenceLabel(state, node);
 	return key === null ? null : (referenceDefinitions(state).get(key) ?? null);
 }
@@ -993,7 +999,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 				case "Image": {
 					if (touches(from, to)) return;
 					const marks = node.getChildren("LinkMark");
-					const href = destination(state, node);
+					const href = linkDestination(state, node);
 					const target = href === null ? null : safeDecode(href);
 					if (!target) return false;
 					const alt = marks.length >= 2 ? state.sliceDoc(marks[0].to, marks[1].from) : "";
