@@ -783,6 +783,15 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (widget) decos.push(Decoration.replace({ widget }).range(from, to));
 					return;
 				}
+				// An <img> on a line of its own, without a closing slash, is an
+				// HTML block rather than an inline tag.
+				case "HTMLBlock": {
+					const block = state.sliceDoc(from, to);
+					if (touches(from, to) || !/^\s*<img\b[^>]*>\s*$/i.test(block)) return;
+					const widget = htmlImage(block.trim(), cx.resolveImage);
+					if (widget) decos.push(Decoration.replace({ widget }).range(from, to));
+					return false;
+				}
 				case "internal-link":
 				case "internal-embed": {
 					if (touches(from, to)) return false;

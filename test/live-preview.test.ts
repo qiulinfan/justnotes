@@ -11,7 +11,7 @@ const host = {
 		metadataCache: { getFirstLinkpathDest: (path: string) => (path === "Known" ? {} : null), getCache: () => null },
 	},
 	sourcePath: () => "note.md",
-	resolveImage: () => null,
+	resolveImage: (link: string) => (link.endsWith(".png") ? `app://vault/${link}` : null),
 } as unknown as LivePreviewHost;
 
 interface Deco {
@@ -114,6 +114,12 @@ describe("block widgets", () => {
 	test("a selection inside shows the source", () => {
 		expect(blocks(doc.indexOf("title"))).toEqual([["RenderedBlockWidget", "| a | b |\n| - | - |\n| 1 | 2 |"]]);
 		expect(blocks(doc.indexOf("| 1"))).toEqual([["PropertiesWidget", "---\ntitle: x\n---"]]);
+	});
+
+	test("an <img> on a line of its own renders as an image", () => {
+		const html = 'text\n\n<img src="a.png" width="650">\n\nmore';
+		const images = decorate(html, html.length).filter((d) => d.widget === "HtmlImageWidget");
+		expect(images.map((d) => html.slice(d.from, d.to))).toEqual(['<img src="a.png" width="650">']);
 	});
 });
 
