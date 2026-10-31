@@ -15,6 +15,7 @@ export * from "./ui/modal";
 export * from "./ui/notice";
 export * from "./ui/setting";
 export * from "./ui/suggest";
+export { displayTooltip, type TooltipPlacement } from "./ui/tooltip";
 export * from "./util";
 export * from "./vault";
 export * from "./view";

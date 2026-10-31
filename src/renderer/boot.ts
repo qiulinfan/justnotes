@@ -4,6 +4,7 @@ import { setIcon } from "../api/icons";
 import { loadMathJax, setMarkdownApp } from "../api/markdown";
 import { MarkdownView } from "../api/markdown-view";
 import { Notice } from "../api/ui/notice";
+import { installTooltips } from "../api/ui/tooltip";
 import { registerCoreCommands } from "./commands";
 import { SearchView } from "./search";
 import { EmptyView, FileExplorerView } from "./views";
@@ -45,6 +46,7 @@ function buildShell(app: App) {
 
 async function boot() {
 	installDomExtensions();
+	installTooltips();
 	const vaultPath = new URLSearchParams(location.search).get("vault");
 	if (!vaultPath) throw new Error("No vault path given");
 	const app = new App(vaultPath);
