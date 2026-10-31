@@ -255,9 +255,10 @@ export class CanvasTextNode extends CanvasNode {
 	}
 
 	// A card grows to show what is typed into it, as in Obsidian; it never
-	// shrinks on its own.
+	// shrinks on its own. The frame comes from the card's own window: a canvas
+	// in a popout keeps growing its cards while the vault window is minimized.
 	#fitHeight() {
-		requestAnimationFrame(() => {
+		this.nodeEl.win.requestAnimationFrame(() => {
 			const content = this.contentEl;
 			const extra = content.scrollHeight - content.clientHeight;
 			if (extra > 0 && this.#editor) this.resize({ width: this.width, height: this.height + extra });
