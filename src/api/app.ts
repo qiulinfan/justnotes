@@ -63,6 +63,23 @@ function paneTypeOf(value: string | undefined): PaneType | false {
 	return value === "tab" || value === "split" || value === "window" ? value : false;
 }
 
+// The vault path of an absolute path inside `folder`, or null outside it.
+function pathInside(folder: string, fullPath: string) {
+	const rel = nodePath.relative(folder, fullPath);
+	return rel === ".." || rel.startsWith(`..${nodePath.sep}`) || nodePath.isAbsolute(rel) ? null : normalizePath(rel);
+}
+
+// The real path of a file that may not exist yet: its nearest existing
+// folder's real path, with the rest of the path.
+function realPathOf(file: string): string {
+	try {
+		return fs.realpathSync(file);
+	} catch {
+		const parent = nodePath.dirname(file);
+		return parent === file ? file : nodePath.join(realPathOf(parent), nodePath.basename(file));
+	}
+}
+
 // Secrets live with the main process (main/ipc.ts), per vault.
 function ipcSecretBackend(vaultId: string): SecretBackend {
 	const { ipcRenderer } = getElectron();
@@ -373,9 +390,12 @@ export class App {
 		}
 	}
 
+	// A path spelled through a symlink (/tmp for /private/tmp) is in this vault
+	// too, when its real path is inside the vault's real path, as main matches
+	// vaults (main/ipc.ts vaultOf).
 	#vaultPathOf(fullPath: string) {
-		const rel = nodePath.relative(this.vault.adapter.getBasePath(), fullPath);
-		return rel.startsWith("..") || nodePath.isAbsolute(rel) ? null : normalizePath(rel);
+		const base = this.vault.adapter.getBasePath();
+		return pathInside(base, fullPath) ?? pathInside(realPathOf(base), realPathOf(fullPath));
 	}
 
 	async #uriOpen(params: ObsidianProtocolData) {
