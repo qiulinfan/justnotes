@@ -241,6 +241,9 @@ export async function run(options: Options): Promise<CliResponse> {
 	} catch (err) {
 		if (!(err instanceof NotRunning)) throw err;
 		if (spec?.name === "vaults") return knownVaultList(options, spec, words);
+		// The command comes from the same checkout as the app, so it knows the
+		// version without a vault.
+		if (spec?.name === "version" && "error" in pickVault(argv, cwd, [], readKnownVaults(options.profile), null)) return await localVersion(spec, words);
 		if (spec?.name === "quit" || spec?.name === "restart") return { stdout: "", stderr: `justnotes is not running for the profile ${options.profile}.`, code: EXIT_FAILURE };
 		const pickArgv = spec?.name === "vault:open" ? vaultOpenTarget(options.argv.slice(0, lead), words) : argv;
 		const picked = localVault(options, pickArgv);
@@ -272,6 +275,15 @@ function knownVaultList(options: Options, spec: CommandSpec, words: string[]): C
 	const { params } = parsed;
 	const rows = readKnownVaults(options.profile).map((v) => ({ name: path.basename(v), path: v, open: false }));
 	return { stdout: render(list(params, rows, { columns: params.verbose === "true" ? ["name", "path", "open"] : ["name"] }), params), stderr: "", code: 0 };
+}
+
+// The app's modules load only here, as for offline commands.
+async function localVersion(spec: CommandSpec, words: string[]): Promise<CliResponse> {
+	const { apiVersion } = await import("../api/util");
+	const parsed = parseCliArgs(words, flagsOf(spec));
+	if ("error" in parsed) return { stdout: "", stderr: parsed.error, code: EXIT_USAGE };
+	const data = { justnotes: version(), obsidianApi: apiVersion };
+	return { stdout: render({ data, text: `justnotes ${data.justnotes} (Obsidian API ${data.obsidianApi})` }, parsed.params), stderr: "", code: 0 };
 }
 
 // vault:open's own name= or path=, else the leading vault=.

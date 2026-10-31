@@ -200,6 +200,10 @@ describe("command-line socket", () => {
 		const down = run("quit");
 		expect(down.exitCode).toBe(1);
 		expect(down.stderr.toString()).toContain("not running");
+		// Outside any vault, with no app, version still answers.
+		const version = run("version", "--json");
+		expect(version.exitCode).toBe(0);
+		expect(JSON.parse(version.stdout.toString()).obsidianApi).toMatch(/^\d+\.\d+\.\d+$/);
 		const server = await serveCli(address, echo);
 		try {
 			const proc = Bun.spawn(["bun", command, "--profile", profile, "vault=notes", "quickadd:list"], { cwd: scratch, stdout: "pipe", stderr: "pipe" });
