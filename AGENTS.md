@@ -477,7 +477,10 @@ plain style. Development notes belong in this file.
   keyed by the profile on Windows), never a network port. A socket path past
   sockaddr_un's limit (a deep `--profile`) is bound and connected relative to
   its folder after a `chdir`, which main undoes at once (Node binds
-  synchronously). A window takes requests after `installCli` (end of boot)
+  synchronously). A connection that has not sent one complete request line
+  within 10 seconds is closed (the command sends its request on connecting);
+  once the request is in, it waits as long as the command runs. A window
+  takes requests after `installCli` (end of boot)
   says it is ready; earlier requests wait up to a minute, and a reload, crash
   or close answers pending ones with an error. A socket file left by a killed
   instance is replaced on the next start; a live one (another instance on the

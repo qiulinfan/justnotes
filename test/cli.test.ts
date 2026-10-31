@@ -1,5 +1,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { CliFlags, CliHandler } from "../src/api/plugin";
@@ -193,6 +194,37 @@ describe("command-line socket", () => {
 			expect((await ask(address, { argv: ["x"], cwd: "/" })).stdout).toBe("x");
 		} finally {
 			closeCli(again!, address);
+		}
+	});
+
+	// A connection that never completes its request line is dropped after the
+	// request timeout; once the request is in, a dispatch may take longer.
+	test("a connection without a complete request is closed; a long-running request still gets its answer", async () => {
+		const profile = fs.mkdtempSync(path.join(scratch, "p-"));
+		const address = cliAddress(profile);
+		const slow = async (req: CliRequest): Promise<CliResponse> => {
+			await Bun.sleep(400);
+			return { stdout: req.argv.join(" "), stderr: "", code: 0 };
+		};
+		const server = await serveCli(address, slow, { requestTimeout: 150 });
+		const closedAfter = (send: string) =>
+			new Promise<number>((resolve, reject) => {
+				const started = Date.now();
+				const socket = net.connect(address.path);
+				socket.on("connect", () => send && socket.write(send));
+				socket.on("error", reject);
+				socket.on("close", () => resolve(Date.now() - started));
+				setTimeout(() => {
+					socket.destroy();
+					reject(new Error("the connection stayed open"));
+				}, 3000);
+			});
+		try {
+			expect(await closedAfter("")).toBeLessThan(1000);
+			expect(await closedAfter('{"argv":["half"')).toBeLessThan(1000);
+			expect(await ask(address, { argv: ["long", "task"], cwd: "/" })).toEqual({ stdout: "long task", stderr: "", code: 0 });
+		} finally {
+			closeCli(server!, address);
 		}
 	});
 
