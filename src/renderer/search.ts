@@ -1,3 +1,5 @@
+import type { CachedMetadata } from "../api/metadata";
+import { getAllTags, parseFrontMatterTags } from "../api/metadata-utils";
 import { debounce } from "../api/util";
 import type { TFile } from "../api/vault";
 import { ItemView } from "../api/view";
@@ -5,6 +7,13 @@ import type { WorkspaceLeaf } from "../api/workspace";
 
 const MAX_FILES = 200;
 const MAX_MATCHES_PER_FILE = 20;
+
+// A match: characters [from, to) of a 0-based line.
+export interface SearchMatch {
+	line: number;
+	from: number;
+	to: number;
+}
 
 // Builds a line matcher: `/re/` is a regex, anything else a plain string,
 // case-sensitive only when it contains an uppercase letter.
@@ -19,7 +28,59 @@ function compile(query: string): RegExp | null {
 	}
 }
 
-// Full-text search that reads the Markdown files directly; no index.
+// The tag a `tag:#x` (or `tag:x`) query asks for, lowercased and without '#';
+// rendered tags and Bases search this way.
+export function tagQuery(query: string) {
+	return /^tag:#?([^\s#]+)$/i.exec(query)?.[1].toLowerCase() ?? null;
+}
+
+// Whether `name` (with or without '#') is `tag` or a tag nested under it
+// (#tag/sub), ignoring case.
+function isTag(name: string, tag: string) {
+	const t = name.replace(/^#/, "").toLowerCase();
+	return t === tag || t.startsWith(`${tag}/`);
+}
+
+// Where a note carries `tag` (see isTag): each tag in the text, and each
+// value of the frontmatter's tags key.
+export function tagMatches(cache: CachedMetadata | null, text: string, tag: string): SearchMatch[] {
+	const named = (name: string) => isTag(name, tag);
+	const matches: SearchMatch[] = [];
+	const fm = cache?.frontmatterPosition;
+	if (fm && parseFrontMatterTags(cache.frontmatter)?.some(named)) {
+		// The cache keeps no positions for frontmatter values; the lines of the
+		// tags key (`tags: a, b`, `tags: [a]`, or a list under it) hold them.
+		const lines = text.split(/\r?\n/);
+		let inTags = false;
+		for (let line = fm.start.line + 1; line < fm.end.line; line++) {
+			const key = /^([^\s#:-][^:]*):/.exec(lines[line]);
+			if (key) inTags = /^tags?$/i.test(key[1].trim());
+			if (!inTags) continue;
+			const start = key ? key[0].length : 0;
+			for (const m of lines[line].slice(start).matchAll(/#?[^\s,[\]'"#]+/g)) {
+				if (named(m[0])) matches.push({ line, from: start + m.index, to: start + m.index + m[0].length });
+			}
+		}
+	}
+	for (const t of cache?.tags ?? []) {
+		if (named(t.tag)) matches.push({ line: t.position.start.line, from: t.position.start.col, to: t.position.end.col });
+	}
+	return matches;
+}
+
+// The matches of `re` on each line, one per line.
+function textMatches(text: string, re: RegExp): SearchMatch[] {
+	const matches: SearchMatch[] = [];
+	for (const [line, content] of text.split("\n").entries()) {
+		re.lastIndex = 0;
+		const m = re.exec(content);
+		if (m && m[0].length) matches.push({ line, from: m.index, to: m.index + m[0].length });
+	}
+	return matches;
+}
+
+// Full-text search that reads the Markdown files directly; no index. A
+// `tag:` query finds tags through the metadata cache instead.
 export class SearchView extends ItemView {
 	inputEl!: HTMLInputElement;
 	#summaryEl!: HTMLElement;
@@ -43,7 +104,7 @@ export class SearchView extends ItemView {
 	async onOpen() {
 		this.headerEl.hide();
 		const row = this.contentEl.createDiv("search-input-row");
-		this.inputEl = row.createEl("input", { type: "search", placeholder: "Search files... (/regex/ works)" });
+		this.inputEl = row.createEl("input", { type: "search", placeholder: "Search files... (/regex/ and tag:#tag work)" });
 		this.inputEl.addEventListener("input", () => this.#run());
 		this.#summaryEl = this.contentEl.createDiv("search-summary");
 		this.#resultsEl = this.contentEl.createDiv("search-results");
@@ -55,63 +116,53 @@ export class SearchView extends ItemView {
 		this.#resultsEl.empty();
 		this.#summaryEl.empty();
 		if (!query) return;
-		const re = compile(query);
-		if (!re) {
+		const tag = tagQuery(query);
+		const re = tag === null ? compile(query) : null;
+		if (tag === null && !re) {
 			this.#summaryEl.setText("Invalid regular expression");
 			return;
 		}
+		const nameRe = re && new RegExp(re.source, re.flags.replace("g", ""));
 		let files = 0;
 		let matches = 0;
 		const all = this.app.vault.getMarkdownFiles().sort((a, b) => b.stat.mtime - a.stat.mtime);
 		for (const file of all) {
+			const cache = tag === null ? null : this.app.metadataCache.getFileCache(file);
+			// Only a tagged note is worth reading for a tag.
+			if (tag !== null && !getAllTags(cache)?.some((name) => isTag(name, tag))) continue;
 			const text = await this.app.vault.cachedRead(file);
 			if (generation !== this.#generation) return;
-			const hits = this.#matchFile(file, text, re);
-			if (hits === 0) continue;
+			const found = tag !== null ? tagMatches(cache, text, tag) : textMatches(text, re!);
+			const nameHit = !!nameRe && file.basename.search(nameRe) >= 0;
+			if (!found.length && !nameHit && tag === null) continue;
+			this.#show(file, text, found.slice(0, MAX_MATCHES_PER_FILE));
 			files++;
-			matches += hits;
+			matches += found.length || 1;
 			if (files >= MAX_FILES) break;
 		}
 		this.#summaryEl.setText(`${matches} matches in ${files} files${files >= MAX_FILES ? " (showing the first 200 files)" : ""}`);
 	}
 
-	#matchFile(file: TFile, text: string, re: RegExp) {
-		const lines = text.split("\n");
-		let group: HTMLElement | null = null;
-		let count = 0;
-		const nameHit = file.basename.search(new RegExp(re.source, re.flags.replace("g", ""))) >= 0;
-		for (let line = 0; line < lines.length && count < MAX_MATCHES_PER_FILE; line++) {
-			re.lastIndex = 0;
-			const m = re.exec(lines[line]);
-			if (!m || m[0].length === 0) continue;
-			group ??= this.#fileGroup(file);
-			count++;
-			const el = group.createDiv("search-result-match");
-			const start = Math.max(0, m.index - 30);
-			el.appendText((start > 0 ? "…" : "") + lines[line].slice(start, m.index));
-			el.createEl("mark", { text: m[0] });
-			el.appendText(lines[line].slice(m.index + m[0].length, m.index + m[0].length + 80));
-			const pos = { line, ch: m.index };
-			el.addEventListener("click", () => this.#open(file, pos));
-		}
-		if (!group && nameHit) this.#fileGroup(file);
-		return count || (nameHit ? 1 : 0);
-	}
-
-	#fileGroup(file: TFile) {
+	#show(file: TFile, text: string, found: SearchMatch[]) {
 		const group = this.#resultsEl.createDiv("search-result");
 		const title = group.createDiv({ cls: "search-result-file-title", text: file.path.replace(/\.md$/, "") });
 		title.addEventListener("click", () => this.#open(file, null));
-		return group;
+		const lines = text.split("\n");
+		for (const match of found) {
+			const content = lines[match.line] ?? "";
+			const el = group.createDiv("search-result-match");
+			const start = Math.max(0, match.from - 30);
+			el.appendText((start > 0 ? "…" : "") + content.slice(start, match.from));
+			el.createEl("mark", { text: content.slice(match.from, match.to) });
+			el.appendText(content.slice(match.to, match.to + 80));
+			el.addEventListener("click", () => this.#open(file, match));
+		}
 	}
 
-	async #open(file: TFile, pos: { line: number; ch: number } | null) {
+	// The view scrolls to the match and selects it, in reading view too.
+	async #open(file: TFile, match: SearchMatch | null) {
 		const leaf = this.app.workspace.getLeaf(false);
-		await leaf.openFile(file, { active: true });
-		const editor = (leaf.view as any).editor;
-		if (pos && editor) {
-			editor.setCursor(pos);
-			editor.scrollIntoView({ from: pos, to: pos }, true);
-		}
+		const eState = match ? { cursor: { from: { line: match.line, ch: match.from }, to: { line: match.line, ch: match.to } }, line: match.line } : undefined;
+		await leaf.openFile(file, { active: true, eState });
 	}
 }
