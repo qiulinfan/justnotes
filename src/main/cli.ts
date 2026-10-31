@@ -1,10 +1,17 @@
+import * as path from "node:path";
 import { app, BrowserWindow, ipcMain, type WebContents } from "electron";
-import { type CliRequest, type CliResponse, cliAddress, EXIT_FAILURE } from "../cli/protocol";
-import { closeCli, pickVault, serveCli } from "./cli-server";
+import { parseCliArgs } from "../cli/args";
+import { list, render } from "../cli/output";
+import { type CliRequest, type CliResponse, cliAddress, EXIT_FAILURE, EXIT_USAGE } from "../cli/protocol";
+import { BUILTINS, builtinHelp, flagsOf } from "../cli/spec";
+import { pickVault } from "../cli/vaults";
+import { closeCli, serveCli } from "./cli-server";
+import { knownVaults, rememberVault } from "./ipc";
 
-// Runs `justnotes <command>` requests (src/cli/justnotes.ts) in a vault
-// window: main picks the window, its renderer parses the flags and calls the
-// handler a plugin registered with registerCliHandler (renderer/cli.ts).
+// Runs `justnotes <command>` requests (src/cli/justnotes.ts): main picks the
+// vault, opening its window when it is not open yet, and the vault window's
+// renderer runs the command (renderer/cli.ts). The few commands about windows
+// and the app itself (vaults, vault:open, restart, quit) run here.
 
 // A window takes requests once its plugins have loaded and it says so; a
 // reload stops it until the new page says so again. Requests that arrive
@@ -59,27 +66,97 @@ function whenReady(contents: WebContents) {
 	});
 }
 
-async function dispatch(windows: Map<string, BrowserWindow>, req: CliRequest): Promise<CliResponse> {
+type OpenVault = (vault: string) => BrowserWindow;
+
+const fail = (stderr: string, code = EXIT_FAILURE): CliResponse => ({ stdout: "", stderr, code });
+
+// After the answer has gone out.
+const later = (fn: () => void) => setTimeout(fn, 200);
+
+// The vault windows' paths, and the focused one's.
+function openVaults(windows: Map<string, BrowserWindow>) {
 	const focused = BrowserWindow.getFocusedWindow();
-	const entries = [...windows.entries()];
-	const fallback = entries.find(([, win]) => win === focused)?.[0] ?? entries[0]?.[0] ?? null;
-	const picked = pickVault(req.argv, req.cwd, [...windows.keys()], fallback);
-	if ("error" in picked) return { stdout: "", stderr: picked.error, code: picked.code };
-	const win = windows.get(picked.vault);
-	if (!win || win.isDestroyed()) return { stdout: "", stderr: "The vault window closed.", code: EXIT_FAILURE };
+	const entries = [...windows.entries()].filter(([, win]) => !win.isDestroyed());
+	return { open: entries.map(([vault]) => vault), focused: entries.find(([, win]) => win === focused)?.[0] ?? entries[0]?.[0] ?? null };
+}
+
+// The commands answered here. `lead` is the vault= the command line started
+// with, if any.
+async function mainCommand(windows: Map<string, BrowserWindow>, openVault: OpenVault, req: CliRequest, argv: string[], lead: string[]): Promise<CliResponse> {
+	const [command, ...words] = argv;
+	const spec = BUILTINS.get(command)!;
+	const parsed = parseCliArgs(words, flagsOf(spec));
+	if ("error" in parsed) return fail(`${parsed.error}\n${builtinHelp(spec)}`, EXIT_USAGE);
+	const params = parsed.params;
+	const answer = async (): Promise<CliResponse> => {
+		switch (command) {
+			case "vaults": {
+				const { open } = openVaults(windows);
+				const all = [...new Set([...knownVaults(), ...open])];
+				const rows = all.map((v) => ({ name: path.basename(v), path: v, open: open.includes(v) }));
+				const out = list(params, rows, { columns: params.verbose === "true" ? ["name", "path", "open"] : ["name"] });
+				return { stdout: render(out, params), stderr: "", code: 0 };
+			}
+			case "vault:open": {
+				const { open, focused } = openVaults(windows);
+				const target = params.path ?? params.name;
+				const picked = pickVault(target === undefined ? lead : [`vault=${target}`], req.cwd, open, knownVaults(), focused);
+				if ("error" in picked) return fail(picked.error, picked.code);
+				const win = await showVault(openVault, picked.vault);
+				if (!win) return fail("The vault window did not finish loading.");
+				return { stdout: render({ data: { vault: picked.vault }, text: picked.vault }, params), stderr: "", code: 0 };
+			}
+			case "restart": {
+				const { open } = openVaults(windows);
+				const args = process.argv.slice(1).filter((arg, i, all) => arg !== "--vault" && all[i - 1] !== "--vault");
+				later(() => {
+					app.relaunch({ args: [...args, ...open.flatMap((v) => ["--vault", v])] });
+					app.quit();
+				});
+				return { stdout: render({ data: { restarting: true }, text: "Restarting justnotes." }, params), stderr: "", code: 0 };
+			}
+			default:
+				later(() => app.quit());
+				return { stdout: render({ data: { quitting: true }, text: "Quitting justnotes." }, params), stderr: "", code: 0 };
+		}
+	};
+	return answer().catch((err) => fail(err instanceof Error ? err.message : String(err), (err as { code?: number }).code ?? EXIT_FAILURE));
+}
+
+// Opens (or focuses) a vault's window, remembering the vault as one opened on
+// purpose, and waits until it takes commands.
+async function showVault(openVault: OpenVault, vault: string) {
+	rememberVault(vault);
+	const win = openVault(vault);
+	return (await whenReady(win.webContents)) ? win : null;
+}
+
+async function dispatch(windows: Map<string, BrowserWindow>, openVault: OpenVault, req: CliRequest): Promise<CliResponse> {
+	const lead = req.argv[0]?.startsWith("vault=") ? 1 : 0;
+	if (BUILTINS.get(req.argv[lead])?.where === "main") return mainCommand(windows, openVault, req, req.argv.slice(lead), req.argv.slice(0, lead));
+	const { open, focused } = openVaults(windows);
+	const picked = pickVault(req.argv, req.cwd, open, knownVaults(), focused);
+	if ("error" in picked) return fail(picked.error, picked.code);
+	if (!picked.open && req.read) return { stdout: "", stderr: "", code: 0, unopened: picked.vault };
+	let win = windows.get(picked.vault);
+	if (!win || win.isDestroyed()) {
+		const shown = await showVault(openVault, picked.vault);
+		if (!shown) return fail("The vault window did not finish loading.");
+		win = shown;
+	}
 	const contents = win.webContents;
-	if (!(await whenReady(contents))) return { stdout: "", stderr: "The vault window did not finish loading.", code: EXIT_FAILURE };
+	if (!(await whenReady(contents))) return fail("The vault window did not finish loading.");
 	const id = ++nextId;
 	return new Promise<CliResponse>((resolve) => {
 		pending.set(id, { contents, resolve });
-		contents.send("justnotes:cli", id, picked.argv);
+		contents.send("justnotes:cli", id, picked.argv, req.cwd);
 	});
 }
 
 // Serves the profile's socket while the app runs.
-export async function startCli(windows: Map<string, BrowserWindow>) {
+export async function startCli(windows: Map<string, BrowserWindow>, openVault: OpenVault) {
 	const address = cliAddress(app.getPath("userData"));
-	const server = await serveCli(address, (req) => dispatch(windows, req));
+	const server = await serveCli(address, (req) => dispatch(windows, openVault, req));
 	if (!server) {
 		console.error("Another justnotes instance serves the command line for this profile");
 		return;

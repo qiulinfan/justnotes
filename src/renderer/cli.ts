@@ -1,91 +1,74 @@
 import type { App } from "../api/app";
 import { getElectron } from "../api/dom";
-import type { CliData, CliFlags } from "../api/plugin";
+import { parseCliArgs } from "../cli/args";
+import { APP_COMMANDS } from "../cli/commands/app";
+import type { Ctx } from "../cli/commands/context";
+import { VAULT_COMMANDS } from "../cli/commands/vault";
 import { type CliResponse, EXIT_FAILURE, EXIT_USAGE } from "../cli/protocol";
+import { runBuiltin } from "../cli/run";
+import { BUILTINS, builtinHelp, commandHelp, helpText, missingReason } from "../cli/spec";
 
-// Runs a `justnotes <command> ...` request (main/cli.ts picked this window) on
-// the handlers plugins registered with registerCliHandler, with Obsidian's
-// command-line syntax: key=value parameters and bare flags.
+// Runs a `justnotes <command> ...` request (main/cli.ts picked this window):
+// a built-in command (src/cli/spec.ts), else a handler a plugin registered
+// with registerCliHandler, with Obsidian's command-line syntax.
 
 type CliHost = Pick<App, "cliHandlers">;
 
-const USAGE = "Usage: justnotes [--profile <dir>] [vault=<name|path>] <command> [key=value ...] [flag ...]";
-
-// Turns the words after the command into the handler's params. key=value and
-// --key=value set a value and a bare flag is "true", as in Obsidian. --key
-// <value> takes the next word for a flag declared with a value, and for an
-// undeclared key when that word is neither --x nor x=y; a declared switch, or
-// --key with nothing to take, is "true". In values, \n is a
-// newline, \t a tab and \\ a backslash, as in Obsidian. Undeclared keys pass
-// through: QuickAdd reads value-<id>=... and other keys as its variables.
-export function parseCliArgs(words: string[], flags: CliFlags | null): { params: CliData } | { error: string } {
-	const params: CliData = {};
-	for (let i = 0; i < words.length; i++) {
-		const word = words[i];
-		const dashed = word.startsWith("--");
-		const body = dashed ? word.slice(2) : word;
-		const eq = body.indexOf("=");
-		if (eq === 0 || !body) return { error: `"${word}" names no flag.` };
-		if (eq > 0) {
-			params[body.slice(0, eq)] = unescape(body.slice(eq + 1));
-			continue;
-		}
-		const flag = flags && Object.hasOwn(flags, body) ? flags[body] : undefined;
-		const next = words[i + 1];
-		if (flag?.value) {
-			if (!dashed || next === undefined) return { error: `${body} needs a value: ${body}=${flag.value}` };
-			params[body] = unescape(next);
-			i++;
-		} else if (dashed && !flag && next !== undefined && !next.startsWith("--") && !next.includes("=")) {
-			params[body] = unescape(next);
-			i++;
-		} else {
-			params[body] = "true";
-		}
-	}
-	const missing = Object.entries(flags ?? {})
-		.filter(([key, flag]) => flag.required && !(key in params))
-		.map(([key, flag]) => (flag.value ? `${key}=${flag.value}` : key));
-	if (missing.length) return { error: `Missing required ${missing.length > 1 ? "flags" : "flag"}: ${missing.join(" ")}` };
-	return { params };
-}
-
-function unescape(value: string) {
-	return value.replace(/\\([nt\\])/g, (_, ch: string) => (ch === "n" ? "\n" : ch === "t" ? "\t" : "\\"));
+function pluginCommands(host: CliHost) {
+	return [...host.cliHandlers].map(([name, entry]) => ({ name, description: entry.description, pluginId: entry.pluginId, flags: entry.flags }));
 }
 
 // The command list, or one command's flags.
 export function cliHelp(host: CliHost, command?: string): CliResponse {
-	if (command && command !== "help") {
-		const entry = host.cliHandlers.get(command);
-		if (!entry) return unknown(command);
-		const lines = [`${command}  (${entry.pluginId})`, entry.description];
-		const flags = Object.entries(entry.flags ?? {});
-		if (flags.length) {
-			lines.push("", "Flags:");
-			lines.push(
-				...columns(flags.map(([key, flag]) => [flag.value ? `${key}=${flag.value}` : key, flag.description + (flag.required ? " (required)" : "")])),
-			);
-		}
-		return { stdout: lines.join("\n"), stderr: "", code: 0 };
-	}
-	const rows: [string, string][] = [["help [<command>]", "List the commands, or show one command's flags"]];
-	for (const [name, entry] of [...host.cliHandlers].sort(([a], [b]) => a.localeCompare(b))) rows.push([name, entry.description]);
-	return { stdout: [USAGE, "", "Commands:", ...columns(rows)].join("\n"), stderr: "", code: 0 };
-}
-
-function columns(rows: [string, string][]) {
-	const width = Math.max(...rows.map(([left]) => left.length));
-	return rows.map(([left, right]) => `  ${left.padEnd(width)}  ${right}`);
+	if (!command || command === "help") return { stdout: helpText(pluginCommands(host)), stderr: "", code: 0 };
+	const spec = BUILTINS.get(command);
+	if (spec) return { stdout: builtinHelp(spec), stderr: "", code: 0 };
+	const entry = host.cliHandlers.get(command);
+	if (entry) return { stdout: commandHelp(command, entry.description, entry.flags, entry.pluginId), stderr: "", code: 0 };
+	return unknown(command);
 }
 
 function unknown(command: string): CliResponse {
-	return { stdout: "", stderr: `Unknown command "${command}". Run "justnotes help" for the list.`, code: EXIT_USAGE };
+	const reason = missingReason(command);
+	return { stdout: "", stderr: reason ?? `Unknown command "${command}". Run "justnotes help" for the list.`, code: EXIT_USAGE };
 }
 
-export async function runCli(host: CliHost, argv: string[]): Promise<CliResponse> {
+function version() {
+	try {
+		return getElectron().remote.app.getVersion();
+	} catch {
+		return "";
+	}
+}
+
+const CLEAN_WAIT = 5000;
+
+function cleanCache(app: App) {
+	return new Promise<void>((resolve) => {
+		const timer = setTimeout(resolve, CLEAN_WAIT);
+		app.metadataCache.onCleanCache(() => {
+			clearTimeout(timer);
+			resolve();
+		});
+	});
+}
+
+export async function runCli(host: CliHost, argv: string[], cwd = "/"): Promise<CliResponse> {
 	const [command, ...words] = argv;
 	if (!command || command === "help" || command === "--help" || command === "-h") return cliHelp(host, words[0]);
+	const spec = BUILTINS.get(command);
+	if (spec) {
+		const handler = VAULT_COMMANDS[command] ?? APP_COMMANDS[command];
+		if (!handler) return { stdout: "", stderr: `"${command}" runs in the justnotes command, not in the app.`, code: EXIT_USAGE };
+		const app = host as App;
+		const ctx: Ctx = { app, live: true, version: version(), cwd };
+		// Commands read the metadata cache, and the next command should see
+		// what this one wrote: both wait until changes so far are indexed.
+		await cleanCache(app);
+		const response = await runBuiltin(spec, handler, ctx, words);
+		await cleanCache(app);
+		return response;
+	}
 	const entry = host.cliHandlers.get(command);
 	if (!entry) return unknown(command);
 	const parsed = parseCliArgs(words, entry.flags);
@@ -103,8 +86,8 @@ export async function runCli(host: CliHost, argv: string[]): Promise<CliResponse
 // handlers.
 export function installCli(app: App) {
 	const { ipcRenderer } = getElectron();
-	ipcRenderer.on("justnotes:cli", async (_evt: unknown, id: number, argv: string[]) => {
-		ipcRenderer.send("justnotes:cli-result", id, await runCli(app, argv));
+	ipcRenderer.on("justnotes:cli", async (_evt: unknown, id: number, argv: string[], cwd: string) => {
+		ipcRenderer.send("justnotes:cli-result", id, await runCli(app, argv, cwd));
 	});
 	ipcRenderer.send("justnotes:cli-ready");
 }

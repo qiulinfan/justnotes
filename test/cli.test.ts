@@ -5,8 +5,10 @@ import * as path from "node:path";
 import type { CliFlags, CliHandler } from "../src/api/plugin";
 import { ask } from "../src/cli/justnotes";
 import { type CliResponse, cliAddress, EXIT_USAGE } from "../src/cli/protocol";
-import { closeCli, pickVault, serveCli } from "../src/main/cli-server";
-import { parseCliArgs, runCli } from "../src/renderer/cli";
+import { closeCli, serveCli } from "../src/main/cli-server";
+import { pickVault } from "../src/cli/vaults";
+import { parseCliArgs } from "../src/cli/args";
+import { runCli } from "../src/renderer/cli";
 
 // QuickAdd's flags for `quickadd:run` and `quickadd:list`, as its main.js
 // registers them, plus a required one.
@@ -81,48 +83,59 @@ describe("runCli", () => {
 		expect(seen).toHaveLength(1);
 	});
 
-	test("help lists the registered commands; help <command> shows its flags", async () => {
+	test("help lists the built-ins and the plugins' commands; help <command> shows its flags", async () => {
 		const app = host({
 			"quickadd:run": { flags: runFlags, handler: () => "", description: "Run a QuickAdd choice" },
 			"quickadd:list": { flags: null, handler: () => "", description: "List QuickAdd choices" },
 		});
 		const list = (await runCli(app, [])).stdout.split("\n");
-		const commands = list.slice(list.indexOf("Commands:") + 1).map((line) => line.trim().split(/\s{2,}/));
-		expect(commands).toEqual([
-			["help [<command>]", "List the commands, or show one command's flags"],
-			["quickadd:list", "List QuickAdd choices"],
-			["quickadd:run", "Run a QuickAdd choice"],
+		expect(list).toContain("Files and folders:");
+		const plugins = list.slice(list.indexOf("Plugin commands:") + 1, list.indexOf("", list.indexOf("Plugin commands:")));
+		expect(plugins.map((line) => line.trim().split(/\s{2,}/))).toEqual([
+			["quickadd:list", "List QuickAdd choices (quickadd)"],
+			["quickadd:run", "Run a QuickAdd choice (quickadd)"],
 		]);
 		const one = await runCli(app, ["help", "quickadd:run"]);
 		expect(one.stdout).toContain("choice=<name>  Choice name");
 		expect(one.stdout).toContain("ui             Allow interactive prompts");
 		expect((await runCli(app, ["help", "nope"])).code).toBe(EXIT_USAGE);
 	});
+
+	// Obsidian commands justnotes leaves out say why, as a usage error.
+	test("an Obsidian command justnotes leaves out names the reason", async () => {
+		const out = await runCli(host({}), ["publish:site"]);
+		expect(out).toEqual({ stdout: "", stderr: "justnotes has no Obsidian Publish.", code: EXIT_USAGE });
+	});
 });
 
-// Which window a request goes to: vault= first, by name or path; else the
-// vault the command ran in; else the focused one.
+// Which vault a request runs in: vault= first, by name (open vaults, then
+// known ones) or by path; else the vault the command ran in, open, known or
+// marked by .obsidian; else the focused one.
 describe("pickVault", () => {
 	const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jn-cli-vaults-")));
 	const notes = path.join(root, "notes");
 	const work = path.join(root, "work");
 	const otherNotes = path.join(root, "other/notes");
-	for (const dir of [path.join(notes, "sub"), work, otherNotes]) fs.mkdirSync(dir, { recursive: true });
+	const unopened = path.join(root, "plain");
+	for (const dir of [path.join(notes, "sub"), work, otherNotes, path.join(unopened, ".obsidian"), path.join(unopened, "deep")]) fs.mkdirSync(dir, { recursive: true });
 	afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
-	test("vault= picks by folder name or by path, and is not passed on", () => {
-		expect(pickVault(["vault=work", "help"], "/", [notes, work], notes)).toEqual({ vault: work, argv: ["help"] });
-		expect(pickVault(["vault=../work", "x"], notes, [notes, work], null)).toEqual({ vault: work, argv: ["x"] });
+	test("vault= picks by folder name or by path, says whether a window shows it, and is not passed on", () => {
+		expect(pickVault(["vault=work", "help"], "/", [notes, work], [], notes)).toEqual({ vault: work, open: true, argv: ["help"] });
+		expect(pickVault(["vault=../work", "x"], notes, [notes, work], [], null)).toEqual({ vault: work, open: true, argv: ["x"] });
+		expect(pickVault(["vault=work", "x"], "/", [notes], [work], notes)).toEqual({ vault: work, open: false, argv: ["x"] });
 	});
 
 	test("an ambiguous or unknown vault= is a usage error", () => {
-		expect(pickVault(["vault=notes", "x"], "/", [notes, otherNotes], null)).toMatchObject({ code: EXIT_USAGE });
-		expect(pickVault(["vault=missing", "x"], "/", [notes], null)).toMatchObject({ code: EXIT_USAGE });
+		expect(pickVault(["vault=notes", "x"], "/", [notes, otherNotes], [], null)).toMatchObject({ code: EXIT_USAGE });
+		expect(pickVault(["vault=missing", "x"], "/", [notes], [], null)).toMatchObject({ code: EXIT_USAGE });
 	});
 
 	test("without vault=, the vault holding the working folder wins over the focused one", () => {
-		expect(pickVault(["x"], path.join(notes, "sub"), [notes, work], work)).toEqual({ vault: notes, argv: ["x"] });
-		expect(pickVault(["x"], root, [notes, work], work)).toEqual({ vault: work, argv: ["x"] });
+		expect(pickVault(["x"], path.join(notes, "sub"), [notes, work], [], work)).toEqual({ vault: notes, open: true, argv: ["x"] });
+		expect(pickVault(["x"], path.join(unopened, "deep"), [work], [], work)).toEqual({ vault: unopened, open: false, argv: ["x"] });
+		expect(pickVault(["x"], root, [notes, work], [], work)).toEqual({ vault: work, open: true, argv: ["x"] });
+		expect(pickVault(["x"], root, [], [], null)).toMatchObject({ code: EXIT_USAGE });
 	});
 });
 
@@ -138,7 +151,7 @@ describe("command-line socket", () => {
 		const server = await serveCli(address, echo);
 		expect(server).not.toBeNull();
 		try {
-			expect(await ask(address, ["quickadd:list", "type=Capture"], "/somewhere")).toEqual({ stdout: "quickadd:list type=Capture", stderr: "/somewhere", code: 3 });
+			expect(await ask(address, { argv: ["quickadd:list", "type=Capture"], cwd: "/somewhere" })).toEqual({ stdout: "quickadd:list type=Capture", stderr: "/somewhere", code: 3 });
 			expect(fs.statSync(address.dir!).mode & 0o777).toBe(0o700);
 			expect(fs.statSync(address.path).mode & 0o777).toBe(0o600);
 		} finally {
@@ -154,7 +167,7 @@ describe("command-line socket", () => {
 		const server = await serveCli(address, echo);
 		const cwd = process.cwd();
 		try {
-			expect((await ask(address, ["help"], "/")).stdout).toBe("help");
+			expect((await ask(address, { argv: ["help"], cwd: "/" })).stdout).toBe("help");
 		} finally {
 			process.chdir(cwd);
 			closeCli(server!, address);
@@ -173,7 +186,7 @@ describe("command-line socket", () => {
 		expect(fs.existsSync(address.path)).toBe(true);
 		const again = await serveCli(address, echo);
 		try {
-			expect((await ask(address, ["x"], "/")).stdout).toBe("x");
+			expect((await ask(address, { argv: ["x"], cwd: "/" })).stdout).toBe("x");
 		} finally {
 			closeCli(again!, address);
 		}
@@ -184,7 +197,7 @@ describe("command-line socket", () => {
 		const address = cliAddress(profile);
 		const command = path.join(import.meta.dir, "../src/cli/justnotes.ts");
 		const run = (...args: string[]) => Bun.spawnSync(["bun", command, "--profile", profile, ...args], { cwd: scratch });
-		const down = run("help");
+		const down = run("quit");
 		expect(down.exitCode).toBe(1);
 		expect(down.stderr.toString()).toContain("not running");
 		const server = await serveCli(address, echo);
@@ -193,6 +206,29 @@ describe("command-line socket", () => {
 			expect(await proc.exited).toBe(3);
 			expect(await new Response(proc.stdout).text()).toBe("vault=notes quickadd:list\n");
 			expect(await new Response(proc.stderr).text()).toBe(`${scratch}\n`);
+		} finally {
+			closeCli(server!, address);
+		}
+	});
+
+	// A read-only command names its vault to the app, which answers with
+	// `unopened` when no window shows it; the command then reads the folder.
+	test("a read-only command the app has no window for is read from the vault folder", async () => {
+		const profile = fs.mkdtempSync(path.join(scratch, "p-"));
+		const vault = fs.mkdtempSync(path.join(scratch, "v-"));
+		fs.writeFileSync(path.join(vault, "a.md"), "Hello\n");
+		const address = cliAddress(profile);
+		const seen: { read?: boolean }[] = [];
+		const server = await serveCli(address, async (req) => {
+			seen.push({ read: req.read });
+			return { stdout: "", stderr: "", code: 0, unopened: vault };
+		});
+		try {
+			const command = path.join(import.meta.dir, "../src/cli/justnotes.ts");
+			const proc = Bun.spawn(["bun", command, "--profile", profile, "read", "file=a"], { cwd: scratch, stdout: "pipe" });
+			expect(await proc.exited).toBe(0);
+			expect(await new Response(proc.stdout).text()).toBe("Hello\n");
+			expect(seen).toEqual([{ read: true }]);
 		} finally {
 			closeCli(server!, address);
 		}

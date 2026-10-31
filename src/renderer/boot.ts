@@ -10,6 +10,7 @@ import { installTooltips } from "../api/ui/tooltip";
 import { installBases } from "./bases-view";
 import { installCli } from "./cli";
 import { registerCoreCommands } from "./commands";
+import { installDevCapture } from "./dev-capture";
 import { defaultRightSidebar, installCorePlugins, registerCorePluginViews } from "./core-plugins";
 import { SearchView } from "./search";
 import { registerViewCommands } from "./view-commands";
@@ -102,6 +103,7 @@ function handleWindowClose(app: App) {
 }
 
 async function boot() {
+	installDevCapture();
 	keepAppPage();
 	installDomExtensions();
 	installTooltips();

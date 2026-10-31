@@ -8,10 +8,14 @@ import * as path from "node:path";
 // connection. Nothing listens on the network.
 
 // What the command sends: its arguments after the global options, and the
-// folder it ran in (it picks the vault when no vault= is given).
+// folder it ran in (it picks the vault when no vault= is given). `read`
+// marks a command that can read the vault folder itself: the app runs it
+// only in a vault it shows, and otherwise answers with `unopened` instead of
+// opening a window.
 export interface CliRequest {
 	argv: string[];
 	cwd: string;
+	read?: boolean;
 }
 
 // What the app answers: text for stdout and stderr, and the exit status.
@@ -19,6 +23,8 @@ export interface CliResponse {
 	stdout: string;
 	stderr: string;
 	code: number;
+	// The vault a `read` request named, which no window shows.
+	unopened?: string;
 }
 
 // Exit statuses: a handler that threw, or no app to ask, is 1; a command line

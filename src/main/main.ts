@@ -271,18 +271,21 @@ function openVault(vault: string) {
 	return win;
 }
 
-// The first vault comes from `--vault <path>`; without it the user picks a
-// folder. Either way the user chose it, so links may open it from now on.
-async function openFirstVault() {
-	let vault = argValue("--vault");
-	if (!vault) {
+// The first vaults come from `--vault <path>` (repeatable: `justnotes
+// restart` reopens every vault window); without one the user picks a folder.
+// Either way the user chose them, so links may open them from now on.
+async function openFirstVaults() {
+	let vaults = process.argv.flatMap((arg, i, all) => (all[i - 1] === "--vault" ? [arg] : []));
+	if (!vaults.length) {
 		const picked = await dialog.showOpenDialog({ properties: ["openDirectory"], title: "Open vault" });
 		if (picked.canceled || picked.filePaths.length === 0) return app.quit();
-		vault = picked.filePaths[0];
+		vaults = [picked.filePaths[0]];
 	}
-	vault = path.resolve(vault);
-	rememberVault(vault);
-	openVault(vault);
+	for (const vault of vaults) {
+		const resolved = path.resolve(vault);
+		rememberVault(resolved);
+		openVault(resolved);
+	}
 }
 
 remoteMain.initialize();
@@ -292,7 +295,7 @@ app.whenReady().then(() => {
 	handleSchemes();
 	routeExternalLinks(session.defaultSession);
 	setApplicationMenu();
-	startCli(vaultWindows).catch((err) => console.error("The command line socket could not start", err));
-	return openFirstVault();
+	startCli(vaultWindows, openVault).catch((err) => console.error("The command line socket could not start", err));
+	return openFirstVaults();
 });
 app.on("window-all-closed", () => app.quit());

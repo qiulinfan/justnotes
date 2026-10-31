@@ -1,15 +1,13 @@
 import * as fs from "node:fs";
 import * as net from "node:net";
-import * as os from "node:os";
-import * as path from "node:path";
-import { type CliAddress, type CliRequest, type CliResponse, EXIT_FAILURE, EXIT_USAGE, enterSocketDir, LineReader } from "../cli/protocol";
-import { realPathOf, vaultOf } from "./ipc";
+import { type CliAddress, type CliRequest, type CliResponse, EXIT_FAILURE, enterSocketDir, LineReader } from "../cli/protocol";
 
 // The app's side of the `justnotes` command (src/cli/justnotes.ts): a server
 // on the profile's local socket that hands each request to `dispatch` and
 // writes back its answer. Electron-free, so tests drive it directly.
 
-const MAX_REQUEST = 1 << 20;
+// Room for a note read from stdin (content=-).
+const MAX_REQUEST = 32 << 20;
 
 // Starts listening, or resolves null when another live instance already
 // serves this profile (the socket answers), leaving that one alone. A socket
@@ -111,35 +109,15 @@ function reply(socket: net.Socket, response: CliResponse) {
 
 function isRequest(value: unknown): value is CliRequest {
 	const req = value as CliRequest;
-	return !!req && typeof req.cwd === "string" && Array.isArray(req.argv) && req.argv.every((arg) => typeof arg === "string");
+	return (
+		!!req &&
+		typeof req.cwd === "string" &&
+		Array.isArray(req.argv) &&
+		req.argv.every((arg) => typeof arg === "string") &&
+		(req.read === undefined || typeof req.read === "boolean")
+	);
 }
 
 function message(err: unknown) {
 	return err instanceof Error ? err.message : String(err);
-}
-
-// The vault a request runs in, among the open ones (real paths). As in
-// Obsidian, a leading vault= names it, by folder name or path; without one it
-// is the vault holding the folder the command ran in, else `fallback` (the
-// focused window's vault). Returns the rest of the arguments with it.
-export function pickVault(
-	argv: string[],
-	cwd: string,
-	open: string[],
-	fallback: string | null,
-): { vault: string; argv: string[] } | { error: string; code: number } {
-	const spec = argv[0]?.startsWith("vault=") ? argv[0].slice("vault=".length) : null;
-	const rest = spec === null ? argv : argv.slice(1);
-	if (spec === null) {
-		const vault = vaultOf(cwd, open) ?? fallback;
-		return vault ? { vault, argv: rest } : { error: "No vault is open.", code: EXIT_FAILURE };
-	}
-	const named = open.filter((vault) => path.basename(vault) === spec);
-	if (named.length === 1) return { vault: named[0], argv: rest };
-	if (named.length > 1) return { error: `Several open vaults are named "${spec}"; give its path instead.`, code: EXIT_USAGE };
-	const expanded = spec === "~" || spec.startsWith("~/") ? path.join(os.homedir(), spec.slice(1)) : spec;
-	const real = realPathOf(path.resolve(cwd, expanded));
-	if (open.includes(real)) return { vault: real, argv: rest };
-	const names = open.map((vault) => `  ${path.basename(vault)}  ${vault}`).join("\n");
-	return { error: `No open vault is "${spec}". Open vaults:\n${names}`, code: EXIT_USAGE };
 }
