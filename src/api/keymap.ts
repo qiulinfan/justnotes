@@ -8,29 +8,36 @@ export interface Hotkey {
 	key: string;
 }
 
-export interface KeymapContext {
+export interface KeymapInfo {
 	modifiers: string | null;
 	key: string | null;
+}
+
+export interface KeymapContext extends KeymapInfo {
 	vkey: string;
 }
 
-export interface KeymapEventHandler {
+export interface KeymapEventHandler extends KeymapInfo {
 	scope: Scope;
-	modifiers: string | null;
-	key: string | null;
 	func: (evt: KeyboardEvent, ctx: KeymapContext) => false | any;
 }
 
 const ORDER = ["Alt", "Ctrl", "Meta", "Shift"];
 
+function platformModifier(modifier: string) {
+	return modifier === "Mod" ? (Platform.isMacOS ? "Meta" : "Ctrl") : modifier;
+}
+
 // "Mod" becomes the platform's command key; the result is a canonical
 // comma-joined string, the same shape as KeymapContext.modifiers.
 export function compileModifiers(modifiers: string[]) {
-	const mapped = modifiers.map((m) => (m === "Mod" ? (Platform.isMacOS ? "Meta" : "Ctrl") : m));
+	const mapped = modifiers.map(platformModifier);
 	return ORDER.filter((m) => mapped.includes(m)).join(",");
 }
 
-function eventModifiers(evt: KeyboardEvent | MouseEvent) {
+type ModifierState = Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">;
+
+function eventModifiers(evt: ModifierState) {
 	const mods: string[] = [];
 	if (evt.altKey) mods.push("Alt");
 	if (evt.ctrlKey) mods.push("Ctrl");
@@ -39,12 +46,36 @@ function eventModifiers(evt: KeyboardEvent | MouseEvent) {
 	return mods.join(",");
 }
 
-function virtualKey(evt: KeyboardEvent) {
+// Keys whose character depends on Shift, Option and the keyboard layout, named
+// by the key they print on a US layout, so a hotkey matches the physical key.
+const CODE_KEYS: Record<string, string> = {
+	Space: " ",
+	Minus: "-",
+	Equal: "=",
+	BracketLeft: "[",
+	BracketRight: "]",
+	Backslash: "\\",
+	Semicolon: ";",
+	Quote: "'",
+	Comma: ",",
+	Period: ".",
+	Slash: "/",
+	Backquote: "`",
+	NumpadAdd: "+",
+	NumpadSubtract: "-",
+	NumpadMultiply: "*",
+	NumpadDivide: "/",
+	NumpadDecimal: ".",
+	NumpadComma: ",",
+	NumpadEqual: "=",
+	NumpadEnter: "Enter",
+};
+
+export function virtualKey(evt: Pick<KeyboardEvent, "code" | "key">) {
 	const code = evt.code;
 	if (/^Key[A-Z]$/.test(code)) return code.slice(3);
-	if (/^Digit\d$/.test(code)) return code.slice(5);
-	if (code === "Space") return " ";
-	return evt.key;
+	if (/^(Digit|Numpad)\d$/.test(code)) return code.slice(-1);
+	return CODE_KEYS[code] ?? evt.key;
 }
 
 export class Scope {
@@ -72,8 +103,7 @@ export class Scope {
 
 	handleKey(evt: KeyboardEvent, ctx: KeymapContext): false | any {
 		for (const h of [...this.keys]) {
-			if (h.modifiers !== null && h.modifiers !== ctx.modifiers) continue;
-			if (h.key !== null && h.key.toLowerCase() !== ctx.key?.toLowerCase() && h.key !== ctx.vkey) continue;
+			if (!Keymap.isMatch(h, ctx)) continue;
 			if (h.func(evt, ctx) === false) return false;
 		}
 		return this.parent?.handleKey(evt, ctx);
@@ -81,35 +111,65 @@ export class Scope {
 }
 
 export class Keymap {
-	#stack: Scope[] = [];
-	#root: Scope;
+	rootScope: Scope;
+	// Scopes pushed before the active one, most recent last.
+	prevScopes: Scope[] = [];
+	// The modifier keys held down right now, in KeymapContext.modifiers form.
+	modifiers = "";
+	#scope: Scope;
 
 	constructor(root: Scope) {
-		this.#root = root;
+		this.rootScope = this.#scope = root;
 		window.addEventListener("keydown", (evt) => this.#onKeyDown(evt), true);
+		window.addEventListener("keyup", (evt) => this.updateModifiers(evt), true);
+		window.addEventListener("blur", () => (this.modifiers = ""));
 	}
 
 	pushScope(scope: Scope) {
-		this.#stack.remove(scope);
-		this.#stack.push(scope);
+		if (scope === this.#scope) return;
+		this.prevScopes.remove(scope);
+		this.prevScopes.push(this.#scope);
+		this.#scope = scope;
 	}
 
 	popScope(scope: Scope) {
-		this.#stack.remove(scope);
+		if (scope === this.#scope) this.#scope = this.prevScopes.pop() ?? this.rootScope;
+		else this.prevScopes.remove(scope);
 	}
 
 	getRootScope() {
-		return this.#root;
+		return this.rootScope;
 	}
 
+	hasModifier(modifier: Modifier) {
+		return this.modifiers.split(",").includes(platformModifier(modifier));
+	}
+
+	updateModifiers(evt: KeyboardEvent) {
+		this.modifiers = Keymap.getModifiers(evt);
+	}
+
+	// A handled key is only default-prevented, as the d.ts promises; CodeMirror
+	// skips its own key handlers for such events, and element listeners (an
+	// input inside a modal) still see the key.
 	#onKeyDown(evt: KeyboardEvent) {
+		this.updateModifiers(evt);
 		if (evt.isComposing) return;
-		const ctx: KeymapContext = { modifiers: eventModifiers(evt), key: evt.key, vkey: virtualKey(evt) };
-		const scope = this.#stack.last() ?? this.#root;
-		if (scope.handleKey(evt, ctx) === false) {
-			evt.preventDefault();
-			evt.stopPropagation();
-		}
+		const ctx: KeymapContext = { modifiers: Keymap.getModifiers(evt), key: evt.key, vkey: virtualKey(evt) };
+		if (this.#scope.handleKey(evt, ctx) === false) evt.preventDefault();
+	}
+
+	static getModifiers(evt: ModifierState) {
+		return eventModifiers(evt);
+	}
+
+	// The one hotkey matcher: modifiers must be equal unless the handler takes
+	// any, and the key matches the typed key or the physical key, ignoring case.
+	static isMatch(info: KeymapInfo, ctx: KeymapContext) {
+		if (info.modifiers !== null && info.modifiers !== ctx.modifiers) return false;
+		if (info.key === null) return true;
+		const key = info.key.toLowerCase();
+		return key === ctx.key?.toLowerCase() || key === ctx.vkey?.toLowerCase();
 	}
 
 	static isModifier(evt: MouseEvent | TouchEvent | KeyboardEvent, modifier: Modifier) {
@@ -207,12 +267,16 @@ export class HotkeyManager {
 		this.baked = false;
 	}
 
+	// Plugins may delete from commands.commands directly (QuickAdd does), so
+	// only ids that still resolve are baked; adding or removing a command
+	// clears `baked`.
 	bake() {
 		if (this.baked) return;
 		this.bakedHotkeys = [];
 		this.bakedIds = [];
 		const ids = new Set([...Object.keys(this.defaultKeys), ...Object.keys(this.customKeys)]);
 		for (const id of ids) {
+			if (!this.app.commands.findCommand(id)) continue;
 			for (const hk of this.customKeys[id] ?? this.defaultKeys[id] ?? []) {
 				this.bakedHotkeys.push({ modifiers: compileModifiers(hk.modifiers ?? []), key: hk.key });
 				this.bakedIds.push(id);
@@ -236,20 +300,41 @@ export class HotkeyManager {
 	onTrigger(evt: KeyboardEvent, ctx: KeymapContext) {
 		this.bake();
 		for (let i = 0; i < this.bakedHotkeys.length; i++) {
-			const hk = this.bakedHotkeys[i];
-			if (hk.modifiers !== ctx.modifiers) continue;
-			if (hk.key.toLowerCase() !== ctx.key?.toLowerCase() && hk.key !== ctx.vkey) continue;
+			if (!Keymap.isMatch(this.bakedHotkeys[i], ctx)) continue;
 			const cmd = this.app.commands.findCommand(this.bakedIds[i]);
 			if (!cmd || (evt.repeat && !cmd.repeatable)) continue;
 			if (cmd.isVisible && !cmd.isVisible()) continue;
-			if (this.app.commands.executeCommand(cmd)) return false;
+			if (this.app.commands.executeCommand(cmd, evt)) return false;
 		}
 	}
+}
+
+interface EditorContext {
+	editor: any;
+}
+
+// Runs (or, when checking, only tests) a command with Obsidian's precedence:
+// editorCheckCallback over editorCallback over checkCallback over callback.
+// Editor callbacks need an active editor; mobile-only commands never run on
+// desktop. Returns whether the command can run (or ran).
+function runCommand(cmd: Command, checking: boolean, activeEditor: EditorContext | null) {
+	if (cmd.mobileOnly && !Platform.isMobile) return false;
+	if (cmd.editorCheckCallback || cmd.editorCallback) {
+		if (!activeEditor?.editor) return false;
+		if (cmd.editorCheckCallback) return !!cmd.editorCheckCallback(checking, activeEditor.editor, activeEditor);
+		if (!checking) cmd.editorCallback!(activeEditor.editor, activeEditor);
+		return true;
+	}
+	if (cmd.checkCallback) return !!cmd.checkCallback(checking);
+	if (!cmd.callback) return false;
+	if (!checking) cmd.callback();
+	return true;
 }
 
 export class Commands {
 	app: App;
 	commands: Record<string, Command> = {};
+	// Core editor:* commands, also listed in `commands`.
 	editorCommands: Record<string, Command> = {};
 
 	constructor(app: App) {
@@ -259,14 +344,16 @@ export class Commands {
 	addCommand(command: Command) {
 		this.commands[command.id] = command;
 		if (command.hotkeys) this.app.hotkeyManager.addDefaultHotkeys(command.id, command.hotkeys);
+		this.app.hotkeyManager.baked = false;
 	}
 
 	removeCommand(id: string) {
 		delete this.commands[id];
+		delete this.editorCommands[id];
 		this.app.hotkeyManager.removeDefaultHotkeys(id);
 	}
 
-	findCommand(id: string) {
+	findCommand(id: string): Command | undefined {
 		return this.commands[id];
 	}
 
@@ -274,42 +361,23 @@ export class Commands {
 		return Object.values(this.commands);
 	}
 
-	#editorContext() {
-		const view = this.app.workspace.activeEditor;
-		return view?.editor ? view : null;
-	}
-
 	// Whether the command can run now, without running it.
 	isAvailable(cmd: Command) {
-		if (cmd.checkCallback) return !!cmd.checkCallback(true);
-		if (cmd.editorCheckCallback || cmd.editorCallback) {
-			const ctx = this.#editorContext();
-			if (!ctx) return false;
-			return cmd.editorCheckCallback ? !!cmd.editorCheckCallback(true, ctx.editor, ctx) : true;
+		try {
+			return runCommand(cmd, true, this.app.workspace.activeEditor);
+		} catch (err) {
+			console.error(`Command ${cmd.id} failed`, err);
+			return false;
 		}
-		return !!cmd.callback;
 	}
 
-	executeCommand(cmd: Command, _evt?: Event) {
+	executeCommand(cmd: Command, evt?: Event) {
+		if (evt) this.app.lastEvent = evt as UIEvent;
 		try {
-			if (cmd.checkCallback) {
-				if (!cmd.checkCallback(true)) return false;
-				cmd.checkCallback(false);
-				return true;
-			}
-			if (cmd.editorCheckCallback || cmd.editorCallback) {
-				const ctx = this.#editorContext();
-				if (!ctx) return false;
-				if (cmd.editorCheckCallback) {
-					if (!cmd.editorCheckCallback(true, ctx.editor, ctx)) return false;
-					cmd.editorCheckCallback(false, ctx.editor, ctx);
-				} else cmd.editorCallback!(ctx.editor, ctx);
-				return true;
-			}
-			if (cmd.callback) {
-				cmd.callback();
-				return true;
-			}
+			const editor = this.app.workspace.activeEditor;
+			if (!runCommand(cmd, true, editor)) return false;
+			runCommand(cmd, false, editor);
+			return true;
 		} catch (err) {
 			console.error(`Command ${cmd.id} failed`, err);
 		}
