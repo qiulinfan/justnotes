@@ -163,11 +163,11 @@ function current(parsed: Parsed): PropertyEntries {
 
 // Sets a property's value; a property the YAML lacks is added at the end.
 // YAML that is not a map of properties is returned unchanged.
-export function setProperty(yaml: string, key: string, value: unknown): string {
+function setPropertyLf(yaml: string, key: string, value: unknown): string {
 	const parsed = parse(yaml);
 	if (!parsed) return yaml;
 	const entry = parsed.entries.find((e) => e.key === key);
-	if (!entry) return insertProperty(yaml, key, value);
+	if (!entry) return insertPropertyLf(yaml, key, value);
 	if (!parsed.lineWise) return rewrite(parsed, current(parsed).map(([k, v]) => [k, k === key ? value : v]));
 	const text = entryText(key, value, entry.style, defaultIndent(parsed.entries), entry.keyType);
 	return splice(yaml, entry.from, entry.to, text.includes("\n") ? text : text + entry.comment);
@@ -175,10 +175,10 @@ export function setProperty(yaml: string, key: string, value: unknown): string {
 
 // Adds a property before the one at `index`, or at the end. A key the YAML
 // already has is set instead.
-export function insertProperty(yaml: string, key: string, value: unknown, index?: number): string {
+function insertPropertyLf(yaml: string, key: string, value: unknown, index?: number): string {
 	const parsed = parse(yaml);
 	if (!parsed) return yaml;
-	if (parsed.entries.some((e) => e.key === key)) return setProperty(yaml, key, value);
+	if (parsed.entries.some((e) => e.key === key)) return setPropertyLf(yaml, key, value);
 	const entries = parsed.entries;
 	const at = index === undefined || index >= entries.length ? null : entries[Math.max(0, index)];
 	if (!parsed.lineWise) {
@@ -193,7 +193,7 @@ export function insertProperty(yaml: string, key: string, value: unknown, index?
 }
 
 // Removes a property with its lines.
-export function removeProperty(yaml: string, key: string): string {
+function removePropertyLf(yaml: string, key: string): string {
 	const parsed = parse(yaml);
 	const entry = parsed?.entries.find((e) => e.key === key);
 	if (!parsed || !entry) return yaml;
@@ -204,7 +204,7 @@ export function removeProperty(yaml: string, key: string): string {
 
 // Renames a property in place, keeping its value as written. Renaming to a
 // key the YAML already has (another property) changes nothing.
-export function renameProperty(yaml: string, from: string, to: string): string {
+function renamePropertyLf(yaml: string, from: string, to: string): string {
 	if (from === to) return yaml;
 	const parsed = parse(yaml);
 	const entry = parsed?.entries.find((e) => e.key === from);
@@ -214,7 +214,7 @@ export function renameProperty(yaml: string, from: string, to: string): string {
 }
 
 // Moves a property to position `index` among the others.
-export function moveProperty(yaml: string, key: string, index: number): string {
+function movePropertyLf(yaml: string, key: string, index: number): string {
 	const parsed = parse(yaml);
 	const entry = parsed?.entries.find((e) => e.key === key);
 	if (!parsed || !entry) return yaml;
@@ -227,11 +227,29 @@ export function moveProperty(yaml: string, key: string, index: number): string {
 		return rewrite(parsed, list);
 	}
 	const text = yaml.slice(entry.from, entry.to);
-	const without = removeProperty(yaml, key);
+	const without = removePropertyLf(yaml, key);
 	const next = parse(without)!.entries[at];
 	if (next) return splice(without, next.from, next.from, `${text}\n`);
 	return finish(`${without.replace(/\s*$/, "")}\n${text}`);
 }
+
+// The edits above work on LF text. YAML from a note with CRLF line breaks
+// (read from the file, as the CLI does) gets them back on every line, so an
+// edit never leaves the note with mixed line breaks.
+function keepLineBreaks<A extends unknown[]>(edit: (yaml: string, ...args: A) => string) {
+	return (yaml: string, ...args: A) => {
+		if (!yaml.includes("\r\n")) return edit(yaml, ...args);
+		const lf = yaml.replace(/\r\n/g, "\n");
+		const next = edit(lf, ...args);
+		return next === lf ? yaml : next.replace(/\n/g, "\r\n");
+	};
+}
+
+export const setProperty = keepLineBreaks(setPropertyLf);
+export const insertProperty = keepLineBreaks(insertPropertyLf);
+export const removeProperty = keepLineBreaks(removePropertyLf);
+export const renameProperty = keepLineBreaks(renamePropertyLf);
+export const moveProperty = keepLineBreaks(movePropertyLf);
 
 // The frontmatter of a note's text: `yamlFrom`..`yamlTo` is the YAML (its
 // last newline included), and `to` the end of the closing `---` line (its
@@ -244,10 +262,12 @@ export function locateFrontmatter(text: string): { yamlFrom: number; yamlTo: num
 }
 
 // The note's text with its frontmatter YAML replaced; an empty `yaml` drops
-// the whole block, and a note without one gets one.
+// the whole block, and a note without one gets one, with the note's line
+// breaks (CRLF when its first one is).
 export function replaceFrontmatter(text: string, yaml: string): string {
 	const fm = locateFrontmatter(text);
 	if (!yaml) return fm ? text.slice(fm.to) : text;
 	if (fm) return text.slice(0, fm.yamlFrom) + yaml + text.slice(fm.yamlTo);
-	return `---\n${yaml}---\n${text}`;
+	const block = `---\n${yaml.replace(/\r\n/g, "\n")}---\n`;
+	return (/^[^\n]*\r\n/.test(text) ? block.replace(/\n/g, "\r\n") : block) + text;
 }
