@@ -354,13 +354,13 @@ class CommunityPluginsTab extends SettingTab {
 		const setting = new Setting(containerEl);
 		setting.settingEl.setAttr("data-plugin-id", manifest.id);
 		setting.settingEl.insertBefore(createDiv("setting-item-icon"), setting.infoEl);
-		setting.nameEl.setText(`${manifest.name} `);
-		setting.nameEl.createSpan({ cls: "u-muted u-small u-numeric", text: `v${manifest.version}` });
-		if (manifest.author) {
-			setting.nameEl.appendText(" ");
-			setting.nameEl.createSpan({ cls: "u-muted u-small", text: `By ${manifest.author}` });
-		}
-		setting.setDesc(manifest.description ?? "");
+		// The name stands alone: terminal finds its row by the name's text to
+		// click the row's donate button.
+		setting.setName(manifest.name);
+		const about = setting.descEl.createDiv();
+		about.createSpan({ cls: "u-numeric", text: `v${manifest.version}` });
+		if (manifest.author) about.appendText(` By ${manifest.author}`);
+		if (manifest.description) setting.descEl.createDiv({ text: manifest.description });
 		const funding = typeof manifest.fundingUrl === "string" ? manifest.fundingUrl : Object.values(manifest.fundingUrl ?? {})[0];
 		if (funding) setting.addExtraButton((b) => b.setIcon("heart").setTooltip("Donate").onClick(() => window.open(funding)));
 		const enabled = plugins.enabledPlugins.has(manifest.id);
