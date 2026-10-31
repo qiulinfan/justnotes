@@ -498,11 +498,14 @@ function codeBlockProcessor(language: string): CodeBlockProcessor | undefined {
 // A fenced block whose language has a code-block processor (a plugin's,
 // mermaid, base), as in Obsidian's Live Preview: the processor's output plus
 // an edit button. The processor gets the fence's content without the fence's
-// indentation, as the renderer passes it.
+// indentation, as the renderer passes it. `lines` counts the lines after the
+// opening fence, for getSectionInfo: `source` is empty both for an empty
+// fence and for one that holds a blank line.
 class CodeBlockWidget extends WidgetType {
 	constructor(
 		readonly language: string,
 		readonly source: string,
+		readonly lines: number,
 		readonly from: number,
 		readonly handler: CodeBlockProcessor,
 		readonly host: LivePreviewHost,
@@ -511,7 +514,7 @@ class CodeBlockWidget extends WidgetType {
 	}
 
 	eq(other: CodeBlockWidget) {
-		return other.language === this.language && other.source === this.source && other.handler === this.handler;
+		return other.language === this.language && other.source === this.source && other.lines === this.lines && other.handler === this.handler;
 	}
 
 	toDOM(view: EditorView) {
@@ -527,8 +530,7 @@ class CodeBlockWidget extends WidgetType {
 			// built ask before it is in the document.
 			getSectionInfo: () => {
 				const first = view.state.doc.lineAt(el.isConnected ? view.posAtDOM(el) : this.from);
-				const last = first.number + this.source.split("\n").length + (this.source ? 1 : 0);
-				return { text: view.state.doc.toString(), lineStart: first.number - 1, lineEnd: Math.min(last, view.state.doc.lines) - 1 };
+				return { text: view.state.doc.toString(), lineStart: first.number - 1, lineEnd: Math.min(first.number + this.lines, view.state.doc.lines) - 1 };
 			},
 		};
 		try {
@@ -744,7 +746,8 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 						const indent = doc.sliceString(first.from, from);
 						const lines = last.number - first.number > 1 ? doc.sliceString(first.to + 1, last.from - 1).split("\n") : [];
 						const source = lines.map((line) => dedent(line, indent)).join("\n");
-						decos.push(Decoration.replace({ block: true, widget: new CodeBlockWidget(language, source, first.from, handler, host) }).range(first.from, last.to));
+						const widget = new CodeBlockWidget(language, source, last.number - first.number, first.from, handler, host);
+						decos.push(Decoration.replace({ block: true, widget }).range(first.from, last.to));
 						return false;
 					}
 					if (marks[0].from < first.to) decos.push(hide.range(marks[0].from, first.to));
