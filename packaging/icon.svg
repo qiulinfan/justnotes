@@ -1,29 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- justnotes app icon: a note page on a rounded square, inside the macOS
-       icon grid (824 px body on a 1024 px canvas). -->
+  <!-- justnotes app icon: a lowercase "j" written on a ruled notebook page,
+       inside the macOS icon grid (824 px body on a 1024 px canvas). -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#5b6cf0"/>
-      <stop offset="1" stop-color="#3a3fb8"/>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fdfaf3"/>
+      <stop offset="1" stop-color="#efe6d4"/>
     </linearGradient>
-    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#eef0fb"/>
-    </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#14164a" flood-opacity="0.35"/>
+    <clipPath id="body">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+    <filter id="lift" filterUnits="userSpaceOnUse" x="100" y="100" width="824" height="824">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#3b2f1c" flood-opacity="0.18"/>
     </filter>
   </defs>
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
-  <g filter="url(#shadow)">
-    <path d="M300 228 H624 L724 328 V796 Q724 812 708 812 H316 Q300 812 300 796 V244 Q300 228 316 228 Z" fill="url(#page)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#paper)"/>
+  <g clip-path="url(#body)">
+    <g stroke="#cfd8e8" stroke-width="8">
+      <line x1="100" y1="420" x2="924" y2="420"/>
+      <line x1="100" y1="530" x2="924" y2="530"/>
+      <line x1="100" y1="640" x2="924" y2="640"/>
+      <line x1="100" y1="750" x2="924" y2="750"/>
+      <line x1="100" y1="860" x2="924" y2="860"/>
+    </g>
+    <line x1="290" y1="100" x2="290" y2="924" stroke="#efb7aa" stroke-width="8"/>
   </g>
-  <path d="M624 228 V312 Q624 328 640 328 H724 Z" fill="#c9cdf3"/>
-  <g stroke="#3a3fb8" stroke-width="30" stroke-linecap="round">
-    <line x1="372" y1="430" x2="560" y2="430"/>
-    <line x1="372" y1="510" x2="652" y2="510" stroke-opacity="0.45"/>
-    <line x1="372" y1="590" x2="652" y2="590" stroke-opacity="0.45"/>
-    <line x1="372" y1="670" x2="540" y2="670" stroke-opacity="0.45"/>
+  <g filter="url(#lift)">
+    <path d="M590 430 V668 Q590 800 462 800 Q398 800 356 760" fill="none" stroke="#23262f" stroke-width="104" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="590" cy="302" r="66" fill="#e4703a"/>
   </g>
-  <circle cx="618" cy="680" r="42" fill="#f2a93b"/>
 </svg>
