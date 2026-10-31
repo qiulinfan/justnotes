@@ -1,4 +1,5 @@
 import type { App } from "../api/app";
+import { installCanvas } from "./canvas-view";
 import { installDailyNotes } from "./daily-notes";
 import { registerLinkPanes } from "./link-panes";
 import { registerTemplateCommands } from "./templates";
@@ -30,6 +31,7 @@ export function installCorePlugins(app: App) {
 			callback: async () => app.workspace.revealLeaf(await app.workspace.ensureSideLeaf(pane.type, "right", { reveal: true })),
 		});
 	}
+	if (enabled("canvas")) installCanvas(app);
 	if (enabled("daily-notes")) installDailyNotes(app);
 	if (enabled("templates")) registerTemplateCommands(app);
 	if (enabled("word-count")) installWordCount(app);
