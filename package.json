@@ -58,6 +58,7 @@
 		"@types/node": "^26.6.6",
 		"@types/prismjs": "^1.26.6",
 		"@types/turndown": "^5.0.6",
+		"@unified-latex/unified-latex-util-parse": "1.8.4",
 		"electron": "^45.2.0",
 		"electron-builder": "26.18.0",
 		"esbuild": "^0.28.2",

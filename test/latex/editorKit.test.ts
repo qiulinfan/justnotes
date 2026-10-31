@@ -1,0 +1,547 @@
+import "./support/dom";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { closeBrackets, insertBracket } from "@codemirror/autocomplete";
+import { history, toggleComment, undo, undoDepth } from "@codemirror/commands";
+import { indentUnit } from "@codemirror/language";
+import { Diagnostic, forEachDiagnostic } from "@codemirror/lint";
+import { search } from "@codemirror/search";
+import { ChangeSet, EditorState, Extension, Text } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import type { Scope } from "obsidian";
+import {
+  CLOSE_BEFORE,
+  EDITOR_SCOPE_KEYS,
+  HistoryCache,
+  applyEphemeralState,
+  darkThemeExtension,
+  deleteMathPair,
+  detectIndentUnit,
+  editNotifier,
+  getEphemeralState,
+  indentOrInsertTab,
+  languageData,
+  mathEnter,
+  mathInput,
+  minimalChange,
+  registerEditorScope,
+  setDocText,
+  setTypingDiagnostics,
+  showSearch,
+  syncDarkTheme,
+  typingDiagnostics,
+  wrapSelection,
+} from "../../src/latex/editor/shared/editorKit";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function makeView(doc: string, cursor: number | { anchor: number; head: number }, extensions: Extension[] = []) {
+  const selection = typeof cursor === "number" ? { anchor: cursor } : cursor;
+  return new EditorView({ state: EditorState.create({ doc, selection, extensions }), parent: document.body });
+}
+
+/** Type like the DOM input path: input handlers first (closeBrackets, mathInput), else insert. */
+function typeInput(view: EditorView, text: string) {
+  for (const ch of text) {
+    const { from, to } = view.state.selection.main;
+    const insert = () =>
+      view.state.update({ changes: { from, to, insert: ch }, selection: { anchor: from + 1 }, userEvent: "input.type" });
+    const handled = view.state.facet(EditorView.inputHandler).some((h) => h(view, from, to, ch, insert));
+    if (!handled) view.dispatch(insert());
+  }
+}
+
+function withCursor(view: EditorView) {
+  const doc = view.state.doc.toString();
+  const { from, to } = view.state.selection.main;
+  if (from === to) return doc.slice(0, from) + "|" + doc.slice(from);
+  return doc.slice(0, from) + "[" + doc.slice(from, to) + "]" + doc.slice(to);
+}
+
+const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1} some words`).join("\n");
+
+// ---- external text ----------------------------------------------------------------
+
+test("minimalChange: prefix/suffix diff that never splits a surrogate pair", () => {
+  assert.equal(minimalChange("abc", "abc"), null);
+  assert.deepEqual(minimalChange("abcdef", "abXYef"), { from: 2, to: 4, insert: "XY" });
+  assert.deepEqual(minimalChange("abc", "abcd"), { from: 3, to: 3, insert: "d" });
+  assert.deepEqual(minimalChange("aab", "ab"), { from: 1, to: 2, insert: "" });
+  // 𝔼 = \ud835\udd3c, 𝔽 = \ud835\udd3d share the high surrogate.
+  assert.deepEqual(minimalChange("x𝔼y", "x𝔽y"), { from: 1, to: 3, insert: "𝔽" });
+});
+
+test("setDocText: an external edit keeps the cursor, the unsaved typing and its own undo step", () => {
+  const doc = lines(30);
+  const line20 = Text.of(doc.split("\n")).line(20);
+  const view = makeView(doc, line20.from + 7, [history()]);
+  const head = view.state.selection.main.head;
+  view.dispatch({ changes: { from: head, insert: "XY" }, selection: { anchor: head + 2 }, userEvent: "input.type" });
+  const typed = view.state.doc.toString();
+  // Obsidian merged the external change (a new first line) with the unsaved typing.
+  const merged = "INSERTED BY GIT\n" + typed;
+  assert.equal(setDocText(view, merged), "applied");
+  assert.equal(view.state.doc.toString(), merged);
+  assert.equal(view.state.selection.main.head, head + 2 + "INSERTED BY GIT\n".length);
+  assert.match(withCursor(view), /line 20XY\| some words/);
+  undo(view);
+  assert.equal(view.state.doc.toString(), typed, "the external change is one undo step");
+  undo(view);
+  assert.equal(view.state.doc.toString(), doc);
+  view.destroy();
+});
+
+test("setDocText: unchanged text (also with CRLF) dispatches nothing", () => {
+  let transactions = 0;
+  const count = EditorView.updateListener.of((u) => (transactions += u.transactions.length));
+  const view = makeView("a\nb\n", 0, [count]);
+  assert.equal(setDocText(view, "a\r\nb\r\n"), "unchanged");
+  assert.equal(transactions, 0);
+  view.destroy();
+});
+
+test("setDocText: waits for compositionend and applies the last text", async () => {
+  const view = makeView("hello", 5);
+  view.contentDOM.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  assert.equal(setDocText(view, "hello world"), "deferred");
+  assert.equal(setDocText(view, "hello there"), "deferred");
+  assert.equal(view.state.doc.toString(), "hello");
+  view.contentDOM.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+  await sleep(20);
+  assert.equal(view.state.doc.toString(), "hello there");
+  view.destroy();
+});
+
+// ---- history cache ----------------------------------------------------------------------
+
+test("HistoryCache: reopening an unchanged file restores selection and undo history", () => {
+  const cache = new HistoryCache(2);
+  const view = makeView("abc", 3, [history()]);
+  view.dispatch({ changes: { from: 3, insert: "d" }, selection: { anchor: 4 }, userEvent: "input.type" });
+  cache.save("a.typ", view.state);
+  view.destroy();
+
+  const restored = cache.restore("a.typ", "abcd", { extensions: [history()] })!;
+  assert.ok(restored);
+  assert.equal(undoDepth(restored), 1);
+  assert.equal(restored.selection.main.head, 4);
+  const v2 = new EditorView({ state: restored, parent: document.body });
+  undo(v2);
+  assert.equal(v2.state.doc.toString(), "abc");
+  v2.destroy();
+
+  assert.equal(cache.restore("a.typ", "abcd changed on disk", { extensions: [history()] }), null);
+  assert.ok(cache.restore("a.typ", "abcd".replace(/\n/g, "\r\n"), { extensions: [history()] }));
+  cache.rename("a.typ", "b.typ");
+  assert.equal(cache.restore("a.typ", "abcd", { extensions: [history()] }), null);
+  assert.ok(cache.restore("b.typ", "abcd", { extensions: [history()] }));
+  cache.save("c.typ", EditorState.create({ doc: "c" }));
+  cache.save("d.typ", EditorState.create({ doc: "d" }));
+  assert.equal(cache.restore("b.typ", "abcd", { extensions: [history()] }), null, "oldest entry dropped");
+});
+
+// ---- ephemeral state ------------------------------------------------------------------
+
+test("ephemeral state: cursor round trip, link line, clamping", () => {
+  const view = makeView(lines(10), { anchor: 3, head: 30 });
+  const st = getEphemeralState(view);
+  assert.deepEqual(st.cursor, { from: { line: 0, ch: 3 }, to: { line: 1, ch: 12 } });
+  assert.equal(typeof st.scroll, "number");
+
+  const other = makeView(lines(10), 0);
+  applyEphemeralState(other, { cursor: st.cursor });
+  assert.deepEqual([other.state.selection.main.anchor, other.state.selection.main.head], [3, 30]);
+  applyEphemeralState(other, { line: 4 });
+  assert.equal(other.state.doc.lineAt(other.state.selection.main.head).number, 5);
+  applyEphemeralState(other, { cursor: { from: { line: 99, ch: 99 }, to: { line: 99, ch: 99 } } });
+  assert.equal(other.state.selection.main.head, other.state.doc.length);
+  applyEphemeralState(other, null);
+  view.destroy();
+  other.destroy();
+});
+
+// ---- dark theme -------------------------------------------------------------------------
+
+test("dark theme compartment follows the UI theme", () => {
+  const view = makeView("x", 0, [darkThemeExtension(false)]);
+  assert.equal(view.state.facet(EditorView.darkTheme), false);
+  syncDarkTheme(view, true);
+  assert.equal(view.state.facet(EditorView.darkTheme), true);
+  document.body.classList.remove("theme-dark");
+  syncDarkTheme(view);
+  assert.equal(view.state.facet(EditorView.darkTheme), false);
+  const plain = makeView("x", 0);
+  syncDarkTheme(plain, true); // no compartment: nothing to do
+  assert.equal(plain.state.facet(EditorView.darkTheme), false);
+  view.destroy();
+  plain.destroy();
+});
+
+// ---- edit notifier ------------------------------------------------------------------------
+
+test("editNotifier: committed edits only; a composition is reported once after compositionend", async () => {
+  const seen: { changes: ChangeSet; startDoc: Text; doc: string }[] = [];
+  const notifier = editNotifier((v, changes, startDoc) => seen.push({ changes, startDoc, doc: v.state.doc.toString() }));
+  const view = makeView("ab", 2, [notifier]);
+  view.dispatch({ changes: { from: 2, insert: "c" }, userEvent: "input.type" });
+  assert.equal(seen.length, 1);
+
+  view.contentDOM.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  view.dispatch({ changes: { from: 3, insert: "n" }, userEvent: "input.type.compose" });
+  view.dispatch({ changes: { from: 3, to: 4, insert: "ni" }, userEvent: "input.type.compose" });
+  view.dispatch({ changes: { from: 3, to: 5, insert: "你" }, userEvent: "input.type.compose" });
+  assert.equal(seen.length, 1, "nothing while composing");
+  view.contentDOM.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+  await sleep(20);
+  assert.equal(seen.length, 2);
+  assert.equal(seen[1].startDoc.toString(), "abc");
+  assert.equal(seen[1].changes.apply(seen[1].startDoc).toString(), "abc你");
+  view.destroy();
+});
+
+// ---- diagnostics while typing ---------------------------------------------------------------
+
+/** An error covering line `n` of the view's current document. */
+function lineError(view: EditorView, n: number, message: string): Diagnostic {
+  const line = view.state.doc.line(n);
+  return { from: line.from, to: line.to, severity: "error", message };
+}
+
+/** The lint layer's diagnostics as "message@line:from-to", sorted. */
+function shownDiagnostics(view: EditorView): string[] {
+  const out: string[] = [];
+  forEachDiagnostic(view.state, (d, from, to) => {
+    out.push(`${d.message}@${view.state.doc.lineAt(from).number}:${from}-${to}`);
+  });
+  return out.sort();
+}
+const messages = (view: EditorView) => shownDiagnostics(view).map((s) => s.slice(0, s.indexOf(":")));
+
+const TEX = "\\section{A}\n$\\alpha$\n\\end{document}";
+
+test("typingDiagnostics: a new diagnostic on the typed line waits for a pause; other lines show at once", async () => {
+  const view = makeView(TEX, TEX.indexOf("$\n"), [typingDiagnostics({ delay: 120 })]);
+  setTypingDiagnostics(view, [lineError(view, 1, "old A"), lineError(view, 2, "old B")]);
+  assert.deepEqual(messages(view), ["old A@1", "old B@2"], "nothing typed yet: all show");
+
+  typeInput(view, "\\fr"); // line 2 becomes `$\alpha\fr$`
+  setTypingDiagnostics(view, [lineError(view, 1, "on line 1"), lineError(view, 2, "Undefined control sequence")]);
+  assert.deepEqual(messages(view), ["on line 1@1"], "line 2's new error waits; its old one is gone at once");
+  await sleep(70);
+  typeInput(view, "a"); // still typing: the pause starts over
+  await sleep(70);
+  assert.deepEqual(messages(view), ["on line 1@1"]);
+  typeInput(view, "c"); // the held error maps with the edits
+  await sleep(200);
+  const line2 = view.state.doc.line(2);
+  assert.equal(line2.text, "$\\alpha\\frac$");
+  assert.deepEqual(shownDiagnostics(view), [
+    `Undefined control sequence@2:${line2.from}-${line2.to}`,
+    `on line 1@1:0-${view.state.doc.line(1).to}`,
+  ]);
+
+  // After the pause a later set (a compile that ends late) shows at once, also on this line.
+  setTypingDiagnostics(view, [lineError(view, 2, "Missing $ inserted")]);
+  assert.deepEqual(messages(view), ["Missing $ inserted@2"]);
+  view.destroy();
+});
+
+test("typingDiagnostics: the cursor leaving the line (a move, Enter) shows its held diagnostics at once", async () => {
+  const view = makeView(TEX, TEX.indexOf("$\n"), [typingDiagnostics({ delay: 60000 })]);
+  typeInput(view, "\\fr");
+  setTypingDiagnostics(view, [lineError(view, 2, "Undefined control sequence")]);
+  assert.deepEqual(messages(view), []);
+  view.dispatch({ selection: { anchor: 3 } }); // a click on line 1
+  await Promise.resolve();
+  assert.deepEqual(messages(view), ["Undefined control sequence@2"]);
+
+  // Back on line 2 without typing: nothing is held.
+  view.dispatch({ selection: { anchor: view.state.doc.line(2).to } });
+  setTypingDiagnostics(view, [lineError(view, 2, "Undefined control sequence \\fr")]);
+  assert.deepEqual(messages(view), ["Undefined control sequence \\fr@2"]);
+
+  typeInput(view, "x");
+  setTypingDiagnostics(view, [lineError(view, 2, "Undefined control sequence \\frx")]);
+  assert.deepEqual(messages(view), []);
+  const end = view.state.doc.line(2).to;
+  view.dispatch({ changes: { from: end, insert: "\n" }, selection: { anchor: end + 1 }, userEvent: "input" });
+  await Promise.resolve();
+  assert.deepEqual(messages(view), ["Undefined control sequence \\frx@2"], "Enter moved the typing to line 3");
+
+  // Typing on the new line holds its own diagnostics; the timer dies with the view.
+  typeInput(view, "\\");
+  setTypingDiagnostics(view, [lineError(view, 3, "Missing control sequence")]);
+  assert.deepEqual(messages(view), []);
+  view.destroy();
+});
+
+test("typingDiagnostics: a shown error the next set still reports stays; one it drops goes at once", async () => {
+  const doc = "#let x = foo\n#x";
+  const view = makeView(doc, doc.indexOf("\n"), [typingDiagnostics({ delay: 60000 })]);
+  const foo = doc.indexOf("foo");
+  const unknown: Diagnostic = { from: foo, to: foo + 3, severity: "error", message: "unknown variable: foo" };
+  setTypingDiagnostics(view, [unknown]);
+  typeInput(view, " + 1"); // typing on the line after the error
+  setTypingDiagnostics(view, [{ ...unknown }, { from: foo + 6, to: foo + 7, severity: "warning", message: "new" }]);
+  assert.deepEqual(shownDiagnostics(view), [`unknown variable: foo@1:${foo}-${foo + 3}`], "kept without a flash");
+  setTypingDiagnostics(view, []);
+  assert.deepEqual(shownDiagnostics(view), [], "fixed: removed immediately");
+  view.destroy();
+});
+
+test("typingDiagnostics: external text is not typing; without the extension the set shows as is", () => {
+  const view = makeView(TEX, TEX.indexOf("$\n"), [typingDiagnostics()]);
+  setDocText(view, TEX.replace("\\alpha", "\\fr"));
+  setTypingDiagnostics(view, [lineError(view, 2, "Undefined control sequence")]);
+  assert.deepEqual(messages(view), ["Undefined control sequence@2"]);
+  view.destroy();
+
+  const plain = makeView(TEX, TEX.indexOf("$\n"));
+  typeInput(plain, "\\fr");
+  setTypingDiagnostics(plain, [lineError(plain, 2, "Undefined control sequence")]);
+  assert.deepEqual(messages(plain), ["Undefined control sequence@2"]);
+  plain.destroy();
+});
+
+// ---- language data -------------------------------------------------------------------------
+
+test("languageData: $ pairs and wraps, LaTeX quotes are not paired, % comments", () => {
+  const latex = [languageData({ brackets: ["(", "[", "{", "$"], lineComment: "%" }), closeBrackets()];
+  const view = makeView("area ", 5, latex);
+  typeInput(view, "$x");
+  assert.equal(withCursor(view), "area $x|$");
+  typeInput(view, "$");
+  assert.equal(withCursor(view), "area $x$|", "steps over the closer");
+
+  const sel = makeView("area of x^2 here", { anchor: 8, head: 11 }, latex);
+  const tr = insertBracket(sel.state, "$");
+  assert.ok(tr);
+  sel.dispatch(tr!);
+  assert.equal(sel.state.doc.toString(), "area of $x^2$ here");
+
+  const quotes = makeView("", 0, latex);
+  typeInput(quotes, "``quoted text''");
+  assert.equal(quotes.state.doc.toString(), "``quoted text''");
+  typeInput(quotes, ' "a');
+  assert.equal(quotes.state.doc.toString(), "``quoted text'' \"a");
+
+  const comment = makeView("a line", 0, latex);
+  toggleComment(comment);
+  assert.equal(comment.state.doc.toString(), "% a line");
+  const typst = makeView("x", 0, [languageData({ lineComment: "//", blockComment: { open: "/*", close: "*/" } })]);
+  toggleComment(typst);
+  assert.equal(typst.state.doc.toString(), "// x");
+  for (const v of [view, sel, quotes, comment, typst]) v.destroy();
+});
+
+test("detectIndentUnit: 4-space LaTeX, 2-space Typst, tabs, fallback", () => {
+  const tex = [
+    "\\begin{itemize}",
+    "    \\item a",
+    "    \\begin{enumerate}",
+    "        \\item b",
+    "    \\end{enumerate}",
+    "\\end{itemize}",
+    "\\begin{proof}",
+    "    x",
+    "\\end{proof}",
+  ].join("\n");
+  assert.equal(detectIndentUnit(tex, "  "), "    ");
+  const typ = "#let f(x) = {\n  if x {\n    1\n  } else {\n    2\n  }\n}\n- a\n  - b\n";
+  assert.equal(detectIndentUnit(typ, "    "), "  ");
+  assert.equal(detectIndentUnit("a\n\tb\n\t\tc\n\td\n", "  "), "\t");
+  assert.equal(detectIndentUnit("no\nindent\n", "  "), "  ");
+});
+
+// ---- math delimiters --------------------------------------------------------------------------
+
+test("mathInput: $ inside an empty $|$ opens display math; Typst variant", () => {
+  const exts = [mathInput(), languageData({ brackets: ["(", "[", "{", "$"] }), closeBrackets()];
+  const view = makeView("", 0, exts);
+  typeInput(view, "$");
+  assert.equal(withCursor(view), "$|$");
+  typeInput(view, "$");
+  assert.equal(withCursor(view), "$$|$$");
+  const typst = makeView("", 0, [
+    mathInput({ display: ["$ ", " $"] }),
+    languageData({ brackets: ["(", "[", "{", '"', "$"] }),
+    closeBrackets(),
+  ]);
+  typeInput(typst, "$$");
+  assert.equal(withCursor(typst), "$ | $");
+  view.destroy();
+  typst.destroy();
+});
+
+test("mathInput + mathEnter: \\[ and \\( pair, Enter opens the block, \\] steps over (no stray ])", () => {
+  const exts = [
+    mathInput({ latexDelimiters: true }),
+    languageData({ brackets: ["(", "[", "{", "$"] }),
+    closeBrackets(),
+    indentUnit.of("  "),
+  ];
+  const view = makeView("", 0, exts);
+  typeInput(view, "\\[");
+  assert.equal(withCursor(view), "\\[|\\]");
+  assert.ok(mathEnter(view));
+  assert.equal(withCursor(view), "\\[\n  |\n\\]");
+  typeInput(view, "x^2");
+  assert.equal(view.state.doc.toString(), "\\[\n  x^2\n\\]");
+
+  const inline = makeView("see ", 4, exts);
+  typeInput(inline, "\\(a\\)");
+  assert.equal(withCursor(inline), "see \\(a\\)|");
+
+  const escaped = makeView("a \\\\", 4, exts); // `\\[2pt]` is a line break, not math
+  typeInput(escaped, "[");
+  assert.equal(withCursor(escaped), "a \\\\[|]");
+  const noPair = makeView("x", 0, exts);
+  typeInput(noPair, "\\[");
+  assert.equal(withCursor(noPair), "\\[|x", "no closer before a word, and no bare ]");
+  for (const v of [view, inline, escaped, noPair]) v.destroy();
+});
+
+test("mathInput: \\$ \\{ \\} (and Typst \\( \\\") are escapes, never paired and never stepping over", () => {
+  const latex = [mathInput({ latexDelimiters: true }), languageData({ brackets: ["(", "[", "{", "$"] }), closeBrackets()];
+  const typst = [mathInput({ display: ["$ ", " $"] }), languageData({ brackets: ["(", "[", "{", '"', "$"] }), closeBrackets()];
+  const cases: [Extension[], string, string, string][] = [
+    [latex, "costs |", "\\$5 each", "costs \\$5 each|"],
+    [latex, "set |", "\\{", "set \\{|"],
+    [latex, "f(x) = |", "\\left\\{ a \\right.", "f(x) = \\left\\{ a \\right.|"],
+    [latex, "|", "$x = \\$", "$x = \\$|$"], // the closing $ stays
+    [latex, "|", "\\set{\\{x\\}", "\\set{\\{x\\}|}"], // the group's own } is kept
+    [latex, "\\\\|", "$", "\\\\$|$"], // after an escaped backslash $ still pairs
+    [latex, "|", "\\(", "\\(|\\)"],
+    [typst, "costs |", "\\$5 each", "costs \\$5 each|"],
+    [typst, "|", "\\{", "\\{|"],
+    [typst, "|", "$x = \\$", "$x = \\$|$"],
+    [typst, "|", "\\(", "\\(|"],
+    [typst, "|", '\\"', '\\"|'],
+  ];
+  for (const [exts, start, typed, want] of cases) {
+    const view = makeView(start.replace("|", ""), start.indexOf("|"), exts);
+    typeInput(view, typed);
+    assert.equal(withCursor(view), want, `${start} + ${typed}`);
+    view.destroy();
+  }
+});
+
+test("mathInput: $ pairs after CJK text, \\( \\[ before CJK punctuation; Typst gets the same $", () => {
+  const latex = [
+    mathInput({ latexDelimiters: true }),
+    languageData({ brackets: ["(", "[", "{", "$"], before: CLOSE_BEFORE }),
+    closeBrackets(),
+  ];
+  const typst = [mathInput({ display: ["$ ", " $"] }), languageData({ brackets: ["(", "[", "{", '"', "$"] }), closeBrackets()];
+  const cases: [Extension[], string, string, string][] = [];
+  for (const exts of [latex, typst]) {
+    for (const punct of "，。：；）、！？」』") cases.push([exts, `设|${punct}则`, "$", `设$|$${punct}则`]);
+    cases.push(
+      [exts, "设|，则", "$x$", "设$x$|，则"], // the closer steps over
+      [exts, "设|", "$", "设$|$"], // the line end
+      [exts, "设| 则", "$", "设$|$ 则"],
+      [exts, "设|则", "$", "设$|则"], // before CJK text: not paired
+      [exts, "𠀀|，", "$", "𠀀$|$，"], // a Han character outside the BMP
+      [exts, "かな|。", "$x$", "かな$x$|。"],
+      [exts, "설명|.", "$", "설명$|."], // `.` is not in the set
+      [exts, "设$x$，则|", "$y$", "设$x$，则$y$|"],
+      [exts, "$x+y|", "$", "$x+y$|"], // after a Latin letter `$` closes math, as before
+      [exts, "设\\|，", "$", "设\\$|，"], // an escaped dollar
+      // Math open on the line: this `$` closes it, also after CJK text.
+      [exts, "$a 集|", "$", "$a 集$|"],
+      [exts, "设$x$，令$y 属于集|，", "$", "设$x$，令$y 属于集$|，"],
+      [exts, "价格\\$5，设|，", "$", "价格\\$5，设$|$，"], // an escaped `$` opens nothing
+    );
+  }
+  cases.push(
+    [latex, "$$x 集|", "$", "$$x 集$|"], // `$$` opens display math once
+    [latex, "设|，则", "$$", "设$$|$$，则"],
+    [typst, "设|，则", "$$", "设$ | $，则"],
+    [latex, "见|，", "\\(", "见\\(|\\)，"],
+    [latex, "见|。", "\\[", "见\\[|\\]。"],
+    [latex, "见|则", "\\(", "见\\(|则"],
+    [latex, "见|，", "(", "见(|)，"], // closeBrackets with CLOSE_BEFORE
+    [[mathInput({ latexDelimiters: true, closeBefore: ")" }), languageData({ brackets: ["$"] }), closeBrackets()], "设|，", "$", "设$|，"],
+    [[mathInput({ latexDelimiters: true, closeBefore: ")" }), languageData({ brackets: ["$"] }), closeBrackets()], "见|，", "\\(", "见\\(|，"],
+  );
+  for (const [exts, start, typed, want] of cases) {
+    const view = makeView(start.replace("|", ""), start.indexOf("|"), exts);
+    typeInput(view, typed);
+    assert.equal(withCursor(view), want, `${start} + ${typed}${exts === typst ? " (Typst)" : ""}`);
+    view.destroy();
+  }
+});
+
+test("deleteMathPair: Backspace in an empty \\(|\\) or \\[|\\] deletes both delimiters", () => {
+  for (const [doc, want, handled] of [
+    ["a \\(|\\) b", "a | b", true],
+    ["\\[|\\]", "|", true],
+    ["\\(x|\\)", "\\(x|\\)", false],
+    ["\\\\(|\\)", "\\\\(|\\)", false], // `\\` is a line break: `(` is not a delimiter
+    ["$|$", "$|$", false], // closeBracketsKeymap's job
+  ] as [string, string, boolean][]) {
+    const view = makeView(doc.replace("|", ""), doc.indexOf("|"));
+    assert.equal(deleteMathPair(view), handled, doc);
+    assert.equal(withCursor(view), want, doc);
+    view.destroy();
+  }
+});
+
+// ---- commands -----------------------------------------------------------------------------
+
+test("wrapSelection toggles markers around selections and the cursor", () => {
+  const view = makeView("make bold here", { anchor: 5, head: 9 });
+  wrapSelection(view, "\\textbf{", "}");
+  assert.equal(withCursor(view), "make \\textbf{[bold]} here");
+  wrapSelection(view, "\\textbf{", "}");
+  assert.equal(withCursor(view), "make [bold] here");
+  const inner = makeView("a *b* c", { anchor: 2, head: 5 });
+  wrapSelection(inner, "*", "*");
+  assert.equal(withCursor(inner), "a [b] c");
+  const empty = makeView("x ", 2);
+  wrapSelection(empty, "_", "_");
+  assert.equal(withCursor(empty), "x _|_");
+  for (const v of [view, inner, empty]) v.destroy();
+});
+
+test("indentOrInsertTab: spaces to the next stop mid-line, indentMore in leading whitespace", () => {
+  const mid = makeView("\\item text", 7, [indentUnit.of("    ")]);
+  assert.ok(indentOrInsertTab(mid));
+  assert.equal(withCursor(mid), "\\item t |ext", "column 7 -> 8");
+  assert.ok(indentOrInsertTab(mid));
+  assert.equal(withCursor(mid), "\\item t     |ext", "column 8 -> 12");
+  const lead = makeView("  \\item text", 0, [indentUnit.of("  ")]);
+  assert.ok(indentOrInsertTab(lead));
+  assert.equal(lead.state.doc.toString(), "    \\item text");
+  mid.destroy();
+  lead.destroy();
+});
+
+test("registerEditorScope runs editor commands and consumes the keys", () => {
+  const registered: { modifiers: string[]; key: string; func: () => unknown }[] = [];
+  const scope = {
+    register: (modifiers: string[], key: string, func: () => unknown) => registered.push({ modifiers, key, func }),
+  };
+  const view = makeView("a line", { anchor: 0, head: 1 }, [languageData({ lineComment: "%" }), search()]);
+  registerEditorScope(scope as unknown as Scope, () => view, { bold: ["\\textbf{", "}"] });
+  const keys = registered.map((r) => r.modifiers.join("+") + "+" + r.key);
+  assert.ok(keys.includes("Mod+/") && keys.includes("Mod+b") && keys.includes("Mod+Shift+g"));
+  assert.ok(!keys.includes("Mod+i") && !keys.includes("Mod+e"), "unconfigured actions are skipped");
+  assert.ok(!keys.some((k) => k === "Mod+s" || k === "Mod+f"), "Mod-S / Mod-F keep Obsidian's meaning");
+  assert.equal(registered.length, EDITOR_SCOPE_KEYS.length - 2);
+  const run = (k: string) => registered.find((r) => r.modifiers.join("+") + "+" + r.key === k)!.func();
+  assert.equal(run("Mod+b"), false);
+  assert.equal(view.state.doc.toString(), "\\textbf{a} line");
+  run("Mod+/");
+  assert.equal(view.state.doc.toString(), "% \\textbf{a} line");
+  run("Mod+Alt+f");
+  assert.ok(view.dom.querySelector(".cm-search"), "search panel open");
+  view.destroy();
+});
+
+test("showSearch opens the search panel", () => {
+  const view = makeView("find me", 0, [search()]);
+  showSearch(view, false);
+  assert.ok(view.dom.querySelector(".cm-search input[name=search]"));
+  view.destroy();
+});
