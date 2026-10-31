@@ -433,11 +433,13 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 		const parent = this.parent;
 		if (!parent) return;
 		const workspace = this.app.workspace;
+		// Read first: the removal may take the leaf's group out of the tree.
+		const container = this.getContainer();
 		workspace.onLeafClosing(this);
 		this.hoverPopover?.hide();
 		parent.removeChild(this);
 		this.view.close().catch((err) => console.error(err));
-		workspace.onLeafDetached(this, parent);
+		workspace.onLeafDetached(this, parent, container);
 	}
 
 	serialize() {
@@ -1303,12 +1305,15 @@ export class Workspace extends Events {
 		if (this.#closed.length > 10) this.#closed.shift();
 	}
 
-	onLeafDetached(leaf: WorkspaceLeaf, parent: WorkspaceTabs) {
+	onLeafDetached(leaf: WorkspaceLeaf, parent: WorkspaceTabs, container: WorkspaceContainer = this.rootSplit) {
 		if (this.activeLeaf === leaf) {
 			this.activeLeaf = null;
-			// A main-area tab hands over to the tab now shown in its group.
+			// A main-area tab hands over to the tab now shown in its group, else
+			// to the most recent leaf of its popout window while that stays
+			// open, so closing a pane there does not raise the vault window.
 			const sibling = this.inMainArea(parent) && !this.#closingWindow ? parent.children[parent.currentTab] : null;
-			const next = sibling ?? this.getMostRecentLeaf();
+			const popout = container instanceof WorkspaceWindow && this.floatingSplit.children.includes(container) ? this.getMostRecentLeaf(container) : null;
+			const next = sibling ?? popout ?? this.getMostRecentLeaf();
 			if (next) this.setActiveLeaf(next, { focus: true });
 		}
 		this.#updateActiveFile();
