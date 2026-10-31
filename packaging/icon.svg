@@ -1,31 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- justnotes app icon: a lowercase "j" written on a ruled notebook page,
-       inside the macOS icon grid (824 px body on a 1024 px canvas). -->
+  <!-- justnotes app icon: a lowercase "j" written on a dark ruled notebook
+       page, inside the macOS icon grid (824 px body on a 1024 px canvas). -->
   <defs>
-    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fdfaf3"/>
-      <stop offset="1" stop-color="#efe6d4"/>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c313d"/>
+      <stop offset="1" stop-color="#1a1d25"/>
     </linearGradient>
     <clipPath id="body">
       <rect x="100" y="100" width="824" height="824" rx="185"/>
     </clipPath>
     <filter id="lift" filterUnits="userSpaceOnUse" x="100" y="100" width="824" height="824">
-      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#3b2f1c" flood-opacity="0.18"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.35"/>
     </filter>
   </defs>
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#paper)"/>
-  <g clip-path="url(#body)">
-    <g stroke="#cfd8e8" stroke-width="8">
-      <line x1="100" y1="420" x2="924" y2="420"/>
-      <line x1="100" y1="530" x2="924" y2="530"/>
-      <line x1="100" y1="640" x2="924" y2="640"/>
-      <line x1="100" y1="750" x2="924" y2="750"/>
-      <line x1="100" y1="860" x2="924" y2="860"/>
-    </g>
-    <line x1="290" y1="100" x2="290" y2="924" stroke="#efb7aa" stroke-width="8"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#page)"/>
+  <g clip-path="url(#body)" stroke-width="8">
+    <path d="M100 420H924M100 530H924M100 640H924M100 750H924M100 860H924" stroke="#3a4152"/>
+    <path d="M290 100V924" stroke="#7d4537"/>
   </g>
   <g filter="url(#lift)">
-    <path d="M590 430 V668 Q590 800 462 800 Q398 800 356 760" fill="none" stroke="#23262f" stroke-width="104" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M590 430V668Q590 800 462 800Q398 800 356 760" fill="none" stroke="#f3ebdb" stroke-width="104" stroke-linecap="round"/>
     <circle cx="590" cy="302" r="66" fill="#e4703a"/>
   </g>
 </svg>
