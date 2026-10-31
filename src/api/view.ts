@@ -357,6 +357,9 @@ interface TextDoc {
 	// The file's text as the document last took it in (loaded, written or
 	// merged): the base when changes made elsewhere meet unsaved edits.
 	base: string;
+	// The text on disk the document's last write replaced, and when that write
+	// was, until the document takes in a change.
+	prior?: { text: string; at: number };
 	// The views showing it, once they have loaded.
 	views: Set<TextFileView>;
 }
@@ -390,6 +393,20 @@ function fileJob<T>(file: TFile, job: () => Promise<T>): Promise<T> {
 }
 
 const isMissing = (err: unknown) => (err as { code?: unknown } | null)?.code === "ENOENT";
+
+// The base a change on disk is merged against: the text the document last
+// took in, unless the change was made from the text its last write replaced
+// (a capture that read the note just before a save and wrote it right after).
+// Merged against the write, such a change would undo it. Within a second of
+// the write, a change that lacks the write's edits and keeps them without a
+// conflict when merged with them is taken for one; a change built on the
+// write, a rewrite of the written lines and an exact revert are not.
+function mergeBase(doc: TextDoc, text: string) {
+	const prior = doc.prior;
+	if (!prior || text === prior.text || Date.now() - prior.at > 1000) return doc.base;
+	const kept = mergeText(prior.text, doc.base, text);
+	return !kept.conflicts && kept.text !== text ? prior.text : doc.base;
+}
 
 // A text file view keeps its own text (getViewData), `data` (Obsidian's
 // in-memory copy: the text last loaded, saved or reloaded) and its document's
@@ -522,6 +539,7 @@ export abstract class TextFileView extends EditableFileView {
 		if (!this.dirty && this.getViewData() === this.data) return;
 		const doc = this.#docFor(file);
 		let data = null as string | null;
+		let prior = null as string | null;
 		const take = () => {
 			data = this.getViewData();
 			this.requestSave.cancel();
@@ -543,6 +561,7 @@ export abstract class TextFileView extends EditableFileView {
 				await this.app.vault.process(file, (disk) => {
 					if (!this.#shows(file) || this.#docFor(file) !== doc) return disk;
 					if (disk !== doc.base && !this.#takeIn(doc, disk)) return disk;
+					prior = disk;
 					return take();
 				});
 			}
@@ -554,8 +573,10 @@ export abstract class TextFileView extends EditableFileView {
 			throw err;
 		}
 		if (data === null) return;
-		if (doc) doc.base = data;
-		else this.#adopt(file, data);
+		if (doc) {
+			doc.base = data;
+			doc.prior = prior === null ? undefined : { text: prior, at: Date.now() };
+		} else this.#adopt(file, data);
 	}
 
 	// The file changed: from another view, a plugin, git or the disk.
@@ -574,8 +595,9 @@ export abstract class TextFileView extends EditableFileView {
 	// result has edits the file lacks, which the caller saves.
 	#takeIn(doc: TextDoc, text: string) {
 		const ours = this.getViewData();
-		const merge = mergeText(doc.base, ours, text);
+		const merge = mergeText(mergeBase(doc, text), ours, text);
 		doc.base = text;
+		doc.prior = undefined;
 		for (const view of doc.views) view.data = merge.text;
 		this.data = merge.text;
 		// Mirrors follow this view's change as they follow typing.
@@ -609,7 +631,7 @@ export abstract class TextFileView extends EditableFileView {
 				if (isMissing(err)) return;
 				throw err;
 			}
-			if (disk !== doc.base) data = mergeText(doc.base, data, disk).text;
+			if (disk !== doc.base) data = mergeText(mergeBase(doc, disk), data, disk).text;
 		}
 		this.requestSave.cancel();
 		this.dirty = false;
