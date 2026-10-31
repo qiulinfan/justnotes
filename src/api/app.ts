@@ -63,6 +63,23 @@ function paneTypeOf(value: string | undefined): PaneType | false {
 	return value === "tab" || value === "split" || value === "window" ? value : false;
 }
 
+// The vault path of an absolute path inside `folder`, or null outside it.
+function pathInside(folder: string, fullPath: string) {
+	const rel = nodePath.relative(folder, fullPath);
+	return rel === ".." || rel.startsWith(`..${nodePath.sep}`) || nodePath.isAbsolute(rel) ? null : normalizePath(rel);
+}
+
+// The real path of a file that may not exist yet: its nearest existing
+// folder's real path, with the rest of the path.
+function realPathOf(file: string): string {
+	try {
+		return fs.realpathSync(file);
+	} catch {
+		const parent = nodePath.dirname(file);
+		return parent === file ? file : nodePath.join(realPathOf(parent), nodePath.basename(file));
+	}
+}
+
 // Secrets live with the main process (main/ipc.ts), per vault.
 function ipcSecretBackend(vaultId: string): SecretBackend {
 	const { ipcRenderer } = getElectron();
@@ -324,13 +341,16 @@ export class App {
 	}
 
 	// Dispatches an obsidian: URL inside this window: a plugin's protocol
-	// handler, or the built-in open, new and search actions for this vault.
+	// handler, or the built-in open, new and search actions for this vault. A
+	// path in another vault justnotes has opened goes to that vault's window.
 	// Returns whether the URL was handled.
 	async handleObsidianUrl(url: string) {
 		const params = parseObsidianUrl(url);
 		if (!params) return false;
 		// Obsidian runs a URL in the vault it names; only this one is open here.
-		if (params.vault && params.vault !== this.vault.getName() && params.vault !== this.appId) {
+		// The path of open and new overrides vault and finds its own vault below.
+		const byPath = Boolean(params.path) && (params.action === "open" || params.action === "new");
+		if (params.vault && !byPath && params.vault !== this.vault.getName() && params.vault !== this.appId) {
 			new Notice(`The vault "${params.vault}" is not open in justnotes`);
 			return false;
 		}
@@ -346,7 +366,10 @@ export class App {
 			if (params.path) {
 				const file = this.#vaultPathOf(params.path);
 				if (file === null) {
-					new Notice(`${params.path} is not in this vault`);
+					// Another vault that holds the path opens in its own window, if
+					// it was once opened with --vault or the folder picker (main.ts).
+					if (await getElectron().ipcRenderer.invoke("justnotes:open-in-vault", url, params.path)) return true;
+					new Notice(`${params.path} is not in a vault justnotes has opened`);
 					return false;
 				}
 				params.file = file;
@@ -368,9 +391,12 @@ export class App {
 		}
 	}
 
+	// A path spelled through a symlink (/tmp for /private/tmp) is in this vault
+	// too, when its real path is inside the vault's real path, as main matches
+	// vaults (main/ipc.ts vaultOf).
 	#vaultPathOf(fullPath: string) {
-		const rel = nodePath.relative(this.vault.adapter.getBasePath(), fullPath);
-		return rel.startsWith("..") || nodePath.isAbsolute(rel) ? null : normalizePath(rel);
+		const base = this.vault.adapter.getBasePath();
+		return pathInside(base, fullPath) ?? pathInside(realPathOf(base), realPathOf(fullPath));
 	}
 
 	async #uriOpen(params: ObsidianProtocolData) {
