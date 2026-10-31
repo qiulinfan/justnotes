@@ -34,7 +34,7 @@ import {
 	urlTitle,
 	walkBookmarks,
 } from "./bookmarks-data";
-import { PromptModal } from "./views";
+import { PromptModal } from "../api/ui/file-modals";
 
 const ICONS: Record<string, string> = { file: "file", folder: "folder", search: "search", graph: "git-fork", url: "globe", group: "folder-closed" };
 
