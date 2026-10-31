@@ -13,6 +13,7 @@ export * from "./plugin";
 export * from "./ui/menu";
 export * from "./ui/modal";
 export * from "./ui/notice";
+export * from "./ui/popover";
 export * from "./ui/setting";
 export * from "./ui/suggest";
 export * from "./util";

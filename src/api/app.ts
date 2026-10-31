@@ -4,7 +4,7 @@ import { Commands, HotkeyManager, Keymap, Scope } from "./keymap";
 import { MetadataCache } from "./metadata";
 import { Plugins } from "./plugins";
 import { SettingModal } from "./setting-modal";
-import { type TFile, Vault } from "./vault";
+import { Vault } from "./vault";
 import { ViewRegistry } from "./view";
 import { Workspace } from "./workspace";
 
@@ -61,22 +61,20 @@ export class App {
 		else localStorage.setItem(`${this.appId}-${key}`, JSON.stringify(data));
 	}
 
-	// justnotes keeps its own layout instead of Obsidian's workspace.json, so
-	// running both on one vault never fights over that file.
+	// justnotes keeps its own layout, in workspace.json's shape, instead of
+	// writing Obsidian's file, so running both on one vault never fights over it.
 	saveLayoutState() {
-		this.saveLocalStorage("justnotes-layout", this.workspace.getLayout());
+		try {
+			this.saveLocalStorage("justnotes-layout", this.workspace.getLayout());
+		} catch (err) {
+			console.error("Could not save the workspace layout", err);
+		}
 	}
 
-	async restoreLayoutState(layout = this.loadLocalStorage("justnotes-layout")) {
-		const files: string[] = (layout?.main ?? [])
-			.map((s: any) => s?.state?.file)
-			.filter((p: unknown): p is string => typeof p === "string" && this.vault.getFileByPath(p) !== null);
-		if (layout?.left?.collapsed) this.workspace.leftSplit.collapse();
-		if (layout?.right?.collapsed !== false) this.workspace.rightSplit.collapse();
-		for (const [i, path] of files.entries()) {
-			const leaf = i === 0 ? this.workspace.getLeaf(false) : this.workspace.getLeaf("tab");
-			await leaf.openFile(this.vault.getFileByPath(path) as TFile, { active: i === files.length - 1 });
-		}
+	// `fallback` is the layout of a vault opened for the first time.
+	async restoreLayoutState(fallback?: unknown) {
+		const saved = this.loadLocalStorage("justnotes-layout");
+		await this.workspace.changeLayout(saved?.main?.type === "split" ? saved : fallback);
 	}
 }
 
