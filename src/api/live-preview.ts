@@ -6,7 +6,7 @@ import type { App } from "./app";
 import { AppResizeObserver } from "./dom";
 import type { Component } from "./events";
 import { setIcon } from "./icons";
-import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, onCodeBlockProcessorsChange, renderMath, resolveHtmlSrc } from "./markdown";
+import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, onCodeBlockProcessorsChange, renderMath, resolveHtmlSrc, toggledTask } from "./markdown";
 import { editorMetadataHost, MetadataEditor, type MetadataEditorHost, metadataEditorOf } from "./metadata-editor";
 import { getLinkpath } from "./metadata-utils";
 import type { TFile } from "./vault";
@@ -116,6 +116,19 @@ function autolinkHref(node: SyntaxNode, url: string) {
 	return SCHEME.test(url) ? url : `mailto:${url}`;
 }
 
+// A Markdown link's or image's destination, as the reading view reads it:
+// the URL after the text's closing bracket, not one in the text itself
+// ([a@b.co](mailto:a@b.co), [www.x.com](https://x.com)), and `<...>` (a
+// path with spaces, as in [a](<My note.md>)) without its angle brackets.
+// Null for a reference link, whose destination is elsewhere.
+function destination(state: EditorState, node: SyntaxNode) {
+	const textEnd = node.getChildren("LinkMark")[1]?.to;
+	const url = textEnd === undefined ? undefined : node.getChildren("URL").find((u) => u.from >= textEnd);
+	if (!url) return null;
+	const text = state.sliceDoc(url.from, url.to);
+	return text.startsWith("<") && text.endsWith(">") ? text.slice(1, -1) : text;
+}
+
 function tokenOf(state: EditorState, n: SyntaxNode): ClickableToken | null {
 	const text = (node: SyntaxNode) => state.sliceDoc(node.from, node.to);
 	switch (n.name) {
@@ -126,9 +139,8 @@ function tokenOf(state: EditorState, n: SyntaxNode): ClickableToken | null {
 		}
 		case "Link":
 		case "Image": {
-			const url = n.getChild("URL");
-			if (!url) return null;
-			const href = text(url);
+			const href = destination(state, n);
+			if (href === null) return null;
 			return SCHEME.test(href)
 				? { type: "external-link", text: href, from: n.from, to: n.to }
 				: { type: "internal-link", text: safeDecode(href), from: n.from, to: n.to };
@@ -424,6 +436,19 @@ function dedent(line: string, indent: string) {
 
 // The title of a foldable callout, which folds it on a click.
 const FOLD_TITLE = ".callout.is-collapsible > .callout-title";
+// A task's box in a rendered callout, which ticks the task in place.
+const TASK_BOX = "input.task-list-item-checkbox";
+
+// Ticks or unticks the task whose box was pressed in a block rendered from
+// the lines starting at `firstLine`: the box's data-line counts from there.
+export function toggleRenderedTask(view: EditorView, firstLine: number, box: HTMLElement) {
+	const doc = view.state.doc;
+	const n = firstLine + Number(box.dataset.line);
+	if (!Number.isInteger(n) || n < 1 || n > doc.lines) return;
+	const line = doc.line(n);
+	const task = toggledTask(line.text);
+	if (task) view.dispatch({ changes: { from: line.from + task.ch, to: line.from + task.ch + 1, insert: task.status }, userEvent: "input" });
+}
 
 // A block rendered with MarkdownRenderer, as the reading view renders it:
 // tables (in .table-wrapper), callouts (.cm-callout > .callout) and HTML
@@ -461,9 +486,15 @@ class RenderedBlockWidget extends WidgetType {
 		else if (this.kind === "callout") {
 			editButton(view, el, (v) => v.posAtDOM(el));
 			// A press on a fold title must not put the caret beside the block,
-			// which would reveal its source; the click then folds it.
+			// which would reveal its source; the click then folds it. A press
+			// on a task's box ticks the task, as in the reading view.
 			el.addEventListener("mousedown", (evt) => {
-				if ((evt.target as HTMLElement).closest(FOLD_TITLE)) evt.preventDefault();
+				const target = evt.target as HTMLElement;
+				if (target.closest(FOLD_TITLE)) evt.preventDefault();
+				const box = evt.button === 0 ? target.closest<HTMLElement>(TASK_BOX) : null;
+				if (!box) return;
+				evt.preventDefault();
+				toggleRenderedTask(view, view.state.doc.lineAt(view.posAtDOM(el)).number, box);
 			});
 		} else el.addEventListener("mousedown", (evt) => this.#editCell(view, el, evt));
 		return el;
@@ -490,10 +521,11 @@ class RenderedBlockWidget extends WidgetType {
 	}
 
 	ignoreEvent(evt: Event) {
-		// Links inside follow and a foldable callout's title folds it; other
-		// clicks reveal the source (tables handle their own clicks).
+		// Links inside follow, a foldable callout's title folds it and a
+		// task's box ticks it; other clicks reveal the source (tables handle
+		// their own clicks).
 		const target = evt.target as HTMLElement;
-		return evt.type === "mousedown" && (this.kind === "table" || !!target.closest?.(`a, [data-href], ${FOLD_TITLE}`));
+		return evt.type === "mousedown" && (this.kind === "table" || !!target.closest?.(`a, [data-href], ${FOLD_TITLE}, ${TASK_BOX}`));
 	}
 }
 
@@ -651,9 +683,10 @@ interface BuildContext {
 // A rendered link: the editor's underline, dimmed with is-unresolved when no
 // file has the name, and the attributes of the renderer's link element, its
 // class (internal-link, external-link) and the data-href that the click and
-// hover handlers read.
+// hover handlers read. Inclusive, so a widget filling the link text (a badge
+// image) sits inside the link element and clicks on it open the link.
 function linkMark(kind: "internal-link" | "external-link", href: string, resolved = true) {
-	return Decoration.mark({ class: resolved ? "cm-underline" : "cm-underline is-unresolved", attributes: { class: kind, "data-href": href } });
+	return Decoration.mark({ class: resolved ? "cm-underline" : "cm-underline is-unresolved", attributes: { class: kind, "data-href": href }, inclusive: true });
 }
 
 // Syntax stays visible wherever the selection touches; elsewhere it is hidden
@@ -836,18 +869,21 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 				}
 				case "Link": {
 					if (touches(from, to)) return;
-					const url = node.getChild("URL");
 					const marks = node.getChildren("LinkMark");
-					if (!url || marks.length < 2) return;
+					const href = destination(state, node);
+					if (href === null) return;
 					const textEnd = marks[1].from;
-					const href = state.sliceDoc(url.from, url.to);
 					decos.push(hide.range(from, marks[0].to));
 					if (textEnd > marks[0].to) {
-						const mark = SCHEME.test(href) ? linkMark("external-link", href) : linkMark("internal-link", href, !!cx.linkDest(getLinkpath(safeDecode(href))));
+						// A note link carries its decoded path, as the reading view's does.
+						const path = safeDecode(href);
+						const mark = SCHEME.test(href) ? linkMark("external-link", href) : linkMark("internal-link", path, !!cx.linkDest(getLinkpath(path)));
 						decos.push(mark.range(marks[0].to, textEnd));
 					}
 					decos.push(hide.range(textEnd, to));
-					return false;
+					// The link text's own syntax (emphasis, code, math, a badge
+					// image) renders inside the link, as in the reading view.
+					return;
 				}
 				case "Autolink": {
 					if (touches(from, to)) return false;
@@ -866,9 +902,9 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 				}
 				case "Image": {
 					if (touches(from, to)) return;
-					const url = node.getChild("URL");
 					const marks = node.getChildren("LinkMark");
-					const target = url ? safeDecode(state.sliceDoc(url.from, url.to)) : null;
+					const href = destination(state, node);
+					const target = href === null ? null : safeDecode(href);
 					if (!target) return false;
 					const alt = marks.length >= 2 ? state.sliceDoc(marks[0].to, marks[1].from) : "";
 					const local = !SCHEME.test(target);

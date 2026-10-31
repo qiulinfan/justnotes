@@ -260,7 +260,8 @@ export function locateFrontmatter(text: string): { yamlFrom: number; yamlTo: num
 }
 
 // The note's text with its frontmatter YAML replaced; an empty `yaml` drops
-// the whole block, and a note without one gets one.
+// the whole block, and a note without one gets one, with the note's line
+// breaks (CRLF when its first one is).
 export function replaceFrontmatter(text: string, yaml: string): string {
 	const fm = locateFrontmatter(text);
 	if (!yaml) return fm ? text.slice(fm.to) : text;

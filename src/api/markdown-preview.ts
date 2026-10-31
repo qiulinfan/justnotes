@@ -7,7 +7,7 @@ import type { Component } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import { Keymap } from "./keymap";
 import { locateFrontmatter } from "./frontmatter-edit";
-import { MarkdownPreviewRenderer, MarkdownRenderer } from "./markdown";
+import { MarkdownPreviewRenderer, MarkdownRenderer, toggledTask } from "./markdown";
 import type { MarkdownView } from "./markdown-view";
 import { editorMetadataHost, MetadataEditor } from "./metadata-editor";
 import type { CachedMetadata } from "./metadata";
@@ -549,13 +549,6 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		editor.replaceRange(task.status, { line, ch: task.ch }, { line, ch: task.ch + 1 });
 		this.view.save().catch((err) => console.error(err));
 	}
-}
-
-// Where a task line ("- [ ] a", "> 1. [x] b") keeps its status and what a
-// click makes it: an open task is done, any other opens again.
-export function toggledTask(line: string): { ch: number; status: string } | null {
-	const m = /^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[)(.)\]/.exec(line);
-	return m ? { ch: m[1].length, status: m[2] === " " ? "x" : " " } : null;
 }
 
 // Maps between source lines and pixel offsets of rendered content, linearly

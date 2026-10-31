@@ -144,8 +144,12 @@ function embedPlaceholder(src: string, label?: string) {
 
 // Obsidian hides %%comments%%, inline or across lines, and an unclosed %%
 // hides the rest of the note. Their text is blanked before block parsing, so
-// line numbers stay those of the file; the frontmatter, fenced code and
-// inline code keep their %%.
+// line numbers stay those of the file; the frontmatter, fenced code (also in
+// a quote, callout or list item, as Live Preview's tree has it, and after an
+// item's marker: '- ```py') and inline code keep their %%. A backtick fence's
+// info string holds no backtick: '```a``` b' is inline code.
+const FENCE = /^(?:[ \t]*(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t])))*[ \t]*(`{3,}(?=[^`]*$)|~{3,})/;
+
 function stripComments(src: string) {
 	if (!src.includes("%%")) return src;
 	const lines = src.split("\n");
@@ -159,7 +163,7 @@ function stripComments(src: string) {
 	for (; i < lines.length; i++) {
 		const line = lines[i];
 		if (!inComment) {
-			const f = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+			const f = FENCE.exec(line);
 			if (fence) {
 				if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !line.slice(f[0].length).trim()) fence = null;
 				continue;
@@ -697,6 +701,13 @@ md.renderer.rules.task_checkbox = (tokens, idx, _options, env) => {
 	const { task, line } = tokens[idx].meta as { task: string; line: number };
 	return `<input data-line="${line - (envOf(env).sectionLine ?? 0)}" class="task-list-item-checkbox" type="checkbox"${task === " " ? "" : " checked"}>`;
 };
+
+// Where a task line ("- [ ] a", "> 1. [x] b") keeps its status and what a
+// click makes it: an open task is done, any other opens again.
+export function toggledTask(line: string): { ch: number; status: string } | null {
+	const m = /^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[)(.)\]/.exec(line);
+	return m ? { ch: m[1].length, status: m[2] === " " ? "x" : " " } : null;
+}
 
 // Obsidian's attributes on block elements: dir="auto", data-heading for
 // heading anchors, data-line on list items (relative to the section).
@@ -1586,9 +1597,9 @@ export class MarkdownRenderer extends MarkdownRenderChild {
 		if (line === null || !file) return;
 		this.app.vault.process(file, (data) => {
 			const lines = data.split("\n");
-			const m = /^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[)(.)\]/.exec(lines[line] ?? "");
-			if (!m) return data;
-			lines[line] = m[1] + (m[2] === " " ? "x" : " ") + lines[line].slice(m[1].length + 1);
+			const task = toggledTask(lines[line] ?? "");
+			if (!task) return data;
+			lines[line] = lines[line].slice(0, task.ch) + task.status + lines[line].slice(task.ch + 1);
 			return lines.join("\n");
 		});
 	}

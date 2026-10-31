@@ -111,4 +111,17 @@ describe("frontmatter in a note", () => {
 		expect(replaceFrontmatter("---\na: 1\n---\nbody", "b: 2\n")).toBe("---\nb: 2\n---\nbody");
 		expect(replaceFrontmatter("---\na: 1\n---\nbody", "")).toBe("body");
 	});
+
+	// The CLI edits the file's own text: a CRLF note must not come out with
+	// some lines ending in LF.
+	test("edits keep a CRLF note's line breaks on every line", () => {
+		const text = "---\r\ntitle: a\r\ntags:\r\n  - x\r\n---\r\nbody\r\n";
+		const fm = locateFrontmatter(text)!;
+		const yaml = text.slice(fm.yamlFrom, fm.yamlTo);
+		expect(replaceFrontmatter(text, setProperty(yaml, "title", "b"))).toBe("---\r\ntitle: b\r\ntags:\r\n  - x\r\n---\r\nbody\r\n");
+		expect(replaceFrontmatter(text, setProperty(yaml, "tags", ["x", "y"]))).toBe("---\r\ntitle: a\r\ntags:\r\n  - x\r\n  - y\r\n---\r\nbody\r\n");
+		expect(replaceFrontmatter(text, insertProperty(yaml, "new", "v"))).toBe("---\r\ntitle: a\r\ntags:\r\n  - x\r\nnew: v\r\n---\r\nbody\r\n");
+		expect(replaceFrontmatter("body\r\nmore\r\n", setProperty("", "a", 1))).toBe("---\r\na: 1\r\n---\r\nbody\r\nmore\r\n");
+		expect(setProperty("- not a map\r\n", "a", 1)).toBe("- not a map\r\n");
+	});
 });
