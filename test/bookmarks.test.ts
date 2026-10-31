@@ -180,6 +180,19 @@ describe("merging bookmarks.json", () => {
 		expect(merged.items[1]).toMatchObject({ title: "Mine", pinned: true, subpath: "#Intro" });
 	});
 
+	// Adding next to an item is no move of it: treating it as one put their
+	// new top bookmark below ours, or ours at the end when they removed its
+	// neighbour.
+	test("items we add next to others move neither those nor the items they added", () => {
+		const f = (ctime: number, path: string) => newBookmark("file", ctime, { path });
+		const base: BookmarksData = { items: [f(1, "a.md"), f(2, "b.md"), f(3, "c.md")] };
+		const paths = (d: BookmarksData) => d.items.map((i) => i.path);
+		const ours = { items: [f(6, "x.md"), f(7, "y.md"), ...cloneBookmarks(base).items] };
+		expect(paths(mergeBookmarks(base, ours, { items: [f(9, "z.md"), ...cloneBookmarks(base).items] }))).toEqual(["x.md", "y.md", "z.md", "a.md", "b.md", "c.md"]);
+		const afterB = { items: [f(1, "a.md"), f(2, "b.md"), f(5, "e.md"), f(3, "c.md")] };
+		expect(paths(mergeBookmarks(base, afterB, { items: [f(1, "a.md"), f(3, "c.md")] }))).toEqual(["a.md", "e.md", "c.md"]);
+	});
+
 	test("an item we moved into a group they renamed ends up in that group", () => {
 		const base = data();
 		const ours = cloneBookmarks(base);
