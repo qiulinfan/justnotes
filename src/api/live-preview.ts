@@ -48,7 +48,7 @@ const mousedownField = StateField.define<boolean>({
 });
 
 // A text drag ends without a mouseup, so drag end and drop also release.
-const RELEASE_EVENTS = ["mouseup", "dragend", "drop", "blur"];
+const RELEASE_EVENTS = ["mouseup", "dragend", "drop"];
 
 class LivePreviewState {
 	mousedown = false;
@@ -72,6 +72,11 @@ class LivePreviewState {
 			if (on) win.addEventListener(type, this.#release, true);
 			else win.removeEventListener(type, this.#release, true);
 		}
+		// The window losing focus also releases. Listening without capture
+		// sees only the window's own blur: element blurs do not bubble, and
+		// the press itself blurs whatever had focus before the editor.
+		if (on) win.addEventListener("blur", this.#release);
+		else win.removeEventListener("blur", this.#release);
 	}
 
 	destroy() {
