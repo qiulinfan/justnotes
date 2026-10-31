@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { installLanguageExtensions } from "../src/api/dom";
 import { Vault } from "../src/api/vault";
 import { mergeWith, TextFileView } from "../src/api/view";
-import { dropLayout, facingSides, fitSize, mergeCanvas, nearestSide, parseCanvas, parseColor, renameInCanvas, stringifyCanvas } from "../src/renderer/canvas-data";
+import { dropLayout, facingSides, fitSize, mergeCanvas, nearestSide, parseCanvas, parseColor, readViewport, renameInCanvas, stringifyCanvas } from "../src/renderer/canvas-data";
 
 const text = (id: string, extra: Record<string, unknown> = {}) => ({ id, type: "text", text: id, x: 0, y: 0, width: 250, height: 60, ...extra });
 const file = (nodes: object[], edges: object[] = [], extra: Record<string, unknown> = {}) => stringifyCanvas({ nodes, edges, ...extra } as any);
@@ -226,5 +226,20 @@ describe("dropped cards", () => {
 		expect(fitSize({ width: 1920, height: 1080 }, card)).toEqual({ width: 400, height: 225 });
 		expect(fitSize({ width: 1000, height: 2000 }, card)).toEqual({ width: 200, height: 400 });
 		expect(fitSize(null, card)).toEqual(card);
+	});
+});
+
+// A canvas leaf restores its pan and zoom from the layout's viewState; a
+// malformed one must fall back to fitting rather than put the view at NaN.
+describe("readViewport", () => {
+	test("finite numbers are taken, the zoom clamped to the canvas's range", () => {
+		expect(readViewport({ x: -120.5, y: 40, zoom: -0.5 }, -3.3, 1)).toEqual({ x: -120.5, y: 40, zoom: -0.5 });
+		expect(readViewport({ x: 0, y: 0, zoom: 7 }, -3.3, 1)).toEqual({ x: 0, y: 0, zoom: 1 });
+	});
+
+	test("anything else is no viewport", () => {
+		expect(readViewport(undefined, -3.3, 1)).toBeNull();
+		expect(readViewport({ x: 1, y: "2", zoom: 0 }, -3.3, 1)).toBeNull();
+		expect(readViewport({ x: 1, y: 2, zoom: Number.NaN }, -3.3, 1)).toBeNull();
 	});
 });

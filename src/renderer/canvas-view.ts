@@ -14,7 +14,7 @@ import { Modal } from "../api/ui/modal";
 import { Notice } from "../api/ui/notice";
 import { FuzzySuggestModal } from "../api/ui/suggest";
 import { type TAbstractFile, TFile, TFolder } from "../api/vault";
-import { mergeWith, TextFileView } from "../api/view";
+import { mergeWith, TextFileView, type ViewStateResult } from "../api/view";
 import type { WorkspaceLeaf } from "../api/workspace";
 import {
 	type AllCanvasNodeData,
@@ -33,11 +33,13 @@ import {
 	parseCanvas,
 	type Point,
 	randomId,
+	readViewport,
 	type Rect,
 	renameInCanvas,
 	type Size,
 	sidePoint,
 	stringifyCanvas,
+	type Viewport,
 } from "./canvas-data";
 import { AUDIO, CanvasEdge, CanvasFileNode, CanvasGroupNode, CanvasLinkNode, type CanvasNode, CanvasTextNode, createNode, IMAGE, VIDEO } from "./canvas-nodes";
 
@@ -103,6 +105,9 @@ export class Canvas {
 	#drag: Drag | null = null;
 	#space = false;
 	#fitPending = false;
+	// A viewport from the leaf's state, shown instead of fitting when the
+	// file it belongs to loads.
+	pendingViewport: Viewport | null = null;
 
 	constructor(view: CanvasView) {
 		this.view = view;
@@ -215,7 +220,12 @@ export class Canvas {
 		this.edges = nextEdges;
 		this.#placeElements();
 		this.#markSelection();
-		if (clear) this.zoomToFit();
+		if (clear) {
+			const viewport = this.pendingViewport;
+			this.pendingViewport = null;
+			if (viewport) this.setViewport(viewport.x, viewport.y, viewport.zoom);
+			else this.zoomToFit();
+		}
 	}
 
 	// Groups lie under the edges, which lie under the other nodes; within each
@@ -469,6 +479,11 @@ export class Canvas {
 		this.y = y;
 		this.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
 		this.applyTransform();
+		this.view.onViewportChange();
+	}
+
+	getViewport(): Viewport {
+		return { x: this.x, y: this.y, zoom: this.zoom };
 	}
 
 	// Zooms by `delta` levels keeping the canvas point under `around` (client
@@ -482,6 +497,7 @@ export class Canvas {
 		this.x = p.x - (client.clientX - r.left - r.width / 2) / s;
 		this.y = p.y - (client.clientY - r.top - r.height / 2) / s;
 		this.applyTransform();
+		this.view.onViewportChange();
 	}
 
 	zoomToBbox(box: Rect) {
@@ -1229,6 +1245,28 @@ export class CanvasView extends TextFileView {
 
 	canAcceptExtension(extension: string) {
 		return extension === "canvas";
+	}
+
+	// The viewport goes into the leaf's state, as Obsidian keeps it in
+	// workspace.json (`viewState`), so the layout and history bring it back.
+	getState() {
+		return { ...super.getState(), viewState: this.canvas.getViewport() };
+	}
+
+	async setState(state: any, result: ViewStateResult) {
+		const viewport = readViewport(state?.viewState, MIN_ZOOM, MAX_ZOOM);
+		const before = this.file;
+		this.canvas.pendingViewport = viewport;
+		await super.setState(state, result);
+		// The same file stays open: no load takes the viewport.
+		if (this.file === before) {
+			this.canvas.pendingViewport = null;
+			if (viewport) this.canvas.setViewport(viewport.x, viewport.y, viewport.zoom);
+		}
+	}
+
+	onViewportChange() {
+		this.app.workspace.requestSaveLayout();
 	}
 
 	// Obsidian's canvas option: "zoom" makes the plain wheel zoom.

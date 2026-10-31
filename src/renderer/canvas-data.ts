@@ -341,3 +341,20 @@ export function fitSize(natural: Size | null, box: Size): Size {
 	const scale = Math.min(box.width / natural.width, box.height / natural.height);
 	return { width: Math.round(natural.width * scale), height: Math.round(natural.height * scale) };
 }
+
+// The viewport a canvas leaf keeps in its view state (`viewState`, as
+// Obsidian's workspace.json has it): the canvas point at the middle of the
+// view and the zoom level. Null for anything else, so a hand-edited or
+// foreign layout falls back to fitting the canvas.
+export interface Viewport {
+	x: number;
+	y: number;
+	zoom: number;
+}
+
+export function readViewport(value: unknown, minZoom: number, maxZoom: number): Viewport | null {
+	if (!value || typeof value !== "object") return null;
+	const { x, y, zoom } = value as Record<string, unknown>;
+	if (![x, y, zoom].every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+	return { x: x as number, y: y as number, zoom: Math.min(maxZoom, Math.max(minZoom, zoom as number)) };
+}

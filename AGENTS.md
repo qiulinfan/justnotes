@@ -253,7 +253,10 @@ plain style. Development notes belong in this file.
   `edges` (Maps by id), `selection` (a Set), `getData`/`setData`,
   `requestSave`, `createTextNode({pos, size, text, focus})`, `selectOnly`,
   `deselectAll`, `zoomToFit`; a text node has `text` and `setText`, a file
-  node `file` (the TFile). QuickAdd's capture into the active canvas uses
+  node `file` (the TFile). The leaf's state keeps the viewport as Obsidian's
+  workspace.json does (`viewState: {x, y, zoom}`, the canvas point at the
+  middle and the zoom level), so the layout and history restore pan and
+  zoom; a canvas opened without one is fitted. QuickAdd's capture into the active canvas uses
   exactly those (one selected text or file card); its capture to a configured
   card reads and rewrites the file with `JSON.stringify(data, null, "\t")`.
   Files are written in Obsidian's layout (one node or edge per line), only
