@@ -1,9 +1,11 @@
 // Launch an isolated justnotes instance, report boot errors and loaded plugins,
 // then quit it:
-//   bun scripts/smoke.ts --vault <copy> [--port 9400] [--profile <dir>] [--shot out.png] [--keep]
+//   bun scripts/smoke.ts --vault <copy> [--port 9400] [--profile <dir>] [--shot out.png] [--keep] [-- <electron flag> ...]
 // Prints JSON: { ok, plugins, failedPlugins, errors, files }. With --keep the
 // instance stays running for further `CDP_PORT=<port> bun scripts/cdp.ts` calls;
-// stop it with `pkill -f 'remote-debugging-port=<port>'`.
+// stop it with `pkill -f 'remote-debugging-port=<port>'`. Flags after `--` go
+// to Electron, e.g. `-- --use-fake-device-for-media-stream
+// --use-fake-ui-for-media-stream` for a synthetic microphone.
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -14,7 +16,7 @@ function arg(name: string, fallback?: string) {
 
 const vault = arg("--vault");
 if (!vault) {
-	console.error("usage: bun scripts/smoke.ts --vault <copy> [--port N] [--profile DIR] [--shot FILE] [--keep]");
+	console.error("usage: bun scripts/smoke.ts --vault <copy> [--port N] [--profile DIR] [--shot FILE] [--keep] [-- <electron flag> ...]");
 	process.exit(1);
 }
 const port = arg("--port", "9400")!;
@@ -22,6 +24,8 @@ const profile = arg("--profile", path.join(os.tmpdir(), `justnotes-smoke-${port}
 const shot = arg("--shot");
 const keep = process.argv.includes("--keep");
 const root = path.resolve(import.meta.dir, "..");
+const dashes = process.argv.indexOf("--");
+const extra = dashes >= 0 ? process.argv.slice(dashes + 1) : [];
 
 // Test windows are usually hidden behind others, where Chromium throttles
 // timers and animation frames; pdf.js pages then take a minute to render.
@@ -30,7 +34,7 @@ const unthrottled = ["--disable-renderer-backgrounding", "--disable-background-t
 // keychain; a test instance must neither touch it nor prompt for access.
 const mockKeychain = "--use-mock-keychain";
 const child = Bun.spawn(
-	[path.join(root, "node_modules/.bin/electron"), root, ...unthrottled, mockKeychain, "--vault", path.resolve(vault), "--profile", profile, `--remote-debugging-port=${port}`],
+	[path.join(root, "node_modules/.bin/electron"), root, ...unthrottled, mockKeychain, ...extra, "--vault", path.resolve(vault), "--profile", profile, `--remote-debugging-port=${port}`],
 	{ stdout: "ignore", stderr: "ignore" },
 );
 
