@@ -575,7 +575,10 @@ plain style. Development notes belong in this file.
   are one step and a plugin's concurrent write is merged, not lost. An outside
   change to an open file merges line by line with unsaved edits (`mergeText`,
   a line diff3), including lines one side added next to a line the other side
-  changed; a real conflict keeps both versions and shows a notice. The take-in
+  changed; a real conflict keeps both versions and shows a notice. Line breaks
+  compare as LF and the result takes the file's (a CRLF note converted to LF
+  while open merges cleanly and saves as LF; MarkdownView re-detects CRLF from
+  the text a reload or merge sets, `crlfOf`). The take-in
   during a save, the reload on vault `modify` and the quit flush all merge
   this way. A view whose text is structured data registers its own merge with
   `mergeWith` (the canvas merges by node and edge id, field by field, so a

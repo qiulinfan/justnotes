@@ -888,16 +888,31 @@ function indexOfLines(lines: string[], run: string[]) {
 	return -1;
 }
 
+// Whether text is written with CRLF line breaks: when its first line break is
+// one. Text without a line break keeps `current`.
+export function crlfOf(text: string, current: boolean) {
+	const at = text.indexOf("\n");
+	return at < 0 ? current : text[at - 1] === "\r";
+}
+
 // A three-way line merge (diff3) of two edits of `base`. Changes on one side,
 // the same change on both, and changes to different lines next to each other
 // merge cleanly, as do lines one side added next to lines the other changed.
 // Where the sides changed the same lines differently, both
 // versions are kept, `theirs` first, and the region counts as a conflict. Two
 // insertions at one place are both kept the same way, but no line was changed
-// twice, so that is no conflict.
+// twice, so that is no conflict. Line breaks are compared as LF, and the
+// result takes those of `theirs` (its first line break): a CRLF note
+// converted to LF on disk while it has unsaved edits merges line by line and
+// stays LF.
 export function mergeText(base: string, ours: string, theirs: string): { text: string; conflicts: number } {
 	if (ours === base || ours === theirs) return { text: theirs, conflicts: 0 };
 	if (theirs === base) return { text: ours, conflicts: 0 };
+	if (base.includes("\r\n") || ours.includes("\r\n") || theirs.includes("\r\n")) {
+		const lf = (text: string) => text.replace(/\r\n/g, "\n");
+		const merged = mergeText(lf(base), lf(ours), lf(theirs));
+		return crlfOf(theirs, false) ? { text: merged.text.replace(/\n/g, "\r\n"), conflicts: merged.conflicts } : merged;
+	}
 	const o = base.split("\n");
 	const a = ours.split("\n");
 	const b = theirs.split("\n");

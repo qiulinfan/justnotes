@@ -11,7 +11,7 @@ import { MarkdownEditView, MarkdownPreviewView, type MarkdownSubView, subpathLin
 import { editorMetadataHost, metadataEditorOf } from "./metadata-editor";
 import { Menu } from "./ui/menu";
 import type { HoverPopover } from "./ui/popover";
-import { mirrorEdits, TextFileView, type ViewStateResult } from "./view";
+import { crlfOf, mirrorEdits, TextFileView, type ViewStateResult } from "./view";
 import type { WorkspaceLeaf } from "./workspace";
 
 const SCHEME = /^[a-z][\w+.-]*:/i;
@@ -309,9 +309,11 @@ export class MarkdownView extends TextFileView {
 	}
 
 	// CodeMirror keeps LF line breaks; a file whose first line break is CRLF
-	// is written back with CRLF.
+	// is written back with CRLF. Text set without clearing (a reload or a
+	// merge of a change on disk) brings its own line breaks: a CRLF note
+	// converted to LF while open saves as LF.
 	setViewData(data: string, clear: boolean) {
-		if (clear) this.#crlf = /^[^\n]*\r\n/.test(data);
+		this.#crlf = crlfOf(data, clear ? false : this.#crlf);
 		const text = data.replace(/\r\n?/g, "\n");
 		this.editMode.set(text, clear);
 		if (clear) this.previewMode.set(text, true);
