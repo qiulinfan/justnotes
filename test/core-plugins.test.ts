@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseMetadata } from "../src/api/metadata";
 import { moment } from "../src/api/util";
+import { embedText, recordingFormat, recordingName } from "../src/renderer/audio-recorder";
 import { dailyNoteDate, dailyNotePath } from "../src/renderer/daily-notes";
 import { lineDiff, snapshotDue } from "../src/renderer/file-recovery";
 import { findMentions, headingAt, headingTree, mentionSkips, outlineMatches } from "../src/renderer/link-panes";
@@ -232,5 +233,23 @@ describe("slides", () => {
 		expect(contentScale(960, 1400, 960, 700)).toEqual({ scale: 0.5, scrolls: false });
 		expect(contentScale(1200, 700, 960, 700)).toEqual({ scale: 0.8, scrolls: false });
 		expect(contentScale(960, 3500, 960, 700)).toEqual({ scale: 0.5, scrolls: true });
+	});
+});
+
+describe("audio recorder", () => {
+	test("records WebM as Obsidian's desktop does, else the first format the runtime records, named by the time", () => {
+		const webm = recordingFormat(() => true)!;
+		expect(webm).toEqual({ mimeType: "audio/webm", extension: "webm" });
+		expect(recordingFormat((type) => type === "audio/mp4")?.extension).toBe("m4a");
+		expect(recordingFormat(() => false)).toBeNull();
+		expect(recordingName(webm.extension, new Date(2026, 9, 31, 14, 3, 5))).toBe("Recording 20261031140305.webm");
+	});
+
+	test("the embed goes on a line of its own, splitting the line only where the cursor has text beside it", () => {
+		const link = "![[Recording 1.webm]]";
+		expect(embedText(link, "", "")).toBe(link);
+		expect(embedText(link, "First line.", "")).toBe(`\n${link}`);
+		expect(embedText(link, "First", " line.")).toBe(`\n${link}\n`);
+		expect(embedText(link, "  ", "Second")).toBe(`${link}\n`);
 	});
 });
