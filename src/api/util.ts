@@ -62,16 +62,6 @@ export function htmlToMarkdown(html: string | HTMLElement | Document | DocumentF
 	return turndown.turndown(html as any);
 }
 
-export function sanitizeHTMLToDom(html: string) {
-	const tpl = document.createElement("template");
-	tpl.innerHTML = html;
-	for (const el of tpl.content.querySelectorAll("script, iframe, object, embed")) el.remove();
-	for (const el of tpl.content.querySelectorAll("*")) {
-		for (const attr of [...el.attributes]) if (attr.name.startsWith("on")) el.removeAttribute(attr.name);
-	}
-	return tpl.content;
-}
-
 export function getLanguage() {
 	return window.localStorage.getItem("language") || navigator.language.split("-")[0] || "en";
 }
