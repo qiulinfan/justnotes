@@ -16,6 +16,7 @@ import type { App } from "./app";
 import { importFile } from "./attachments";
 import { DragManager } from "./drag-manager";
 import { editorEditorField, editorInfoField, editorLivePreviewField } from "./editor";
+import { indentListItems, listKeymap, listRenumbering, outdentListItems } from "./editor-lists";
 import { setIcon } from "./icons";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
 import { inlineMathEnd, mathBlockClose } from "./markdown";
@@ -786,6 +787,8 @@ export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
 	return [
 		editorLivePreviewField,
 		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }])),
+		Prec.high(keymap.of(listKeymap)),
+		listRenumbering,
 		indentation.of(indentConfig(host.app)),
 		history(),
 		drawSelection(),
@@ -800,7 +803,7 @@ export function embeddedMarkdownExtensions(host: LivePreviewHost): Extension[] {
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),
 		highlightedCode,
-		keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, { key: "Tab", run: indentOrInsertTab, shift: indentLess }]),
+		keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, { key: "Tab", run: (v) => indentListItems(v) || indentOrInsertTab(v), shift: (v) => outdentListItems(v) || indentLess(v) }]),
 	];
 }
 
@@ -822,6 +825,8 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		editorLivePreviewField,
 		plugins.of(app.workspace.editorExtensions),
 		Prec.high(keymap.of([{ key: "Enter", run: exitEmptyQuote }])),
+		Prec.high(keymap.of(listKeymap)),
+		listRenumbering,
 		EditorState.allowMultipleSelections.of(true),
 		// Alt-click adds a cursor, as in Obsidian; Mod-click opens links.
 		EditorView.clickAddsSelectionRange.of((evt) => evt.altKey),
@@ -843,7 +848,7 @@ export function markdownEditorExtensions(view: MarkdownView, plugins: Compartmen
 		syntaxHighlighting(obsidianHighlight),
 		syntaxHighlighting(codeHighlight),
 		highlightedCode,
-		keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, { key: "Tab", run: indentOrInsertTab, shift: indentLess }]),
+		keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, { key: "Tab", run: (v) => indentListItems(v) || indentOrInsertTab(v), shift: (v) => outdentListItems(v) || indentLess(v) }]),
 		EditorView.updateListener.of((u) => {
 			const suggest = app.workspace.editorSuggest;
 			// Suggests re-check after the update finishes: a suggest that is
