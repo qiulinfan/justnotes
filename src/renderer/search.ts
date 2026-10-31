@@ -1,3 +1,4 @@
+import { setIcon, setTooltip } from "../api/icons";
 import type { CachedMetadata } from "../api/metadata";
 import { getAllTags, parseFrontMatterTags } from "../api/metadata-utils";
 import { debounce } from "../api/util";
@@ -101,7 +102,7 @@ export function textMatches(text: string, re: RegExp): SearchMatch[] {
 export function appendMatch(el: HTMLElement, content: string, match: { from: number; to: number }) {
 	const start = Math.max(0, match.from - 30);
 	el.appendText((start > 0 ? "…" : "") + content.slice(start, match.from));
-	el.createEl("mark", { text: content.slice(match.from, match.to) });
+	el.createEl("mark", { cls: "search-result-file-matched-text", text: content.slice(match.from, match.to) });
 	el.appendText(content.slice(match.to, match.to + 80));
 }
 
@@ -169,15 +170,30 @@ export class SearchView extends ItemView {
 		this.#summaryEl.setText(`${matches} matches in ${files} files${files >= MAX_FILES ? " (showing the first 200 files)" : ""}`);
 	}
 
+	// A file's row as in Obsidian: its name, a chevron that folds its matches
+	// and their count, with the matches nested below. The name opens the
+	// file, a match opens it at the match.
 	#show(file: TFile, text: string, found: SearchMatch[]) {
-		const group = this.#resultsEl.createDiv("search-result");
-		const title = group.createDiv({ cls: "search-result-file-title", text: file.path.replace(/\.md$/, "") });
+		const group = this.#resultsEl.createDiv("tree-item search-result");
+		const title = group.createDiv("tree-item-self search-result-file-title is-clickable mod-collapsible");
+		const icon = title.createDiv("tree-item-icon collapse-icon");
+		setIcon(icon, "right-triangle");
+		title.createDiv({ cls: "tree-item-inner", text: file.basename });
+		setTooltip(title, file.path, { placement: "right" });
+		if (found.length) title.createDiv("tree-item-flair-outer").createSpan({ cls: "tree-item-flair", text: String(found.length) });
 		title.addEventListener("click", () => this.#open(file, null));
+		const matchesEl = group.createDiv("search-result-file-matches");
+		icon.addEventListener("click", (evt) => {
+			evt.stopPropagation();
+			const collapsed = !group.hasClass("is-collapsed");
+			group.toggleClass("is-collapsed", collapsed);
+			icon.toggleClass("is-collapsed", collapsed);
+		});
 		const drag = this.app.dragManager;
 		drag.handleDrag(title, (evt) => drag.dragFile(evt, file, "search"));
 		const lines = text.split("\n");
 		for (const match of found) {
-			const el = group.createDiv("search-result-match");
+			const el = matchesEl.createDiv("search-result-match search-result-file-match");
 			appendMatch(el, lines[match.line] ?? "", match);
 			el.addEventListener("click", () => this.#open(file, match));
 			drag.handleDrag(el, (evt) => drag.dragFile(evt, file, "search"));

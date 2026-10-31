@@ -33,6 +33,16 @@
 	overflow-wrap: anywhere;
 }
 
+/* The search pane's rows are tree rows (Obsidian's search-result items):
+   the name with a chevron and a match count, the matches below it. */
+.search-results .search-result-file-title {
+	overflow-wrap: normal;
+}
+
+.search-result.is-collapsed > .search-result-file-matches {
+	display: none;
+}
+
 .search-result-file-title:hover,
 .search-result-match:hover {
 	background: var(--nav-item-background-hover);

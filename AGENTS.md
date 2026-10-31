@@ -774,7 +774,13 @@ plain style. Development notes belong in this file.
   component variables without values; `00-base.css` holds the default
   theme's, as themes restate them. A row's collapse chevron sits in its left
   padding, over the children's indentation guide, so file and folder names
-  line up.
+  line up. State classes are Obsidian's, for themes: a collapsed explorer
+  folder has `is-collapsed` on its `.tree-item` and its `.collapse-icon` (one
+  down arrow the stylesheet turns aside), the left ribbon `is-collapsed`
+  (and `--ribbon-background-collapsed`) while the left sidebar is
+  collapsed. Search results are tree rows: `.tree-item.search-result` with a
+  title row (basename, chevron folding the matches, match count as flair;
+  the path is its tooltip) and `.search-result-file-matches` below.
 - Links take their colours from the `--link-*` variables, and a base `a` rule
   gives plain anchors in plugin views the link colour. Live Preview's link
   marks carry `.internal-link` and `.external-link`, so the reading view's link

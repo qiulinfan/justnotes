@@ -864,6 +864,7 @@ export class WorkspaceSidedock extends WorkspaceSplit {
 		if (this.collapsed) return;
 		this.collapsed = true;
 		this.containerEl.addClass("is-collapsed");
+		this.#markRibbon();
 		this.app.workspace.onLayoutChange();
 	}
 
@@ -871,7 +872,14 @@ export class WorkspaceSidedock extends WorkspaceSplit {
 		if (!this.collapsed) return;
 		this.collapsed = false;
 		this.containerEl.removeClass("is-collapsed");
+		this.#markRibbon();
 		this.app.workspace.onLayoutChange();
+	}
+
+	// Obsidian's ribbon carries `is-collapsed` while the left sidebar is
+	// collapsed, and takes --ribbon-background-collapsed then.
+	#markRibbon() {
+		if (this.side === "left") this.app.workspace.leftRibbon?.containerEl.toggleClass("is-collapsed", this.collapsed);
 	}
 
 	serialize() {

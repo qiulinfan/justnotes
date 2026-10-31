@@ -128,12 +128,14 @@ export class FileExplorerView extends ItemView {
 		});
 		for (const child of sorted) {
 			if (child instanceof TFolder) {
-				const item = el.createDiv("tree-item nav-folder");
-				const self = item.createDiv({ cls: "tree-item-self nav-folder-title is-clickable", attr: { "data-path": child.path } });
-				const icon = self.createDiv("tree-item-icon collapse-icon");
-				self.createDiv({ cls: "tree-item-inner nav-folder-title-content", text: child.name });
+				// Obsidian's classes: `is-collapsed` on the item and its icon (a
+				// down arrow the stylesheet turns aside), which themes style.
 				const collapsed = !this.#expanded.has(child.path);
-				setIcon(icon, collapsed ? "chevron-right" : "chevron-down");
+				const item = el.createDiv({ cls: ["tree-item", "nav-folder", ...(collapsed ? ["is-collapsed"] : [])] });
+				const self = item.createDiv({ cls: "tree-item-self nav-folder-title is-clickable mod-collapsible", attr: { "data-path": child.path } });
+				const icon = self.createDiv({ cls: ["tree-item-icon", "collapse-icon", ...(collapsed ? ["is-collapsed"] : [])] });
+				self.createDiv({ cls: "tree-item-inner nav-folder-title-content", text: child.name });
+				setIcon(icon, "right-triangle");
 				const children = item.createDiv("tree-item-children nav-folder-children");
 				if (!collapsed) this.#renderFolder(child, children);
 				self.addEventListener("click", (evt) => {
