@@ -1,4 +1,3 @@
-import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type Session, session, shell, type WebContents } from "electron";
@@ -6,7 +5,7 @@ import { enclosingVault } from "../cli/vaults";
 import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultNamed, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
-import { isMarkdown, isObsidianUrl } from "./launch-args";
+import { isLaunchData, isObsidianUrl, type LaunchData, type LaunchRequest, launchRequest } from "./launch-args";
 import { droppedSchemes, sameAppPage } from "./link-policy";
 import { microphoneRequest, systemMicrophoneAccess } from "./media";
 import { isPopoutOpen } from "./popout";
@@ -26,6 +25,16 @@ function argValue(name: string): string | undefined {
 const profile = argValue("--profile");
 if (profile) app.setPath("userData", path.resolve(profile));
 
+// One instance per profile: Electron's lock lives in the user data folder, so
+// instances with their own --profile stay independent. A second launch on a
+// profile that is running hands its arguments (--vault folders, Markdown
+// files, obsidian: URLs) to the running instance (second-instance below) and
+// quits, so `justnotes` commands racing to start the app start it once.
+const launchData: LaunchData = { argv: process.argv, cwd: process.cwd() };
+const primary = app.requestSingleInstanceLock(launchData);
+if (!primary) app.quit();
+const firstLaunch = launchRequest(process.argv.slice(1), process.cwd());
+
 // obsidian:// URLs are handled by the vault window (app.handleObsidianUrl),
 // never by the OS, which would open Obsidian itself. They arrive as clicked
 // links, window.open, macOS open-url events or launch arguments. justnotes does
@@ -39,7 +48,7 @@ const isWebUrl = (url: string) => /^(https?|mailto):/i.test(url);
 // commits (a reload).
 const listening = new WeakSet<WebContents>();
 const queuedUrls = new WeakMap<WebContents, string[]>();
-const earlyUrls = process.argv.filter(isObsidianUrl);
+const earlyUrls = [...firstLaunch.urls];
 
 // Delivers an obsidian: URL to the window of `from`, or else to the focused one.
 function sendObsidianUrl(url: string, from?: WebContents) {
@@ -301,7 +310,7 @@ function openVault(vault: string) {
 // arrive as open-file events, at launch before the app is ready; Windows and
 // Linux pass them as arguments. Those that come before the first windows
 // open wait in launchFiles.
-const launchFiles = process.argv.slice(1).filter((arg) => isMarkdown(arg) && fs.statSync(arg, { throwIfNoEntry: false })?.isFile());
+const launchFiles = [...firstLaunch.files];
 let started = false;
 app.on("open-file", (evt, file) => {
 	evt.preventDefault();
@@ -338,31 +347,52 @@ async function openFile(file: string) {
 // was opened with; without either the user picks a folder. The user chose
 // them, so links may open them from now on.
 async function openFirstVaults() {
-	let vaults = process.argv.flatMap((arg, i, all) => (all[i - 1] === "--vault" ? [arg] : []));
+	let vaults = firstLaunch.vaults;
 	const files = launchFiles.splice(0);
 	started = true;
 	if (!vaults.length && !files.length) {
 		const picked = await dialog.showOpenDialog({ properties: ["openDirectory"], title: "Open vault" });
-		if (picked.canceled || picked.filePaths.length === 0) return app.quit();
-		vaults = [picked.filePaths[0]];
+		vaults = picked.canceled ? [] : picked.filePaths.slice(0, 1);
 	}
-	for (const vault of vaults) {
-		const resolved = path.resolve(vault);
-		rememberVault(resolved);
-		openVault(resolved);
-	}
-	for (const file of files) await openFile(file);
+	await openLaunch({ vaults, files, urls: [] });
+	// A second launch may have opened a window while the picker was up.
 	if (!BrowserWindow.getAllWindows().length) app.quit();
 }
 
-remoteMain.initialize();
-registerSchemes();
-registerIpc();
-app.whenReady().then(() => {
-	handleSchemes();
-	handlePermissions(session.defaultSession);
-	setApplicationMenu();
-	startCli(vaultWindows, openVault).catch((err) => console.error("The command line socket could not start", err));
-	return openFirstVaults();
-});
+function openLaunch(launch: LaunchRequest) {
+	for (const vault of launch.vaults) {
+		rememberVault(vault);
+		openVault(vault);
+	}
+	for (const url of launch.urls) sendObsidianUrl(url);
+	return launch.files.reduce((done, file) => done.then(() => openFile(file)), Promise.resolve());
+}
+
+// A second launch on this profile: what it was opened with opens here, or
+// with nothing to open, the focused (else the first) vault window comes to
+// the front. While the app quits its arguments are dropped; the `justnotes`
+// command starts the app again when no socket comes up.
+function onSecondInstance(argv: string[], cwd: string, data: unknown) {
+	if (quitting) return;
+	const sent = isLaunchData(data) ? data : { argv, cwd };
+	const launch = launchRequest(sent.argv.slice(1), sent.cwd);
+	if (launch.vaults.length || launch.files.length || launch.urls.length) return void openLaunch(launch);
+	const win = BrowserWindow.getFocusedWindow() ?? [...vaultWindows.values()][0];
+	if (win?.isMinimized()) win.restore();
+	win?.focus();
+}
+
+if (primary) {
+	remoteMain.initialize();
+	registerSchemes();
+	registerIpc();
+	app.on("second-instance", (_evt, argv, cwd, data) => onSecondInstance(argv, cwd, data));
+	app.whenReady().then(() => {
+		handleSchemes();
+		handlePermissions(session.defaultSession);
+		setApplicationMenu();
+		startCli(vaultWindows, openVault).catch((err) => console.error("The command line socket could not start", err));
+		return openFirstVaults();
+	});
+}
 app.on("window-all-closed", () => app.quit());

@@ -23,6 +23,14 @@ plain style. Development notes belong in this file.
   (Node integration on, context isolation off, `webviewTag`,
   `@electron/remote`), owns the external-link policy (`link-policy.ts` has
   the schemes it drops) and routes `obsidian://` URLs to the vault window.
+  One instance runs per profile (`app.requestSingleInstanceLock()`, which
+  Electron keeps in the user data folder, so test instances with their own
+  `--profile` stay independent): a second launch on a running profile hands
+  its arguments and working folder to the running instance (`second-instance`;
+  `--vault` folders, Markdown files and `obsidian://` URLs open there, read by
+  `launchRequest` in `launch-args.ts` as the first launch's are; with none
+  the vault window comes to the front) and quits. While the app quits a
+  second launch's arguments are dropped.
   The only `window.open` it lets through as a window
   is a popout's (`popout.ts`: `about:blank` under the `justnotes-popout`
   frame name). `lifecycle.ts` runs the quit flush
@@ -420,7 +428,11 @@ plain style. Development notes belong in this file.
   command starts the app when none runs (from source `electron <repo>
   --vault <v> [--profile <dir>]`, needing `bun run build`; inside the
   packaged app its own binary, `appCommand`), detached, and waits for its
-  socket, as Obsidian's first command launches Obsidian. `--offline` never
+  socket, as Obsidian's first command launches Obsidian. Two commands
+  starting the app together start one instance: the later start hands its
+  vault to the first and exits. A start that exits without a socket coming
+  up (it handed the vault to an instance that was quitting) is started again,
+  at most every 2 seconds. `--offline` never
   asks or starts the app. A running app that has no window for the vault of
   a `vault` command (`read: true` in the request) answers `unopened` and the
   command reads the folder; for any other command main opens the vault's
@@ -486,8 +498,9 @@ plain style. Development notes belong in this file.
   takes requests after `installCli` (end of boot)
   says it is ready; earlier requests wait up to a minute, and a reload, crash
   or close answers pending ones with an error. A socket file left by a killed
-  instance is replaced on the next start; a live one (another instance on the
-  same profile) is left alone and that instance serves no CLI.
+  instance is replaced on the next start. A socket that answers is left
+  alone and the starting instance serves no CLI; under the single-instance
+  lock only a process other than justnotes can be listening there.
 - On PATH (not done by the repo): from source the bin is
   `src/cli/justnotes.ts`, an executable Bun script that finds the repo
   through its real path, so a symlink works: `ln -s
@@ -534,7 +547,9 @@ plain style. Development notes belong in this file.
   Alternate Editor (offered in Open With, never taking the default app);
   Windows declares no association, because NSIS would make justnotes the
   default `.md` handler. A file arrives as `open-file` (macOS, at launch
-  before `ready`) or as an argument (any platform); `openFile` in `main.ts`
+  before `ready`, and while running, since macOS hands a running app the
+  file instead of launching it again) or as an argument (any platform; a
+  second launch hands its own to the running instance); `openFile` in `main.ts`
   opens it in the vault holding it (a known vault, else the nearest folder
   above with `.obsidian`, else its folder) through `obsidian://open?path=`,
   asking first for a vault not opened before, since its plugins would run.
@@ -561,7 +576,9 @@ plain style. Development notes belong in this file.
   --profile <dir> ...` (`version`, an offline read, an app command; with no
   app running it starts the packaged one). `open -a <app> <note.md>`
   exercises `open-file` but launches without `--profile` unless given
-  `--args --profile <dir>`; without one it uses the real default profile.
+  `--args --profile <dir>`; without one it uses the real default profile
+  (and with that profile's instance running, hands it the file). With the
+  package already running on a test profile, macOS sends the file to it.
 - CI (`.github/workflows/build.yml`, actions pinned by commit): on pushes
   and pull requests to main, macOS (macos-15) runs `bun install
   --frozen-lockfile`, `bun run check`, `bun test test`, `bun run build` and
