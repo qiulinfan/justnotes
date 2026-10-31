@@ -30,6 +30,18 @@ await Promise.all([
 		external: ["electron"],
 		loader: { ".css": "text" },
 	}),
+	// The justnotes command for the packaged app, which runs it with its own
+	// binary as Node (packaging/justnotes, packaging/justnotes.cmd). ESM for the
+	// command's top-level await; bundled CommonJS modules get a require.
+	esbuild.build({
+		...common,
+		entryPoints: ["src/cli/justnotes.ts"],
+		outfile: "dist/cli/justnotes.mjs",
+		platform: "node",
+		format: "esm",
+		external: ["electron"],
+		banner: { js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);' },
+	}),
 ]);
 
 await Bun.write("dist/index.html", Bun.file("src/renderer/index.html"));

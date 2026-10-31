@@ -11,8 +11,10 @@ import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as net from "node:net";
+import * as os from "node:os";
 import * as path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import pkg from "../../package.json";
 import { escapeValue, parseCliArgs } from "./args";
 import { candidateLines, completeWords } from "./complete";
 import { completionScript } from "./completion";
@@ -112,12 +114,10 @@ async function readStdin() {
 	return Buffer.concat(chunks).toString("utf8");
 }
 
-function version() {
-	try {
-		return JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version ?? "";
-	} catch {
-		return "";
-	}
+// Read at build time in the packaged command (dist/cli/justnotes.mjs), from
+// the checkout when run from source.
+function version(): string {
+	return pkg.version;
 }
 
 // The vault a command runs in when no app runs: by vault=, else the folder
@@ -135,13 +135,27 @@ async function offline(spec: CommandSpec, vault: string, words: string[]) {
 	return runOffline(spec, vault, words, process.cwd(), version());
 }
 
-// Starts the app for `vault` (its built main.js, with this profile) in the
-// background, and waits until it serves the profile's socket.
-async function launch(options: Options, vault: string) {
+// How the command starts the app. Inside the packaged app the command is
+// dist/cli/justnotes.mjs run by the app's own binary as Node
+// (ELECTRON_RUN_AS_NODE, packaging/justnotes), so it starts that binary,
+// without the variable, which would make it Node again. From source it starts
+// the checkout's electron with its built dist/.
+function appCommand(options: Options, vault: string): { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv } {
+	const args = ["--vault", vault, ...(options.ownProfile ? ["--profile", options.profile] : [])];
+	if (process.versions.electron) {
+		const { ELECTRON_RUN_AS_NODE: _, ...env } = process.env;
+		return { command: process.execPath, args, cwd: os.homedir(), env };
+	}
 	if (!fs.existsSync(path.join(ROOT, "dist", "main.js"))) throw new CliError(`justnotes is not built: run "bun run build" in ${ROOT}.`);
 	const electron = createRequire(path.join(ROOT, "package.json"))("electron") as string;
-	const args = [ROOT, "--vault", vault, ...(options.ownProfile ? ["--profile", options.profile] : [])];
-	spawn(electron, args, { cwd: ROOT, detached: true, stdio: "ignore" }).unref();
+	return { command: electron, args: [ROOT, ...args], cwd: ROOT, env: process.env };
+}
+
+// Starts the app for `vault` (with this profile) in the background, and waits
+// until it serves the profile's socket.
+async function launch(options: Options, vault: string) {
+	const { command, args, cwd, env } = appCommand(options, vault);
+	spawn(command, args, { cwd, env, detached: true, stdio: "ignore" }).unref();
 	process.stderr.write(`Starting justnotes for ${vault}...\n`);
 	const deadline = Date.now() + LAUNCH_WAIT;
 	while (Date.now() < deadline) {
@@ -217,7 +231,7 @@ export async function run(options: Options): Promise<CliResponse> {
 	} catch (err) {
 		if (!(err instanceof NotRunning)) throw err;
 		if (spec?.name === "vaults") return knownVaultList(options, spec, words);
-		// The command comes from the same checkout as the app, so it knows the
+		// The command comes from the same checkout or package as the app, so it knows the
 		// version without a vault.
 		if (spec?.name === "version" && "error" in pickVault(argv, cwd, [], readKnownVaults(options.profile), null)) return await localVersion(spec, words);
 		if (spec?.name === "quit" || spec?.name === "restart") return { stdout: "", stderr: `justnotes is not running for the profile ${options.profile}.`, code: EXIT_FAILURE };

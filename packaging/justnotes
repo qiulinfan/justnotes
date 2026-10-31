@@ -1,0 +1,14 @@
+#!/bin/sh
+# The justnotes command of the packaged macOS app: dist/cli/justnotes.mjs run
+# by the app's own binary as Node. It sits in justnotes.app/Contents/Resources/cli
+# and may be symlinked onto PATH; the link is followed to find the app.
+self=$0
+while [ -L "$self" ]; do
+	link=$(readlink "$self")
+	case $link in
+	/*) self=$link ;;
+	*) self=$(dirname "$self")/$link ;;
+	esac
+done
+here=$(cd "$(dirname "$self")" && pwd -P)
+ELECTRON_RUN_AS_NODE=1 exec "$here/../../MacOS/justnotes" "$here/justnotes.mjs" "$@"
