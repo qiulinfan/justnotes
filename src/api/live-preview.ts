@@ -250,7 +250,7 @@ class ImageWidget extends WidgetType {
 const HTML_ATTR = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
 const IMG_ATTRS = new Set(["alt", "title", "width", "height", "style", "align", "class"]);
 
-function htmlImage(tag: string, host: LivePreviewHost): HtmlImageWidget | null {
+function htmlImage(tag: string, resolveImage: (link: string) => string | null): HtmlImageWidget | null {
 	const attrs: [string, string][] = [];
 	let src = "";
 	for (const m of tag.replace(/^<img\b/i, "").matchAll(HTML_ATTR)) {
@@ -267,7 +267,7 @@ function htmlImage(tag: string, host: LivePreviewHost): HtmlImageWidget | null {
 			path = decodeURIComponent(path);
 		} catch {}
 		// An absolute path from another machine still finds the file by name.
-		url = host.resolveImage(path) ?? (path.includes("/") ? host.resolveImage(path.slice(path.lastIndexOf("/") + 1)) : null);
+		url = resolveImage(path) ?? (path.includes("/") ? resolveImage(path.slice(path.lastIndexOf("/") + 1)) : null);
 	}
 	return url ? new HtmlImageWidget(url, attrs) : null;
 }
@@ -532,6 +532,7 @@ function ancestors(node: SyntaxNode, ...names: string[]) {
 interface BuildContext {
 	host: LivePreviewHost;
 	isResolved(linkpath: string): boolean;
+	resolveImage(link: string): string | null;
 }
 
 // Syntax stays visible wherever the selection touches; elsewhere it is hidden
@@ -730,7 +731,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const url = node.getChild("URL");
 					const marks = node.getChildren("LinkMark");
 					const target = url ? safeDecode(state.sliceDoc(url.from, url.to)) : null;
-					const src = target ? host.resolveImage(target) : null;
+					const src = target ? cx.resolveImage(target) : null;
 					const alt = marks.length >= 2 ? state.sliceDoc(marks[0].to, marks[1].from) : "";
 					if (src && target) decos.push(Decoration.replace({ widget: new ImageWidget(src, target, alt) }).range(from, to));
 					return false;
@@ -738,7 +739,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 				case "HTMLTag": {
 					if (touches(from, to)) return;
 					const tag = state.sliceDoc(from, to);
-					const widget = /^<img\b/i.test(tag) ? htmlImage(tag, host) : null;
+					const widget = /^<img\b/i.test(tag) ? htmlImage(tag, cx.resolveImage) : null;
 					if (widget) decos.push(Decoration.replace({ widget }).range(from, to));
 					return;
 				}
@@ -751,7 +752,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const alias = node.getChild("hmd-internal-link_link-alias");
 					if (name === "internal-embed") {
 						const path = getLinkpath(target);
-						const src = IMAGE.test(path) ? host.resolveImage(path) : null;
+						const src = IMAGE.test(path) ? cx.resolveImage(path) : null;
 						const alt = alias ? state.sliceDoc(alias.from, alias.to) : "";
 						if (src) decos.push(Decoration.replace({ widget: new ImageWidget(src, target, alt) }).range(from, to));
 						return false;
@@ -819,19 +820,19 @@ export async function searchTag(app: App, tag: string) {
 }
 
 export function livePreview(host: LivePreviewHost): Extension {
-	// Link resolution is cached per editor until the vault's file set changes.
+	// Link and image resolution scan the vault, so each is cached per editor
+	// until the vault's files change.
 	const resolved = new Map<string, boolean>();
+	const images = new Map<string, string | null>();
+	const cached = <T>(cache: Map<string, T>, link: string, resolve: () => T) => {
+		const key = `${host.sourcePath()}\n${link}`;
+		if (!cache.has(key)) cache.set(key, resolve());
+		return cache.get(key) as T;
+	};
 	const cx: BuildContext = {
 		host,
-		isResolved(linkpath) {
-			const key = `${host.sourcePath()}\n${linkpath}`;
-			let hit = resolved.get(key);
-			if (hit === undefined) {
-				hit = !!host.app.metadataCache.getFirstLinkpathDest(linkpath, host.sourcePath());
-				resolved.set(key, hit);
-			}
-			return hit;
-		},
+		isResolved: (linkpath) => cached(resolved, linkpath, () => !!host.app.metadataCache.getFirstLinkpathDest(linkpath, host.sourcePath())),
+		resolveImage: (link) => cached(images, link, () => host.resolveImage(link)),
 	};
 	const field = StateField.define<DecorationSet>({
 		create: (state) => build(state, cx),
@@ -849,11 +850,14 @@ export function livePreview(host: LivePreviewHost): Extension {
 			window.clearTimeout(timer);
 			timer = window.setTimeout(() => {
 				resolved.clear();
+				images.clear();
 				view.dispatch({ effects: refresh.of(null) });
 			}, 300);
 		};
 		const { vault } = host.app;
 		const refs = ["create", "delete", "rename"].map((name) => vault.on(name, changed));
+		// An edited image gets a new resource URL.
+		refs.push(vault.on("modify", (file: { extension?: string }) => file.extension !== "md" && changed()));
 		return {
 			destroy() {
 				window.clearTimeout(timer);
