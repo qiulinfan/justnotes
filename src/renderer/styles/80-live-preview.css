@@ -342,3 +342,14 @@
 	color: var(--text-muted);
 	cursor: pointer;
 }
+
+/* A link reference definition: its label small and faint before the link. */
+.markdown-source-view.mod-cm6 .cm-link-ref-label {
+	font-size: var(--font-smaller, 0.875em);
+	color: var(--text-faint);
+}
+
+.markdown-source-view.mod-cm6 .cm-link-ref-title,
+.markdown-source-view.mod-cm6 .cm-link-ref-title * {
+	color: var(--text-faint);
+}

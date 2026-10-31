@@ -220,6 +220,25 @@ describe("links", () => {
 		expect(images).toEqual(["app://vault/p_q.png"]);
 	});
 
+	// Obsidian renders reference links from the note's definitions, which may
+	// come after them; they showed as bracketed text. Definitions show their
+	// label small and their destination as a link.
+	test("reference links render with their definition's destination, and definitions as a label and a link", () => {
+		const doc = "[Text][Ref] [ref] [Other][] [none][missing] x^[ref]\n\n[ref]: https://example.com \"T\"\n[other]: <Known>\nend";
+		const decos = decorate(doc, doc.length);
+		const links = decos.filter((d) => d.mark?.includes("cm-underline")).sort((a, b) => a.from - b.from);
+		expect(links.map((d) => [doc.slice(d.from, d.to), d.attrs?.["data-href"]])).toEqual([
+			["Text", "https://example.com"],
+			["ref", "https://example.com"],
+			["Other", "Known"],
+			["https://example.com", "https://example.com"],
+			["<Known>", "Known"],
+		]);
+		expect(decos.find((d) => d.mark === "cm-link-ref-label")).toMatchObject({ from: doc.indexOf("[ref]:"), to: doc.indexOf("[ref]:") + 5 });
+		expect(clickableTokenAt(stateOf(doc, 0), 2)).toMatchObject({ type: "external-link", text: "https://example.com" });
+		expect(clickableTokenAt(stateOf(doc, 0), doc.indexOf("Other"))).toMatchObject({ type: "internal-link", text: "Known" });
+	});
+
 	// Page preview and the click handler read data-href as link text, as the
 	// reading view's links have it; an encoded path found no note to preview.
 	test("a Markdown link to a note carries its decoded path, a wikilink its text as written", () => {

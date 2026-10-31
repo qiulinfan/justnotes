@@ -699,6 +699,14 @@ plain style. Development notes belong in this file.
   line syntax (heading marks, quote marks, list bullets, tasks, rules, block
   math) shows while the selection is on those lines.
 - `editorLivePreviewField` false means Source mode: no decorations at all.
+- Links as Obsidian renders them: a destination is read as CommonMark reads
+  it (`destinationText`: no angle brackets, backslash escapes unescaped, so
+  `[x](a\_b.md)` opens `a_b.md`); reference links (`[text][ref]`,
+  `[text][]`, `[text]`) render with the destination of the note's definition,
+  found in the same tree pass and applied after it, and a definition line
+  shows its label small (`cm-link-ref-label`) and its destination as a link.
+  Ordered tasks keep their number before the box (a bullet gives way to it),
+  in both views.
 - Raw HTML: an `<img>` alone or inline becomes an `HtmlImageWidget` (its src
   found as the reading view finds it); any other HTML block (`<p
   align="center">`, `<div>`, `<details>`, ...) renders through
