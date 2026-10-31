@@ -431,14 +431,17 @@ function addsLines(from: string, text: string) {
 // the write, a change is taken for one when it only adds lines to the
 // replaced text, keeps the write's edits without a conflict when merged with
 // them, and is no version of the file the document has had. Rewrites remove
-// or change lines, a change built on the write already has its edits, and a
-// revert (git discarding changes, a plugin restoring a version) brings back a
-// version the document has had. A revert to a version from before the
+// or change lines, a change made from the write holds every line of it, and
+// a revert (git discarding changes, a plugin restoring a version) brings back
+// a version the document has had. A revert to a version from before the
 // document was opened passes for a capture when the edits since only removed
 // lines.
 function mergeBase(doc: TextDoc, text: string) {
 	const prior = doc.prior;
 	if (!prior || Date.now() - prior.at > 1000 || !addsLines(prior.text, text) || doc.seen.has(digest(text))) return doc.base;
+	// Made from the written text: it holds every line of it. (When the write
+	// only removed or emptied lines, a capture of the replaced text does too.)
+	if (addsLines(doc.base, text) && !addsLines(doc.base, prior.text)) return doc.base;
 	const kept = mergeText(prior.text, doc.base, text);
 	return !kept.conflicts && kept.text !== text ? prior.text : doc.base;
 }

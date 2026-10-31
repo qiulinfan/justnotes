@@ -198,6 +198,19 @@ describe("TextFileView saves", () => {
 		});
 	}
 
+	// After a save that only removed lines, a capture holds every line of the
+	// saved text, as a write built on it does: the removal stays.
+	test("a capture built on the text from before a save that removed a line keeps the line removed", async () => {
+		const { vault, view, file, full } = await editedNote("line1\nline2\nline3\n");
+		view.text = "line1\nline3\n";
+		view.requestSave();
+		await view.save();
+		await vault.modify(file, "line1\nline2\nline3\n- captured\n");
+		await view.save();
+		expect(fs.readFileSync(full, "utf8")).toBe("line1\nline3\n- captured\n");
+		expect(view.text).toBe("line1\nline3\n- captured\n");
+	});
+
 	const afterSave: [string, string][] = [
 		["a write built on the saved text", "line1 edit\nline2\nline3\n- captured\n"],
 		["a plugin rewriting the saved line", "line1 rewritten\nline2\nline3\n"],
@@ -212,6 +225,27 @@ describe("TextFileView saves", () => {
 			await view.save();
 			expect(fs.readFileSync(full, "utf8")).toBe(text);
 			expect(view.text).toBe(text);
+		});
+	}
+
+	// A write made from the saved text has the save's edits already, also when
+	// it fills a blank line next to the lines the save added (QuickAdd writes
+	// into the blank line below its target, or onto the empty last line).
+	const builtOnSave: [string, string, string, string][] = [
+		["onto the empty last line below the saved line", "# Log\n- first\n", "# Log\n- first\n- typed\n", "# Log\n- first\n- typed\n- cap"],
+		["into the blank line above the saved line", "## Inbox\n\n- old\n", "## Inbox\n\n- new\n- old\n", "## Inbox\n- cap\n- new\n- old\n"],
+		["below a line typed onto the empty last line", "## B\n", "## B\n- t1", "## B\n- t1\n- cap\n"],
+	];
+	for (const [name, note, saved, written] of builtOnSave) {
+		test(`a write built on the saved text that adds a line ${name} is taken as written`, async () => {
+			const { vault, view, file, full } = await editedNote(note);
+			view.text = saved;
+			view.requestSave();
+			await view.save();
+			await vault.modify(file, written);
+			await view.save();
+			expect(fs.readFileSync(full, "utf8")).toBe(written);
+			expect(view.text).toBe(written);
 		});
 	}
 
