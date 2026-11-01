@@ -66,10 +66,15 @@ mac:
   extraResources:
     - from: packaging/justnotes
       to: cli/justnotes
-  # Offered in Open With, not taken as the default Markdown app.
+  # Offered in Open With, not taken as the default app: the owner's
+  # environment sets it as the default for .md and .tex itself.
   fileAssociations:
     - ext: [md, markdown]
       name: Markdown
+      role: Editor
+      rank: Alternate
+    - ext: tex
+      name: TeX
       role: Editor
       rank: Alternate
 

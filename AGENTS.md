@@ -851,8 +851,10 @@ plain style. Development notes belong in this file.
   fuse RunAsNode must stay on. Under Electron (`process.versions.electron`)
   `appCommand` starts `process.execPath` without that variable; from source
   it starts the checkout's electron.
-- Markdown files: the macOS app declares `.md` and `.markdown` as an
-  Alternate Editor (offered in Open With, never taking the default app);
+- Markdown and TeX files: the macOS app declares `.md`, `.markdown` and
+  `.tex` as an Alternate Editor (offered in Open With, never taking the
+  default app; the owner's environment, myrunbook's `--finder-only`, makes it
+  the default for `.md` and `.tex`);
   Windows declares no association, because NSIS would make justnotes the
   default `.md` handler. A file arrives as `open-file` (macOS, at launch
   before `ready`, and while running, since macOS hands a running app the
@@ -894,7 +896,19 @@ plain style. Development notes belong in this file.
   tests, which assume POSIX (Unix sockets and file modes, symlinks, bash
   completion). Bun's cache and the Electron and electron-builder downloads
   are cached; the packages are workflow artifacts (`justnotes-macOS`,
-  `justnotes-Windows`).
+  `justnotes-Windows`). A push to main then publishes them as the latest
+  GitHub Release, tag `main-<version>-<commit7>` made on the built commit
+  (`publish` job; a tag pushed with the workflow token starts no run).
+- Installing on the owner's machines: `bun scripts/install.ts`. macOS builds
+  the checkout (`--mac --dir` for the host arch), swaps it into
+  `/Applications/justnotes.app` by rename, re-registers it with Launch
+  Services (its document types) and links `~/.local/bin/justnotes` to the
+  bundle's launcher. Windows downloads the latest release's `-win-x64.zip`
+  into `~/Downloads/justnotes-<tag>/` and swaps it into
+  `%LOCALAPPDATA%\Programs\justnotes` (the last install stays as
+  `justnotes.previous`), with a `~/.local/bin/justnotes.cmd` shim. Both
+  refuse while the installed app runs. The profile (vaults, layout, the
+  built-in plugins' settings) is outside the app and survives every install.
 - Release: bump `version` in package.json, commit, tag `v<version>` and push
   the tag. The workflow checks the tag matches package.json and creates a
   draft GitHub Release with the `.dmg`, `.zip` and `-setup.exe` files and
