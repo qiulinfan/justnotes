@@ -1,6 +1,8 @@
-# Checks, tests and packages justnotes on every push and pull request to main;
-# a v* tag also gets a draft GitHub Release with the packages. See "Packaging
-# and releases" in AGENTS.md.
+# Checks, tests and packages justnotes on every push and pull request to main.
+# A push to main publishes the packages as the latest GitHub Release
+# (main-<version>-<commit>), which `bun scripts/install.ts` installs on
+# Windows; a v* tag gets a draft release instead. See "Packaging and releases"
+# in AGENTS.md.
 name: Build
 
 on:
@@ -91,6 +93,35 @@ jobs:
           path: ${{ matrix.packages }}
           if-no-files-found: error
           compression-level: 0
+
+  publish:
+    name: Publish the build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: package.json
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: justnotes-*
+          path: packages
+          merge-multiple: true
+
+      # The tag is made here, on the built commit; a tag pushed by this token
+      # starts no workflow.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          tag="main-$version-${GITHUB_SHA::7}"
+          gh release create "$tag" packages/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest --title "justnotes $version (${GITHUB_SHA::7})" --notes "Built from $GITHUB_SHA on main."
 
   release:
     name: Draft release
