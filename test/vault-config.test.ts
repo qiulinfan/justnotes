@@ -201,7 +201,7 @@ describe("Vault settings files", () => {
 			expect(await until(() => watching)).toBe(true);
 		} finally {
 			clearInterval(timer);
-			vault.offref(ready);
+			vault.off("raw", ready.fn);
 			fs.rmSync(full(probe), { force: true });
 		}
 		const changed: unknown[] = [];
