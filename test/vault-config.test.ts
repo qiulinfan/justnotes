@@ -164,7 +164,7 @@ describe("Vault settings files", () => {
 		return { vault, full: (p: string) => path.join(dir, p) };
 	}
 
-		async function until(check: () => boolean, ms = 25_000) {
+	async function until(check: () => boolean, ms = 25_000) {
 		for (let t = 0; t < ms && !check(); t += 20) await Bun.sleep(20);
 		return check();
 	}
@@ -189,6 +189,21 @@ describe("Vault settings files", () => {
 
 	test("a file written outside is taken in and announced", async () => {
 		const { vault, full } = await makeVault({ ".obsidian/appearance.json": '{"theme":"obsidian"}' });
+		// Bun's native recursive watcher can still be registering after fs.watch
+		// returns on macOS. Observe a real event before exercising outside edits.
+		let watching = false;
+		const probe = ".watcher-ready";
+		const ready = vault.on("raw", (path: string) => {
+			if (path === probe) watching = true;
+		});
+		const timer = setInterval(() => fs.writeFileSync(full(probe), String(Date.now())), 100);
+		try {
+			expect(await until(() => watching)).toBe(true);
+		} finally {
+			clearInterval(timer);
+			vault.offref(ready);
+			fs.rmSync(full(probe), { force: true });
+		}
 		const changed: unknown[] = [];
 		vault.on("config-changed", () => changed.push(vault.getConfig("theme")));
 		fs.writeFileSync(full(".obsidian/appearance.json"), '{"theme":"moonstone"}');
@@ -199,5 +214,5 @@ describe("Vault settings files", () => {
 		await vault.saveConfig();
 		await Bun.sleep(300);
 		expect(changed).toEqual(["moonstone", "moonstone"]);
-	});
+	}, 60_000);
 });
