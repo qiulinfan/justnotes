@@ -781,7 +781,11 @@ blogs with five of its plugins.
   copies such a folder as files.
 - `bun scripts/smoke.ts --vault <copy> --port <port> --profile <dir> [--keep]
   [-- <electron flag> ...]` launches an isolated instance (own profile, mock keychain, no background
-  throttling) and reports boot errors; drive a kept one with
+  throttling) and reports boot errors. It passes `--background`, so the
+  instance never takes the owner's focus: windows show inactive and, on macOS,
+  the app stays an accessory (no Dock icon, never activated). Any other
+  test launch of Electron (benchmarks, A/B runs) passes `--background` too.
+  Drive a kept one with
   `CDP_PORT=<port> bun scripts/cdp.ts` (real key events, `eval` against
   `window.app`, screenshots, `reload`; always set `CDP_PORT`, or it drives
   whatever listens on 9333; it attaches to the first vault page, and

@@ -21,6 +21,10 @@ function argValue(name: string): string | undefined {
 // `--profile <dir>` gives this instance its own Electron user data
 // (localStorage, caches), so several instances can run side by side.
 const profile = argValue("--profile");
+// `--background` (scripts/smoke.ts): a test instance that never takes the
+// user's focus. Its windows show inactive, and on macOS the app stays an
+// accessory (no Dock icon, never activated), so it cannot steal keystrokes.
+const background = process.argv.includes("--background");
 if (profile) app.setPath("userData", path.resolve(profile));
 
 // obsidian:// URLs are handled by the vault window (app.handleObsidianUrl),
@@ -239,6 +243,7 @@ function openVault(vault: string) {
 	const win = new BrowserWindow({
 		width: 1280,
 		height: 860,
+		show: !background,
 		titleBarStyle: "hiddenInset",
 		webPreferences: {
 			// Obsidian plugins call require("fs"), require("child_process") and
@@ -250,6 +255,7 @@ function openVault(vault: string) {
 			webviewTag: true,
 		},
 	});
+	if (background) win.once("ready-to-show", () => win.showInactive());
 	vaultWindows.set(key, win);
 	win.on("closed", () => vaultWindows.delete(key));
 	const contents = win.webContents;
@@ -298,6 +304,7 @@ remoteMain.initialize();
 registerSchemes();
 registerIpc();
 app.whenReady().then(() => {
+	if (background && process.platform === "darwin") app.setActivationPolicy("accessory");
 	handleSchemes();
 	handlePermissions(session.defaultSession);
 	setApplicationMenu();
