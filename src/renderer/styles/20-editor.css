@@ -48,9 +48,13 @@
 	max-width: 100%;
 }
 
+/* The text's side space is a margin, not padding: CodeMirror draws a
+   selection's full lines from the content box's edge plus the first line's
+   padding, so padding on .cm-content would widen them into the gutter. */
 .markdown-source-view .cm-content {
 	caret-color: var(--interactive-accent);
-	padding: 0 24px;
+	padding-inline: 0;
+	margin-inline: 8px 24px;
 }
 
 .markdown-source-view .cm-gutters {
@@ -352,7 +356,8 @@ body.theme-dark .cm-editor .cm-panels {
 
 .plain-text-view .cm-content {
 	caret-color: var(--interactive-accent);
-	padding: 0 24px;
+	padding-inline: 0;
+	margin-inline: 24px;
 }
 
 .plain-text-view.is-readable-line-width .cm-scroller {
