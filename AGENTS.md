@@ -973,7 +973,10 @@ plain style. Development notes belong in this file.
   `justnotes-Windows`). A push to main then publishes them as the latest
   GitHub Release, tag `main-<version>-<commit7>` made on the built commit
   with the version the package job computed (`publish` job; a tag pushed
-  with the workflow token starts no run).
+  with the workflow token starts no run). A commit that changes
+  `.github/workflows` gets no release: GitHub refuses the workflow token a
+  tag on it (403, no workflows permission), so the job leaves a notice and
+  the next push releases.
 - Installing on the owner's machines: `bun scripts/install.ts`. macOS builds
   the checkout (`--mac --dir` for the host arch), swaps it into
   `/Applications/justnotes.app` by rename, re-registers it with Launch
