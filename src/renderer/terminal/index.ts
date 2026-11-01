@@ -3,7 +3,7 @@ import type { Menu } from "../../api/ui/menu";
 import type { CorePluginHost } from "../../api/internal-plugins";
 import { type TAbstractFile, type TFile, TFolder } from "../../api/vault";
 import { FileView } from "../../api/view";
-import type { WorkspaceLeaf } from "../../api/workspace";
+import { WorkspaceLeaf, WorkspaceTabs } from "../../api/workspace";
 import { TerminalService } from "./service";
 import { TerminalSettingTab } from "./settings";
 import { TerminalView, VIEW_TYPE } from "./terminal-view";
@@ -41,8 +41,27 @@ export function installTerminal(app: App, host: CorePluginHost) {
 	};
 	const startFolder = () => (service.settings.cwd === "active" ? folderOf(recentFile(app)) : null) ?? service.vaultRoot();
 
-	const open = async (cwd: string, place: Place = "tab") => {
-		const leaf = place === "tab" ? app.workspace.getLeaf("tab") : app.workspace.getLeaf("split", place === "right" ? "vertical" : "horizontal");
+	// The tab group of a terminal already open in the main area, if any.
+	const terminalTabs = () => {
+		for (const view of service.views) {
+			const parent = view.leaf.parent;
+			if (parent instanceof WorkspaceTabs && app.workspace.inMainArea(view.leaf)) return parent;
+		}
+		return null;
+	};
+	// Below the editor by default, as in VS Code: a split under the note the
+	// first time, then further terminals as tabs of that group.
+	const newLeaf = (place: Place) => {
+		if (place === "tab") return app.workspace.getLeaf("tab");
+		if (place === "right") return app.workspace.getLeaf("split", "vertical");
+		const tabs = terminalTabs();
+		if (!tabs) return app.workspace.getLeaf("split", "horizontal");
+		const leaf = new WorkspaceLeaf(app);
+		tabs.insertChild(tabs.children.length, leaf);
+		return leaf;
+	};
+	const open = async (cwd: string, place: Place = "below") => {
+		const leaf = newLeaf(place);
 		await leaf.setViewState({ type: VIEW_TYPE, state: { cwd }, active: true });
 		app.workspace.setActiveLeaf(leaf, { focus: true });
 		(leaf.view as TerminalView).focus();

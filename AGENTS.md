@@ -654,7 +654,8 @@ plain style. Development notes belong in this file.
   `terminal:open`, `-open-in-current-folder`, `-open-right`, `-open-below`,
   `-toggle` (Ctrl+`: into the last terminal, out of a focused one, or a new
   one below), `-clear`, `-find`, `-restart`; a ribbon button and "Open in
-  terminal" in the file menu. A view opened in a hidden tab opens xterm when
+  terminal" in the file menu. Opening one (the ribbon, `terminal:open`, the file
+  menu) puts it below the note, and later ones as tabs of that group. A view opened in a hidden tab opens xterm when
   first shown (it measures cells on open). Moved to a popout, xterm is opened
   again on its element (it follows the new window) and the WebGL addon is
   made again there. An exited shell shows a bar: Restart, Close, or Enter.
