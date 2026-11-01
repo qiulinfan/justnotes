@@ -51,7 +51,7 @@ export class CodeView extends TextFileView {
 	setViewData(data: string, clear: boolean) {
 		if (clear) {
 			this.#editor.setState(this.#state(data));
-			this.#loadLanguage();
+			this.#loadLanguage(data);
 			return;
 		}
 		const old = this.#editor.state.doc.toString();
@@ -94,11 +94,12 @@ export class CodeView extends TextFileView {
 		return EditorState.create({ doc, extensions });
 	}
 
-	// Languages load on demand; a file opened meanwhile wins.
-	#loadLanguage() {
+	// Languages load on demand; a file opened meanwhile wins. A name that says
+	// nothing (a plugin's own format) is read as JSON when its text is JSON.
+	#loadLanguage(text: string) {
 		const name = this.file?.name ?? "";
 		this.#loaded = name;
-		const description = LanguageDescription.matchFilename(languages, name) ?? languageByExtension(this.file?.extension ?? "");
+		const description = LanguageDescription.matchFilename(languages, name) ?? languageByExtension(this.file?.extension ?? "") ?? languageByText(text);
 		if (!description) return;
 		description
 			.load()
@@ -115,6 +116,16 @@ const ALIASES: Record<string, string> = { jsonc: "JSON", json5: "JSON", lock: "J
 function languageByExtension(extension: string) {
 	const alias = ALIASES[extension.toLowerCase()];
 	return alias ? (LanguageDescription.matchLanguageName(languages, alias, true) ?? null) : null;
+}
+
+function languageByText(text: string) {
+	if (!/^\s*[[{]/.test(text)) return null;
+	try {
+		JSON.parse(text);
+	} catch {
+		return null;
+	}
+	return LanguageDescription.matchLanguageName(languages, "JSON", true) ?? null;
 }
 
 export function registerCodeView(app: App) {

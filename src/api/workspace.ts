@@ -1,6 +1,6 @@
 import type { Extension } from "@codemirror/state";
 import type { App } from "./app";
-import { isCodeFile } from "./code-files";
+import { isCodeFile, isTextFile } from "./code-files";
 import { addWindow, appWindows, removeWindow, setActiveWindow } from "./dom";
 import { Editor } from "./editor";
 import { Events } from "./events";
@@ -357,8 +357,11 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 		const keep = this.view instanceof FileView && this.view.canAcceptExtension(file.extension);
 		// Source and data files no view claims open in the code view, when it is
 		// registered (code-files.ts).
-		const code = isCodeFile(file) && this.app.viewRegistry.getViewCreatorByType("code") ? "code" : undefined;
-		const type = keep ? this.view.getViewType() : (this.app.viewRegistry.getTypeByExtension(file.extension) ?? (file.extension === "md" ? "markdown" : code));
+		const hasCodeView = !!this.app.viewRegistry.getViewCreatorByType("code");
+		const code = isCodeFile(file) && hasCodeView ? "code" : undefined;
+		let type = keep ? this.view.getViewType() : (this.app.viewRegistry.getTypeByExtension(file.extension) ?? (file.extension === "md" ? "markdown" : code));
+		// Any other file that is text opens in the code view too.
+		if (!type && hasCodeView && (await isTextFile(this.app.vault.adapter.getFullPath(file.path)))) type = "code";
 		// A file no view can show opens in the system's default app rather than
 		// as text, which a save would write back over the binary. A tab opened
 		// just for it (empty and never active) goes away again.

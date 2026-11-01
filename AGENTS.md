@@ -800,7 +800,10 @@ plain style. Development notes belong in this file.
   saving through TextFileView. Workspace `openFile` falls back to it only after
   registered extensions and Markdown, so a plugin's view for an extension
   wins. Its tab shows the full file name. Code files count as openable for
-  Show all file types.
+  Show all file types. Any other unclaimed file opens there too when it is
+  text (`isTextFile`: under 10 MB, no NUL byte and valid UTF-8 in its first
+  8 KB), such as an uninstalled plugin's JSON board, which is highlighted as
+  JSON when its text parses; only the rest goes to the system's default app.
 
 ## Packaging and releases
 
