@@ -1,8 +1,12 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type TAbstractFile, Vault } from "../src/api/vault";
+
+// Tests wait up to 25 s for the file watcher (FSEvents takes over 3 s on a
+// loaded CI runner), past bun's 5 s default.
+setDefaultTimeout(30_000);
 
 const open: { vault: Vault; dir: string }[] = [];
 
@@ -26,8 +30,7 @@ afterEach(() => {
 	}
 });
 
-// Up to 10 s: the file watcher's reports (FSEvents) take over 3 s on a loaded CI runner.
-async function until(check: () => boolean, ms = 10_000) {
+async function until(check: () => boolean, ms = 25_000) {
 	for (let t = 0; t < ms && !check(); t += 20) await Bun.sleep(20);
 	return check();
 }

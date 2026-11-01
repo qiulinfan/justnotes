@@ -1,9 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Vault } from "../src/api/vault";
 import { applyConfigChanges, type ConfigFileName, UNSET, VaultConfigStore } from "../src/api/vault-config";
+
+// Tests wait up to 25 s for the file watcher (FSEvents takes over 3 s on a
+// loaded CI runner), past bun's 5 s default.
+setDefaultTimeout(30_000);
 
 // Two config files in memory, recording every write.
 function memoryStore(files: Partial<Record<ConfigFileName, string>> = {}) {
@@ -160,8 +164,7 @@ describe("Vault settings files", () => {
 		return { vault, full: (p: string) => path.join(dir, p) };
 	}
 
-	// Up to 10 s: the file watcher's reports (FSEvents) take over 3 s on a loaded CI runner.
-	async function until(check: () => boolean, ms = 10_000) {
+		async function until(check: () => boolean, ms = 25_000) {
 		for (let t = 0; t < ms && !check(); t += 20) await Bun.sleep(20);
 		return check();
 	}
