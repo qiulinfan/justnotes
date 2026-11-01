@@ -56,7 +56,7 @@ macOS 上它从当前 checkout 打包, 装到 `/Applications/justnotes.app`; Win
 - 命令面板 (`⌘P`), 快速切换 (`⌘O`), 设置 (`⌘,`). vault 里 `.obsidian/hotkeys.json` 的快捷键会生效.
 - 核心插件: 反向链接 (侧栏和笔记底部, 含未链接的提及, 可以一键改成链接), 出链, 大纲 (可搜索, 跟随光标), 标签, 关系图谱 (全局和局部), Canvas (可以从文件栏, Finder 拖文件进去), 书签 (含网址书签), 幻灯片, 录音, 日记, 模板, 笔记合并, 文件恢复, 所有属性, 字数统计. 默认开哪些跟 vault 的 `core-plugins.json` 走, 在设置的 "Core plugins" 页可以单独开关 (只存在 justnotes 里). 核心插件自己的设置 (比如模板文件夹) 要在 Obsidian 里改.
 - 设置有 Obsidian 的常规, 编辑器, 文件与链接, 外观几页, 还有快捷键和插件. `.obsidian/themes` 和 `.obsidian/snippets` 里的主题和 CSS 片段可以切换, 不会下载东西.
-- 左下角切换 vault, 菜单栏有完整的 justnotes 菜单.
+- 不带 vault 打开时先出一个 vault 选择窗口 (最近的 vault, 打开文件夹, 新建 vault). 左下角切换 vault, 菜单栏有完整的 justnotes 菜单.
 - 属性: 在 Live Preview 和阅读视图里直接改, 按类型显示 (文本, 列表, 数字, 勾选, 日期, 标签).
 - 标签页可以拖动: 重排, 换到别的组, 拖到边上分屏, 拖出窗口变成弹出窗口. 文件栏的文件可以拖进笔记 (插入链接) 或终端 (输入路径).
 - 命令行 `justnotes`: Obsidian 自带的命令行命令 (同名同语法, Publish 和 Sync 除外) 加上插件注册的命令, 另外每个命令都能 `--json`, 只读的命令不开 app 也能用, 需要 app 时会自己启动它. `justnotes help` 列出全部, `justnotes completion fish` 生成补全. 放进 PATH: `ln -s "$PWD/src/cli/justnotes.ts" ~/.local/bin/justnotes` (需要 Bun).

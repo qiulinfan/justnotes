@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, nativeTheme, type Session, session, shell, type WebContents } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, type MenuItemConstructorOptions, nativeTheme, type Session, session, shell, type WebContents } from "electron";
 import { enclosingVault } from "../cli/vaults";
 import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultNamed, vaultOf } from "./ipc";
@@ -12,6 +12,7 @@ import { microphoneRequest, systemMicrophoneAccess } from "./media";
 import { isPopoutOpen } from "./popout";
 import { registerPty } from "./pty";
 import { handleSchemes, registerSchemes } from "./protocol";
+import { currentVaultPicker, openVaultPicker } from "./vault-picker";
 import { confirmUnknownVault, registerVaultSwitcher } from "./vault-switcher";
 
 // @electron/remote resolves remote.require() through the real module tree, so
@@ -441,19 +442,14 @@ async function openFile(file: string) {
 
 // The first vaults come from `--vault <path>` (repeatable: `justnotes
 // restart` reopens every vault window) and from the Markdown files the app
-// was opened with; without either the user picks a folder. The user chose
-// them, so links may open them from now on.
+// was opened with; without either the vault picker (vault-picker.ts) lets the
+// user choose one. The user chose them, so links may open them from now on.
 async function openFirstVaults() {
-	let vaults = firstLaunch.vaults;
+	const vaults = firstLaunch.vaults;
 	const files = launchFiles.splice(0);
 	started = true;
-	if (!vaults.length && !files.length) {
-		const picked = await dialog.showOpenDialog({ properties: ["openDirectory"], title: "Open vault" });
-		vaults = picked.canceled ? [] : picked.filePaths.slice(0, 1);
-	}
+	if (!vaults.length && !files.length) return void openVaultPicker(background);
 	await openLaunch({ vaults, files, urls: [] });
-	// A second launch may have opened a window while the picker was up.
-	if (!BrowserWindow.getAllWindows().length) app.quit();
 }
 
 function openLaunch(launch: LaunchRequest) {
@@ -474,7 +470,7 @@ function onSecondInstance(argv: string[], cwd: string, data: unknown) {
 	const sent = isLaunchData(data) ? data : { argv, cwd };
 	const launch = launchRequest(sent.argv.slice(1), sent.cwd);
 	if (launch.vaults.length || launch.files.length || launch.urls.length) return void openLaunch(launch);
-	const win = BrowserWindow.getFocusedWindow() ?? [...vaultWindows.values()][0];
+	const win = BrowserWindow.getFocusedWindow() ?? [...vaultWindows.values()][0] ?? currentVaultPicker();
 	if (win?.isMinimized()) win.restore();
 	win?.focus();
 }

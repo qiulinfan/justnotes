@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>justnotes</title>
+		<link rel="stylesheet" href="picker.css" />
+	</head>
+	<body>
+		<!-- The vault picker (main/vault-picker.ts, picker.ts): the known vaults, opening a folder and making a new vault. -->
+		<header class="picker-head">
+			<svg class="picker-icon" viewBox="100 100 824 824" aria-hidden="true">
+				<defs>
+					<linearGradient id="picker-page" x1="0" y1="0" x2="0" y2="1">
+						<stop offset="0" stop-color="#2c313d" />
+						<stop offset="1" stop-color="#1a1d25" />
+					</linearGradient>
+					<clipPath id="picker-body"><rect x="100" y="100" width="824" height="824" rx="185" /></clipPath>
+				</defs>
+				<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#picker-page)" />
+				<g clip-path="url(#picker-body)" stroke-width="8">
+					<path d="M100 420H924M100 530H924M100 640H924M100 750H924M100 860H924" stroke="#3a4152" />
+					<path d="M290 100V924" stroke="#7d4537" />
+				</g>
+				<path d="M590 430V668Q590 800 462 800Q398 800 356 760" fill="none" stroke="#f3ebdb" stroke-width="104" stroke-linecap="round" />
+				<circle cx="590" cy="302" r="66" fill="#e4703a" />
+			</svg>
+			<h1>justnotes</h1>
+		</header>
+		<main class="picker-main">
+			<input class="picker-search" type="search" placeholder="Search vaults" spellcheck="false" autocomplete="off" hidden />
+			<ul class="picker-list" role="listbox" aria-label="Vaults"></ul>
+			<p class="picker-empty" hidden>No vaults yet. Open a folder of notes, or start a new vault.</p>
+			<form class="picker-new" hidden>
+				<label class="picker-field">
+					<span>Name</span>
+					<input class="picker-name" type="text" placeholder="My notes" spellcheck="false" autocomplete="off" />
+				</label>
+				<div class="picker-field">
+					<span>Location</span>
+					<button class="picker-location" type="button" title="Choose another folder"></button>
+				</div>
+				<p class="picker-error" role="alert"></p>
+				<div class="picker-form-buttons">
+					<button class="picker-cancel" type="button">Cancel</button>
+					<button class="picker-create mod-cta" type="submit">Create</button>
+				</div>
+			</form>
+		</main>
+		<footer class="picker-foot">
+			<button class="picker-open mod-cta" type="button">Open folder…</button>
+			<button class="picker-new-button" type="button">New vault…</button>
+		</footer>
+		<script src="picker.js"></script>
+	</body>
+</html>

@@ -42,6 +42,15 @@ await Promise.all([
 		external: ["electron"],
 		banner: { js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);' },
 	}),
+	// The vault picker's page (src/picker, main/vault-picker.ts).
+	esbuild.build({
+		...common,
+		entryPoints: ["src/picker/picker.ts"],
+		outfile: "dist/picker.js",
+		platform: "node",
+		format: "iife",
+		external: ["electron"],
+	}),
 	// Runs renderer.js with V8's cached code (loader.ts).
 	esbuild.build({
 		...common,
@@ -54,6 +63,8 @@ await Promise.all([
 ]);
 
 await Bun.write("dist/index.html", Bun.file("src/renderer/index.html"));
+await Bun.write("dist/picker.html", Bun.file("src/picker/picker.html"));
+await Bun.write("dist/picker.css", Bun.file("src/picker/picker.css"));
 // Stylesheets are split per area under src/renderer/styles and concatenated
 // in file-name order, after xterm.js's own (the Terminal core plugin).
 const styles = [...new Bun.Glob("*.css").scanSync("src/renderer/styles")].sort().map((name) => `src/renderer/styles/${name}`);

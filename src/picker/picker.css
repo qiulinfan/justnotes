@@ -1,0 +1,311 @@
+/* The vault picker: one quiet column, the system's font and colours, the
+   icon's orange as the only accent. */
+:root {
+	color-scheme: light dark;
+	--bg: #f7f6f3;
+	--surface: #ffffff;
+	--text: #1f1f1f;
+	--muted: #6f6c66;
+	--faint: #a29f98;
+	--line: rgba(0, 0, 0, 0.08);
+	--hover: rgba(0, 0, 0, 0.045);
+	--selected: rgba(0, 0, 0, 0.065);
+	--ring: rgba(228, 112, 58, 0.22);
+	--accent: #e4703a;
+	--accent-text: #ffffff;
+	--danger: #c4473a;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #1c1c1e;
+		--surface: #252527;
+		--text: #ececec;
+		--muted: #9c9a96;
+		--faint: #6c6a67;
+		--line: rgba(255, 255, 255, 0.08);
+		--hover: rgba(255, 255, 255, 0.05);
+		--selected: rgba(255, 255, 255, 0.075);
+		--ring: rgba(228, 112, 58, 0.3);
+		--danger: #e0786c;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	height: 100%;
+	margin: 0;
+}
+
+body {
+	display: flex;
+	flex-direction: column;
+	background: var(--bg);
+	color: var(--text);
+	font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+	-webkit-font-smoothing: antialiased;
+	user-select: none;
+	cursor: default;
+}
+
+button,
+input {
+	font: inherit;
+	color: inherit;
+}
+
+/* The header doubles as the window's title bar (hiddenInset on macOS). */
+.picker-head {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 10px;
+	padding: 44px 0 22px;
+	-webkit-app-region: drag;
+}
+
+.picker-icon {
+	width: 56px;
+	height: 56px;
+	filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.18));
+}
+
+.picker-head h1 {
+	margin: 0;
+	font-size: 17px;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+}
+
+.picker-main {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	padding: 0 24px;
+}
+
+.picker-search {
+	margin-bottom: 8px;
+	padding: 7px 10px;
+	border: 1px solid var(--line);
+	border-radius: 7px;
+	background: var(--surface);
+	outline: none;
+}
+
+.picker-search:focus,
+.picker-name:focus {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 3px var(--ring);
+}
+
+.picker-list {
+	flex: 1;
+	min-height: 0;
+	margin: 0 -6px 0 0;
+	padding: 0 6px 0 0;
+	list-style: none;
+	overflow-y: auto;
+}
+
+.picker-list::-webkit-scrollbar {
+	width: 6px;
+}
+
+.picker-list::-webkit-scrollbar-thumb {
+	border-radius: 3px;
+	background: var(--line);
+}
+
+.picker-list:hover::-webkit-scrollbar-thumb {
+	background: var(--faint);
+}
+
+.picker-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 10px;
+	border-radius: 7px;
+}
+
+.picker-row:hover {
+	background: var(--hover);
+}
+
+.picker-row.is-selected {
+	background: var(--selected);
+}
+
+.picker-row-text {
+	flex: 1;
+	min-width: 0;
+}
+
+.picker-row-name,
+.picker-row-path {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.picker-row-name {
+	font-weight: 500;
+}
+
+.picker-row-path {
+	margin-top: 1px;
+	color: var(--muted);
+	font-size: 11.5px;
+}
+
+.picker-row.is-missing .picker-row-name,
+.picker-row.is-missing .picker-row-path {
+	color: var(--faint);
+}
+
+.picker-row-badge {
+	color: var(--faint);
+	font-size: 11px;
+}
+
+.picker-row-actions {
+	display: flex;
+	gap: 2px;
+	visibility: hidden;
+}
+
+.picker-row:hover .picker-row-actions,
+.picker-row.is-selected .picker-row-actions {
+	visibility: visible;
+}
+
+.picker-icon-button {
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: none;
+	border-radius: 5px;
+	background: transparent;
+	color: var(--muted);
+}
+
+.picker-icon-button:hover {
+	background: var(--hover);
+	color: var(--text);
+}
+
+.picker-icon-button svg {
+	width: 14px;
+	height: 14px;
+}
+
+.picker-empty {
+	margin: 40px 0 0;
+	color: var(--muted);
+	text-align: center;
+}
+
+.picker-new {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding-top: 4px;
+}
+
+.picker-new[hidden],
+.picker-empty[hidden],
+.picker-search[hidden] {
+	display: none;
+}
+
+.picker-field {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+}
+
+.picker-field > span {
+	color: var(--muted);
+	font-size: 11.5px;
+}
+
+.picker-name,
+.picker-location {
+	padding: 7px 10px;
+	border: 1px solid var(--line);
+	border-radius: 7px;
+	background: var(--surface);
+	text-align: left;
+	outline: none;
+}
+
+.picker-location {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.picker-location:hover {
+	border-color: var(--faint);
+}
+
+.picker-error {
+	min-height: 1.4em;
+	margin: -4px 0 0;
+	color: var(--danger);
+	font-size: 12px;
+}
+
+.picker-form-buttons,
+.picker-foot {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.picker-foot {
+	padding: 14px 24px 20px;
+	border-top: 1px solid var(--line);
+}
+
+.picker-foot button,
+.picker-form-buttons button {
+	padding: 6px 14px;
+	border: 1px solid var(--line);
+	border-radius: 7px;
+	background: var(--surface);
+}
+
+.picker-foot button:hover,
+.picker-form-buttons button:hover {
+	border-color: var(--faint);
+}
+
+.picker-foot button.mod-cta,
+.picker-form-buttons button.mod-cta {
+	border-color: transparent;
+	background: var(--accent);
+	color: var(--accent-text);
+}
+
+.picker-foot button.mod-cta:hover,
+.picker-form-buttons button.mod-cta:hover {
+	filter: brightness(1.06);
+}
+
+/* While the new-vault form shows, the footer's buttons would repeat it. */
+body.is-creating .picker-foot {
+	display: none;
+}
+
+body.is-creating .picker-search {
+	display: none;
+}

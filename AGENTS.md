@@ -40,7 +40,8 @@ plain style. Development notes belong in this file.
   synchronous IPC behind SecretStorage (Electron `safeStorage`) and the
   plugins' clipboard, `protocol.ts` scheme registration, `media.ts` which
   media requests are granted, `vault-switcher.ts` the vault switcher's IPC
-  (see Vault switcher), `pty.ts` the Terminal core plugin's pseudoterminals
+  (see Vault switcher), `vault-picker.ts` the vault picker's window (its page
+  is `src/picker/`), `pty.ts` the Terminal core plugin's pseudoterminals
   (see Terminal).
 - `src/api/`: the `obsidian` module. `index.ts` is exactly the list plugins see:
   the value exports of `obsidian.d.ts`, no more (`test/finish-exports.test.ts`
@@ -414,7 +415,7 @@ plain style. Development notes belong in this file.
 - `obsidian://open?path=` into another vault, and a URL whose `vault=` is
   another vault's folder name (`vaultNamed`: exactly one, never a path),
   opens (or focuses) that vault's window, which takes the URL, but only for
-  vaults opened before with `--vault`, the folder picker or the vault
+  vaults opened before with `--vault`, the vault picker or the vault
   switcher (recorded in the profile's `vaults.json`): a link must never load an
   unknown folder's plugins. The built-in `open` and `new` refuse a `file=` or
   `name=` with a `..` or hidden (`.obsidian`, `.git`) segment
@@ -451,6 +452,20 @@ plain style. Development notes belong in this file.
   opens it without asking, since it has no plugins. Remove from list rewrites
   `vaults.json` only (`forgetVault`, by real path), never touching the folder,
   and is refused while the vault has an open window.
+- Vault picker (`main/vault-picker.ts`, page `src/picker/`: its own small
+  html, css and script, built to `dist/picker.*`, not the app's stylesheet):
+  the window a launch with nothing to open (no `--vault`, no file) shows
+  instead of a folder dialog. One column: the icon and name, the known
+  vaults as rows (name and `~` path; a missing folder greyed and not
+  openable; on hover Reveal and Remove from list), a search field from six
+  vaults, then Open folder… and New vault… (an inline form: name and
+  location, by default the first vault's parent folder; Enter creates, but
+  not while an input method composes). Keys: Up/Down, Enter, typing
+  searches, Esc, Cmd/Ctrl+O and +N. It uses the vault switcher's IPC above
+  and closes itself once a vault opens; closed without one, no window is
+  left and the app quits. The system's light or dark colours, the icon's
+  orange only on the main button and focus rings. A second launch with
+  nothing to open brings it to the front.
 - The macOS application menu keeps the standard roles (Edit, zoom, developer
   tools, window) but no accelerator on a key the renderer's hotkeys use: menu
   key equivalents fire before the page sees the key, so Electron's default
