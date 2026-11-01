@@ -177,9 +177,30 @@ export class FileSystemAdapter {
 	// While an own write is taken in: the stat of its bytes and the ctime asked for.
 	#written = new Map<string, { stat: fs.Stats; ctime?: number }>();
 	#pendingDeletes = new Map<string, ReturnType<typeof setTimeout>>();
+	// A file opened in no vault (single-file.ts): the paths that may enter the
+	// file table besides the entries already in it. Its folders are never
+	// listed, and each folder holding an entry is watched alone, not the tree.
+	#scope: Set<string> | null = null;
+	#folderWatchers = new Map<string, fs.FSWatcher>();
 
 	constructor(basePath: string) {
 		this.basePath = basePath;
+	}
+
+	setScope(paths: string[]) {
+		this.#scope = new Set(paths.map(key));
+	}
+
+	get scoped() {
+		return this.#scope !== null;
+	}
+
+	// Lets a path into a scoped file table and takes it in when it exists.
+	admit(path: string): Promise<void> {
+		const norm = key(path);
+		if (!this.#scope || !norm || this.files[norm]) return Promise.resolve();
+		this.#scope.add(norm);
+		return this.#serial(() => this.reconcileFile(norm, norm));
 	}
 
 	getName() {
@@ -247,6 +268,7 @@ export class FileSystemAdapter {
 	}
 
 	#add(norm: string, entry: FileEntry) {
+		if (this.#scope) this.#watchFolder(parentOf(norm));
 		this.files[norm] = entry;
 		this.#lower.set(norm.toLowerCase(), norm);
 		const parent = parentOf(norm);
@@ -572,7 +594,8 @@ export class FileSystemAdapter {
 	// Sets the vault's change handler and starts watching the vault folder.
 	async watch(handler: AdapterChange) {
 		this.#handler = handler;
-		if (!this.watchers[""]) this.#watchDir("", this.basePath);
+		if (this.#scope) this.#watchFolder("");
+		else if (!this.watchers[""]) this.#watchDir("", this.basePath);
 	}
 
 	trigger(type: string, path: string, oldPath?: string, stat?: FileStats) {
@@ -594,12 +617,30 @@ export class FileSystemAdapter {
 		this.watchers[path] = watcher;
 	}
 
+	// A scoped table's folder, watched without its subfolders.
+	#watchFolder(norm: string) {
+		if (this.#folderWatchers.has(norm)) return;
+		try {
+			const watcher = fs.watch(this.#abs(this.#realPath(norm)), (_event, filename) => {
+				if (filename) this.#onWatch(norm, String(filename));
+			});
+			watcher.on("error", () => {
+				watcher.close();
+				this.#folderWatchers.delete(norm);
+			});
+			this.#folderWatchers.set(norm, watcher);
+		} catch (err) {
+			console.warn("Vault watcher unavailable", norm, err);
+		}
+	}
+
 	// Every change is announced as 'raw', hidden paths included; only visible
 	// paths and watched hidden folders are reconciled into the file table.
 	#onWatch(prefix: string, filename: string) {
 		const realPath = join(this.#realPath(prefix), filename.split(nodePath.sep).join("/"));
 		const norm = key(realPath);
 		this.trigger("raw", norm);
+		if (this.#scope && !this.#scope.has(norm) && !this.files[norm]) return;
 		if (isHidden(norm) && !Object.keys(this.watchers).some((w) => w && (norm === w || norm.startsWith(`${w}/`)))) return;
 		this.#serial(() => this.reconcileFile(realPath, norm)).catch((err) => console.error("Vault: could not reconcile", norm, err));
 	}
@@ -632,10 +673,15 @@ export class FileSystemAdapter {
 	}
 
 	async listRecursive(path: string) {
+		if (this.#scope) {
+			for (const p of this.#scope) await this.reconcileFile(p, p);
+			return;
+		}
 		await this.#list(path, false);
 	}
 
 	async #list(realPath: string, fresh: boolean) {
+		if (this.#scope) return;
 		let names: string[];
 		try {
 			names = await fs.promises.readdir(this.#abs(realPath));
@@ -828,6 +874,8 @@ export class FileSystemAdapter {
 
 	stopWatching() {
 		for (const p of Object.keys(this.watchers)) this.stopWatchPath(p);
+		for (const watcher of this.#folderWatchers.values()) watcher.close();
+		this.#folderWatchers.clear();
 		for (const timer of this.#pendingDeletes.values()) clearTimeout(timer);
 		this.#pendingDeletes.clear();
 	}
@@ -862,9 +910,15 @@ export class Vault extends Events {
 	#saveTimer: ReturnType<typeof setTimeout> | null = null;
 	#loading = false;
 
-	constructor(basePath: string) {
+	// The file name of a file opened in no vault (single-file.ts), whose folder
+	// is the vault's root; null for a vault.
+	readonly singleFile: string | null;
+
+	constructor(basePath: string, singleFile: string | null = null) {
 		super();
+		this.singleFile = singleFile;
 		this.adapter = new FileSystemAdapter(basePath);
+		if (singleFile) this.adapter.setScope([singleFile]);
 		this.root = new TFolder(this, "/");
 		this.fileMap["/"] = this.root;
 		this.#lower.set("/", this.root);
@@ -876,7 +930,11 @@ export class Vault extends Events {
 					return null;
 				}
 			},
-			write: (name, text) => this.adapter.write(`${this.configDir}/${name}`, text),
+			// A file's window keeps settings changes in memory: its folder is no
+			// vault and gets no config folder.
+			write: async (name, text) => {
+				if (!singleFile) await this.adapter.write(`${this.configDir}/${name}`, text);
+			},
 			unreadable: (name) => this.trigger("config-unreadable", name),
 		});
 	}

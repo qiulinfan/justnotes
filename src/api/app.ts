@@ -345,15 +345,18 @@ export class App {
 	lastEvent: UIEvent | null = null;
 	dom: AppDom;
 
-	constructor(basePath: string) {
+	// `singleFile`: the name of a file opened in no vault, in its folder
+	// `basePath` (single-file.ts). Every such window shares one localStorage
+	// id, so justnotes' own settings carry from one file to the next.
+	constructor(basePath: string, singleFile: string | null = null) {
 		// Before the keymap's listener, so a command run by a hotkey sees its own
 		// keydown as lastEvent.
 		const trackEvents = (win: Window) => {
 			for (const type of USER_EVENTS) win.addEventListener(type, (e) => (this.lastEvent = e as UIEvent), true);
 		};
 		trackEvents(window);
-		this.appId = vaultId(basePath);
-		this.vault = new Vault(basePath);
+		this.appId = singleFile ? "single-file" : vaultId(basePath);
+		this.vault = new Vault(basePath, singleFile);
 		this.scope = new Scope();
 		this.keymap = new Keymap(this.scope);
 		// Popout windows: the same order, events first, then keys.
@@ -559,6 +562,8 @@ export class App {
 	// justnotes keeps its own layout, in workspace.json's shape, instead of
 	// writing Obsidian's file, so running both on one vault never fights over it.
 	saveLayoutState() {
+		// A file's window always opens on its file.
+		if (this.vault.singleFile) return;
 		try {
 			this.saveLocalStorage("justnotes-layout", this.workspace.getLayout());
 		} catch (err) {

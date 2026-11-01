@@ -77,6 +77,11 @@ const IMPLEMENTED = new Set([
 // lists: they start enabled unless turned off in the Core plugins settings.
 const JUSTNOTES_OWN = new Set(["latex", "terminal"]);
 
+// The core plugins a file opened in no vault (single-file.ts) starts with:
+// those that need only the files at hand. The others index or write the
+// vault (backlinks, graph, bookmarks, daily notes...).
+const SINGLE_FILE_PLUGINS = new Set(["file-explorer", "outline", "word-count", "slides", "latex"]);
+
 // File explorer and Search are part of justnotes' window: they stay on.
 export const ALWAYS_ON = new Set(["file-explorer", "global-search"]);
 
@@ -261,6 +266,7 @@ export class InternalPlugins {
 		const saved = this.app.loadLocalStorage?.("enabled-core-plugins");
 		this.#overlay = { enabled: saved?.enabled ?? [], disabled: saved?.disabled ?? [] };
 		const enabled = applyCoreOverlay(this.config, this.#overlay);
+		if (this.app.vault.singleFile) for (const id of Object.keys(enabled)) enabled[id] &&= SINGLE_FILE_PLUGINS.has(id);
 		await Promise.all(
 			Object.values(this.plugins).map(async (plugin) => {
 				const options = await read(plugin.id);

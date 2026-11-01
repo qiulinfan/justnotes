@@ -358,12 +358,38 @@ function startTheme(vault: string): "dark" | "light" {
 function openVault(vault: string) {
 	const key = realPathOf(vault);
 	const open = vaultWindows.get(key);
-	if (open) {
-		if (open.isMinimized()) open.restore();
-		open.focus();
-		return open;
-	}
-	const theme = startTheme(vault);
+	if (open) return focusWindow(open);
+	const win = createPageWindow({ vault }, startTheme(vault));
+	vaultWindows.set(key, win);
+	win.on("closed", () => vaultWindows.delete(key));
+	trackCliWindow(win);
+	return win;
+}
+
+// A file in no vault opens in a window of its own (?file=), by the file's
+// real path: the page shows that file and what it links to, runs no plugins
+// and writes no settings (boot.ts, single-file.ts). It is no vault: the vault
+// list, the vault switcher and the command line never see it.
+const fileWindows = new Map<string, BrowserWindow>();
+
+function openFileWindow(file: string) {
+	const key = realPathOf(file);
+	const open = fileWindows.get(key);
+	if (open) return focusWindow(open);
+	const win = createPageWindow({ file }, startTheme(path.dirname(file)));
+	fileWindows.set(key, win);
+	win.on("closed", () => fileWindows.delete(key));
+	return win;
+}
+
+function focusWindow(win: BrowserWindow) {
+	if (win.isMinimized()) win.restore();
+	win.focus();
+	return win;
+}
+
+// The app page's window: index.html with `query` (?vault= or ?file=).
+function createPageWindow(query: Record<string, string>, theme: "dark" | "light") {
 	const win = new BrowserWindow({
 		width: 1280,
 		height: 860,
@@ -381,12 +407,9 @@ function openVault(vault: string) {
 		},
 	});
 	if (background) win.once("ready-to-show", () => win.showInactive());
-	vaultWindows.set(key, win);
-	win.on("closed", () => vaultWindows.delete(key));
 	const contents = win.webContents;
 	remoteMain.enable(contents);
 	setupWindowLifecycle(win);
-	trackCliWindow(win);
 	contents.setWindowOpenHandler(({ url, frameName }) => {
 		if (isPopoutOpen(url, frameName)) {
 			return { action: "allow", overrideBrowserWindowOptions: { minWidth: 200, minHeight: 150, titleBarStyle: "default", autoHideMenuBar: true, webPreferences: { nodeIntegration: false, contextIsolation: false, sandbox: false } } };
@@ -405,7 +428,7 @@ function openVault(vault: string) {
 		openUrl(evt.url, contents);
 	});
 	contents.on("did-navigate", () => listening.delete(contents));
-	win.loadFile(path.join(__dirname, "index.html"), { query: { vault, theme } }).catch((err) => console.error("Could not load the window of", vault, err));
+	win.loadFile(path.join(__dirname, "index.html"), { query: { ...query, theme } }).catch((err) => console.error("Could not load the window of", query, err));
 	return win;
 }
 
@@ -425,14 +448,15 @@ app.on("open-file", (evt, file) => {
 });
 
 // A note opens in the vault that holds it: a vault opened before, else the
-// nearest folder above with .obsidian, else the note's own folder, and then
-// as obsidian://open?path= opens it. A vault not opened before is confirmed
-// first, because its window runs the vault's community plugins; once
-// confirmed, links may open it as well.
+// nearest folder above with .obsidian, and then as obsidian://open?path=
+// opens it. A vault not opened before is confirmed first, because its window
+// runs the vault's community plugins; once confirmed, links may open it as
+// well. A note in no vault opens alone in a file window.
 async function openFile(file: string) {
 	file = path.resolve(file);
 	const known = vaultOf(file, knownVaults());
-	const vault = known ?? enclosingVault(path.dirname(file)) ?? path.dirname(file);
+	const vault = known ?? enclosingVault(path.dirname(file));
+	if (!vault) return void openFileWindow(file);
 	if (!known) {
 		if (!(await confirmUnknownVault(vault, `${file} is in no vault justnotes has opened.`))) return;
 		rememberVault(vault);

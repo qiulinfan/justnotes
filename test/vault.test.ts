@@ -358,3 +358,42 @@ test("folders created through the vault are TFolders in the tree", async () => {
 	expect(vault.getFolderByPath("x")!.children).toContain(folder);
 	await expect(vault.createFolder("x/y")).rejects.toThrow("Folder already exists.");
 });
+
+// A file opened in no vault (single-file.ts): only the file, then what is let
+// in, enters the file table; the folder is neither listed nor given a config
+// folder.
+describe("single-file vault", () => {
+	async function makeSingle() {
+		const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "justnotes-single-")));
+		for (const [p, text] of Object.entries({ "note.md": "# Note", "other.md": "x", "note.assets/shot.png": "png", "deep/far.md": "y" })) {
+			fs.mkdirSync(path.dirname(path.join(dir, p)), { recursive: true });
+			fs.writeFileSync(path.join(dir, p), text);
+		}
+		const vault = new Vault(dir, "note.md");
+		await vault.load();
+		open.push({ vault, dir });
+		return { vault, dir };
+	}
+
+	test("holds only the file, and what is let in or written", async () => {
+		const { vault, dir } = await makeSingle();
+		expect(tree(vault)).toEqual(["/", "note.md"]);
+		await vault.adapter.admit("note.assets/shot.png");
+		await vault.adapter.admit("missing.png");
+		expect(tree(vault)).toEqual(["/", "note.assets", "note.assets/shot.png", "note.md"]);
+		await vault.create("new.md", "z");
+		expect(vault.getFileByPath("new.md")).not.toBeNull();
+		fs.writeFileSync(path.join(dir, "outside.md"), "w");
+		fs.writeFileSync(path.join(dir, "note.md"), "# Changed");
+		expect(await until(() => vault.getFileByPath("note.md")!.stat.size === 9)).toBe(true);
+		expect(vault.getFileByPath("outside.md")).toBeNull();
+	});
+
+	test("keeps settings changes in memory", async () => {
+		const { vault, dir } = await makeSingle();
+		vault.setConfig("showLineNumber", true);
+		await vault.saveConfig();
+		expect(vault.getConfig("showLineNumber")).toBe(true);
+		expect(fs.existsSync(path.join(dir, ".obsidian"))).toBe(false);
+	});
+});

@@ -22,6 +22,7 @@ import { defaultRightSidebar, installCorePlugins, registerCorePluginViews } from
 import { registerMediaViews } from "./media-view";
 import { SearchView } from "./search";
 import { registerPlainTextView } from "./plain-text-view";
+import { installSingleFile, singleFileLayout } from "./single-file";
 import { installRightSidebarToggle } from "./sidebar-toggle";
 import { installVaultSwitcher } from "./vault-switcher";
 import { registerViewCommands } from "./view-commands";
@@ -40,7 +41,7 @@ const DEFAULT_LAYOUT = {
 function buildShell(app: App) {
 	const root = document.body.createDiv("app-container");
 	app.dom.appContainerEl = root;
-	root.createDiv({ cls: "titlebar", text: app.vault.getName() });
+	root.createDiv({ cls: "titlebar", text: app.vault.singleFile ?? app.vault.getName() });
 	const main = root.createDiv("horizontal-main-container");
 	main.appendChild(app.workspace.containerEl);
 	root.appendChild(app.statusBar);
@@ -99,15 +100,19 @@ async function boot() {
 	keepAppPage();
 	installDomExtensions();
 	installTooltips();
-	const vaultPath = new URLSearchParams(location.search).get("vault");
+	// ?vault= opens a vault; ?file= a file in no vault, alone (single-file.ts).
+	const params = new URLSearchParams(location.search);
+	const filePath = params.get("file");
+	const vaultPath = filePath ? nodePath.dirname(filePath) : params.get("vault");
 	if (!vaultPath) throw new Error("No vault path given");
-	const app = new App(vaultPath);
+	const app = new App(vaultPath, filePath ? nodePath.basename(filePath) : null);
+	const single = app.vault.singleFile;
 	(window as any).app = app;
 	setMarkdownApp(app);
 	const selectionScrollSpeed = () => editorSettings(app).selectionScrollSpeed;
 	installNativeSelectionScroll(window, selectionScrollSpeed);
 	onWindowAdded((win) => installNativeSelectionScroll(win, selectionScrollSpeed));
-	document.title = `${app.vault.getName()} - justnotes`;
+	document.title = `${single ?? app.vault.getName()} - justnotes`;
 
 	app.viewRegistry.registerView("empty", (leaf) => new EmptyView(leaf));
 	app.viewRegistry.registerView("markdown", (leaf) => new MarkdownView(leaf));
@@ -121,10 +126,13 @@ async function boot() {
 	registerCodeView(app);
 
 	buildShell(app);
-	// What the last run kept in the profile: the metadata cache and plugins' compiled code.
+	// What the last run kept in the profile: the metadata cache and plugins'
+	// compiled code. A file's window has a few files to parse and no plugins.
 	const profile: string = (window as any).require("@electron/remote").app.getPath("userData");
-	app.metadataCache.useStore(FileMetadataStore.forVault(profile, app.vault.adapter.basePath));
-	app.plugins.useCodeCache(new CodeCache(nodePath.join(profile, "code-cache", "plugins")));
+	if (!single) {
+		app.metadataCache.useStore(FileMetadataStore.forVault(profile, app.vault.adapter.basePath));
+		app.plugins.useCodeCache(new CodeCache(nodePath.join(profile, "code-cache", "plugins")));
+	}
 	await app.vault.load();
 	mark("vault-loaded");
 	// Indexing overlaps the rest of boot and is done before plugins load, so
@@ -139,7 +147,7 @@ async function boot() {
 	registerEditorSuggests(app);
 	registerViewCommands(app);
 	registerWorkspaceCommands(app);
-	installVaultSwitcher(app);
+	if (!single) installVaultSwitcher(app);
 
 	await indexed;
 	mark("metadata-indexed");
@@ -149,18 +157,47 @@ async function boot() {
 	await app.internalPlugins.initialize();
 	installCorePlugins(app);
 	mark("core-plugins-loaded");
-	await app.plugins.initialize();
-	mark("plugins-loaded");
-	await app.restoreLayoutState({ ...DEFAULT_LAYOUT, right: defaultRightSidebar(app) });
-	mark("layout-restored");
+	if (single) await app.workspace.changeLayout(singleFileLayout());
+	else {
+		await app.plugins.initialize();
+		mark("plugins-loaded");
+		await app.restoreLayoutState({ ...DEFAULT_LAYOUT, right: defaultRightSidebar(app) });
+		mark("layout-restored");
+	}
 	app.workspace.setLayoutReady();
 	mark("layout-ready");
+	// After layout-ready, where core plugins such as LaTeX register their views.
+	if (single) await openSingleFile(app, single);
 	hideLoading();
 	handleWindowClose(app);
-	installCli(app);
+	if (!single) installCli(app);
 
 	const failed = Object.keys(app.plugins.manifests).filter((id) => !app.plugins.plugins[id]);
 	if (failed.length) console.info("Plugins not loaded:", failed);
+}
+
+// A file's window opens its file and lets in what it refers to.
+async function openSingleFile(app: App, name: string) {
+	const file = app.vault.getFileByPath(name);
+	if (!file) {
+		new Notice(`${name} could not be opened.`, 0);
+		return;
+	}
+	// The LaTeX core plugin registers the .tex view once it has loaded, after
+	// layout-ready; until then a TeX file would open in the code view.
+	if (file.extension === "tex" && app.internalPlugins.getEnabledPluginById("latex") && !app.viewRegistry.getTypeByExtension("tex")) {
+		await new Promise<void>((resolve) => {
+			const ref = app.workspace.on("latex-live:api-ready" as any, done);
+			const timer = window.setTimeout(done, 5000);
+			function done() {
+				app.workspace.offref(ref);
+				window.clearTimeout(timer);
+				resolve();
+			}
+		});
+	}
+	await app.workspace.getLeaf(false).openFile(file);
+	await installSingleFile(app, file);
 }
 
 // The loading screen in index.html fades out once the layout is restored, or
