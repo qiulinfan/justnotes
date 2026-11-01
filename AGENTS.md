@@ -509,7 +509,11 @@ plain style. Development notes belong in this file.
   `hotkeys.json`, `core-plugins.json`, `types.json`, ...). justnotes state
   lives in localStorage through
   `app.saveLocalStorage` (keys prefixed with the vault id): `justnotes-layout`
-  (the layout, in `workspace.json`'s shape, with leaf ids), `enabled-plugins`
+  (the layout, in `workspace.json`'s shape, with leaf ids; a vault without one
+  starts from Obsidian's `workspace.json`, read only, else the default layout,
+  because a plugin's side pane, placed once in Obsidian, lives only there; the
+  command "Use Obsidian's layout for this vault",
+  `workspace:load-obsidian-layout`, loads it over a saved layout), `enabled-plugins`
   (the Settings toggles, applied over `community-plugins.json`),
   `enabled-core-plugins` (the Core plugins toggles, over `core-plugins.json`),
   `latex-live-settings` (the LaTeX core plugin's settings), `justnotes-expanded` (explorer folders),

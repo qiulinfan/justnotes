@@ -1,4 +1,5 @@
 import type { App } from "../api/app";
+import { Notice } from "../api/ui/notice";
 import type { Hotkey, Modifier } from "../api/keymap";
 import type { WorkspaceLeaf, WorkspaceTabs } from "../api/workspace";
 
@@ -67,6 +68,18 @@ export function registerWorkspaceCommands(app: App) {
 		name: "Undo close tab",
 		hotkeys: keys(["Mod", "Shift"], "t"),
 		callback: () => workspace.undoCloseLeaf(),
+	});
+	// The vault's Obsidian layout (side panes and tabs) in place of justnotes'
+	// own, for a vault whose justnotes layout was saved before it had them.
+	app.commands.addCommand({
+		id: "workspace:load-obsidian-layout",
+		name: "Use Obsidian's layout for this vault",
+		callback: async () => {
+			const layout = await app.obsidianLayout();
+			if (!layout) return void new Notice("This vault has no layout saved by Obsidian.");
+			await workspace.changeLayout(layout);
+			app.saveLayoutState();
+		},
 	});
 	app.commands.addCommand({
 		id: "file-explorer:open",

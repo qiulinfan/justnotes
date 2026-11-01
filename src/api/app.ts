@@ -566,10 +566,22 @@ export class App {
 		}
 	}
 
-	// `fallback` is the layout of a vault opened for the first time.
+	// A vault opened in justnotes for the first time starts from the layout
+	// Obsidian saved for it (`workspace.json`, read only: its side panes, such
+	// as a plugin's view placed once, live only there), else from `fallback`.
 	async restoreLayoutState(fallback?: unknown) {
 		const saved = this.loadLocalStorage("justnotes-layout");
-		await this.workspace.changeLayout(saved?.main?.type === "split" ? saved : fallback);
+		await this.workspace.changeLayout(saved?.main?.type === "split" ? saved : ((await this.obsidianLayout()) ?? fallback));
+	}
+
+	// Obsidian's saved layout of this vault, or null when it has none usable.
+	async obsidianLayout(): Promise<{ main: { type: string } } | null> {
+		try {
+			const layout = JSON.parse(await this.vault.adapter.read(`${this.vault.configDir}/workspace.json`));
+			return layout?.main?.type === "split" ? layout : null;
+		} catch {
+			return null;
+		}
 	}
 }
 
