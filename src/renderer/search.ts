@@ -2,6 +2,7 @@ import { setIcon, setTooltip } from "../api/icons";
 import type { CachedMetadata } from "../api/metadata";
 import { getAllTags, parseFrontMatterTags } from "../api/metadata-utils";
 import { isIndexedNote } from "../api/note-files";
+import { readInOrder } from "../api/read-in-order";
 import { debounce } from "../api/util";
 import type { TFile } from "../api/vault";
 import { ItemView } from "../api/view";
@@ -159,11 +160,10 @@ export class SearchView extends ItemView {
 			.getFiles()
 			.filter((f) => (tags === null ? isIndexedNote(f) : f.extension === "md") && !this.app.metadataCache.isUserIgnored(f.path))
 			.sort((a, b) => b.stat.mtime - a.stat.mtime);
-		for (const file of all) {
+		// Only a note with the tags is worth reading for them.
+		const wanted = tags === null ? all : all.filter((file) => hasTags(this.app.metadataCache.getFileCache(file), tags));
+		for await (const [file, text] of readInOrder(this.app.vault, wanted)) {
 			const cache = tags === null ? null : this.app.metadataCache.getFileCache(file);
-			// Only a note with the tags is worth reading for them.
-			if (tags !== null && !hasTags(cache, tags)) continue;
-			const text = await this.app.vault.cachedRead(file);
 			if (generation !== this.#generation) return;
 			const found = tags !== null ? tagsMatches(cache, text, tags) : textMatches(text, re!);
 			const nameHit = !!nameRe && file.basename.search(nameRe) >= 0;

@@ -5,6 +5,7 @@ import { Keymap } from "../api/keymap";
 import { MarkdownView } from "../api/markdown-view";
 import type { CachedMetadata, HeadingCache, Pos, Reference } from "../api/metadata";
 import { parseFrontMatterAliases } from "../api/metadata-utils";
+import { readInOrder } from "../api/read-in-order";
 import { Notice } from "../api/ui/notice";
 import { debounce } from "../api/util";
 import type { TAbstractFile, TFile } from "../api/vault";
@@ -264,9 +265,11 @@ export class BacklinkList {
 		if (this.unlinkedCollapsed || file.extension !== "md") return;
 		const names = namesOf(file, metadataCache.getFileCache(file));
 		let count = 0;
-		for (const source of vault.getMarkdownFiles().sort(byName)) {
-			if (source === file || metadataCache.isUserIgnored(source.path)) continue;
-			const text = await vault.cachedRead(source);
+		const others = vault
+			.getMarkdownFiles()
+			.filter((source) => source !== file && !metadataCache.isUserIgnored(source.path))
+			.sort(byName);
+		for await (const [source, text] of readInOrder(vault, others)) {
 			if (!current()) return;
 			const found = findMentions(text, names, mentionSkips(metadataCache.getFileCache(source)));
 			if (!found.length) continue;

@@ -7,6 +7,7 @@ import type { CachedMetadata } from "../../api/metadata";
 import { getAllTags, parseFrontMatterAliases } from "../../api/metadata-utils";
 import { isIndexedNote, isNoteFile } from "../../api/note-files";
 import type { CliData } from "../../api/plugin";
+import { readInOrder } from "../../api/read-in-order";
 import { apiVersion, moment, normalizePath } from "../../api/util";
 import { TFile, TFolder } from "../../api/vault";
 import { dailyNotePathIn } from "../../renderer/daily-notes";
@@ -120,10 +121,9 @@ async function search(ctx: Ctx, params: CliData): Promise<Hit[]> {
 		.getFiles()
 		.filter((f) => (tag === null ? isIndexedNote(f) : f.extension === "md") && inFolder(f.path, folder))
 		.sort((a, b) => sortPaths(a.path, b.path));
-	for (const f of all) {
+	const wanted = tags === null ? all : all.filter((f) => hasTags(metadataCache.getFileCache(f), tags));
+	for await (const [f, text] of readInOrder(vault, wanted)) {
 		const cache = tags === null ? null : metadataCache.getFileCache(f);
-		if (tags !== null && !hasTags(cache, tags)) continue;
-		const text = await vault.cachedRead(f);
 		const found = tags !== null ? tagsMatches(cache, text, tags) : textMatches(text, re!);
 		if (!found.length && !(nameRe && f.basename.search(nameRe) >= 0) && tags === null) continue;
 		hits.push({ file: f, matches: found, lines: text.split("\n") });

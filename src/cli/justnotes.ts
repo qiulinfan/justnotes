@@ -131,9 +131,9 @@ function localVault(options: Options, argv: string[]) {
 
 // Loaded only here: reading a vault pulls in most of the app's modules, which
 // a command answered by the running app does not need to load.
-async function offline(spec: CommandSpec, vault: string, words: string[]) {
+async function offline(spec: CommandSpec, vault: string, words: string[], profile: string) {
 	const { runOffline } = await import("./offline");
-	return runOffline(spec, vault, words, process.cwd(), version());
+	return runOffline(spec, vault, words, process.cwd(), version(), profile);
 }
 
 // How the command starts the app. Inside the packaged app the command is
@@ -236,7 +236,7 @@ export async function run(options: Options): Promise<CliResponse> {
 		if (!readOnly) throw new CliError(`${command} needs the running app; --offline runs only the read-only commands (marked * in help).`, EXIT_USAGE);
 		const picked = localVault(options, argv);
 		try {
-			return await offline(spec!, picked.vault, picked.argv.slice(1));
+			return await offline(spec!, picked.vault, picked.argv.slice(1), options.profile);
 		} catch (err) {
 			if (err instanceof NeedsApp) throw new CliError(`With --offline there is no running app for ${err.why}${err.hint ? `; ${err.hint}` : ""}.`);
 			throw err;
@@ -257,7 +257,7 @@ export async function run(options: Options): Promise<CliResponse> {
 		const picked = localVault(options, pickArgv);
 		if (readOnly) {
 			try {
-				return await offline(spec!, picked.vault, picked.argv.slice(1));
+				return await offline(spec!, picked.vault, picked.argv.slice(1), options.profile);
 			} catch (err) {
 				if (!(err instanceof NeedsApp)) throw err;
 			}
@@ -267,7 +267,7 @@ export async function run(options: Options): Promise<CliResponse> {
 	}
 	if (response.unopened) {
 		try {
-			return await offline(spec!, response.unopened, argv.slice(lead + 1));
+			return await offline(spec!, response.unopened, argv.slice(lead + 1), options.profile);
 		} catch (err) {
 			if (!(err instanceof NeedsApp)) throw err;
 			return askApp(options.profile, { ...request, read: false });

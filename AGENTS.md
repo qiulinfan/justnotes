@@ -8,7 +8,9 @@ from Obsidian's `app.asar`. The references are the public typings
 The owner's goal: a local note tool with Live Preview, local search, and (not
 built yet) one-way upload of the vault to a cloud drive for restoring on a new
 device. No accounts, no sync service, no database: the files are the data and
-everything else is derived in memory at startup.
+everything else is derived in memory at startup. The only thing kept between
+runs is a disposable cache of that derivation in the profile (see Caches),
+never in the vault; deleting it changes nothing but the next start's time.
 
 ## README
 
@@ -66,7 +68,8 @@ plain style. Development notes belong in this file.
     (justnotes' own editor options), `editor-options.ts` (the Editor
     settings that shape CodeMirror), `attachments.ts` (pasted and dropped
     files), `vault.ts`, `vault-config.ts` (app.json and appearance.json),
-    `file-visibility.ts` (unsupported and excluded files), `metadata*.ts` (the cache; `metadata-types.ts`, the
+    `file-visibility.ts` (unsupported and excluded files), `metadata*.ts` (the cache; `metadata-store.ts`, its copy
+    in the profile; `metadata-types.ts`, the
     `metadataTypeManager`; `metadata-editor.ts` and `metadata-widgets.ts`,
     the Properties block), `frontmatter-edit.ts`, `file-manager.ts`, `keymap.ts`,
     `internal-plugins.ts`, `secret-storage.ts`, `sanitize.ts` (DOMPurify),
@@ -88,7 +91,8 @@ plain style. Development notes belong in this file.
   -o packaging/icon.png`; run from the repo, main sets it as the Dock icon) and
   the command's launchers.
   `electron-builder.yml` is the packaging configuration.
-- `src/renderer/`: host UI (boot, core commands, file explorer, search, view
+- `src/renderer/`: host UI (`loader.ts` runs the bundle, `boot.ts` starts the
+  app; core commands, file explorer, search, view
   and workspace commands, bases view, the core plugins in `core-plugins.ts`
   and the modules it installs, `plain-text-view.ts`, `terminal/` for the
   Terminal core plugin) and `styles/NN-*.css`,
@@ -689,7 +693,8 @@ plain style. Development notes belong in this file.
   window (`restartArgs`), never the files or `obsidian:` URLs the launch
   opened. With no app
   running, a `vault` command reads the vault folder itself: `offline.ts`
-  loads the app's own Vault, MetadataCache, MetadataTypeManager and
+  loads the app's own Vault, MetadataCache (reading, never writing, the
+  profile's metadata cache, see Caches), MetadataTypeManager and
   InternalPlugins (core plugin options) in Bun, after
   `installLanguageExtensions()`, and writes nothing. When that cannot answer
   (no `file=` for an active-file default, a change such as `task toggle`) the
@@ -1137,6 +1142,49 @@ plain style. Development notes belong in this file.
   `color-scheme` follows the theme on `body`, so native date pickers (their
   calendar icon), checkboxes and scrollbars are dark on the dark theme in
   properties and plugin views alike.
+
+## Caches
+
+Derived data kept between runs lives in the profile (Electron's `userData`,
+`--profile`), never in the vault, and is only ever a shortcut: a missing,
+stale or corrupt cache gives the same result, more slowly.
+
+- Metadata (`metadata-store.ts`): `<profile>/metadata-cache/<id>.jsonl`, `id`
+  a hash of the vault's real path (the app and the offline CLI may spell it
+  differently). A header line (`version`, `vault`), then one line per note:
+  `[path, mtime, size, CachedMetadata]`, the parse of the note's text when the
+  file had that mtime and size, with every position packed as six numbers
+  (frontmatter is left as it is). At startup a note whose stat matches its
+  line is not read; every other note is read and parsed as before, and links
+  are resolved for all of them. The stat recorded is the one taken before the
+  read, so a note written during the read is parsed again next time. The app
+  writes the file 3 s after a start that parsed any note (copying the lines
+  of unchanged notes as read) and when the window closes (boot.ts, after the
+  views are saved), written beside and renamed over; after a crash or a
+  reload, the notes changed since are parsed at the next start. A note whose
+  metadata would not survive JSON (YAML's `.inf`, binary) is left out and
+  parsed on every start. The offline CLI reads the file of its `--profile`
+  and never writes it. Bump `METADATA_CACHE_VERSION` whenever
+  `parseMetadata`'s output changes for some text (the digest test in
+  `test/metadata-store.test.ts` fails until a new digest is added under the
+  new version); otherwise notes keep their old metadata until edited.
+- Compiled code (`code-cache.ts`): V8's code for scripts the app evaluates,
+  since Chromium caches code only for scripts fetched over http(s).
+  Plugins: `<profile>/code-cache/plugins/<id>-<hash>.bin`, the hash of the V8
+  version and the wrapped `main.js` text. `Plugins.#instantiate` compiles the
+  wrapper with `vm.Script` (in the page's global scope, as the indirect eval
+  before it did) using that file when present, and writes it after the
+  plugin's `onload` (so it holds what loading compiled) when it was missing or
+  V8 rejected it; an older text's file of the same plugin is removed then.
+  The renderer: `index.html` loads `loader.js` (`src/renderer/loader.ts`),
+  which runs `renderer.js` the same way from `<profile>/code-cache/renderer-
+  <hash>.bin` (hash of V8, the bundle's size and mtime), written 3 s after
+  layout-ready when it was missing or rejected. Packaging must ship
+  `loader.js` beside `renderer.js`.
+- Startup leaves those notes' texts unread, so the vault's text cache
+  (`cachedRead`) fills on the first search, unlinked-mentions scan or graph
+  content query; they read through `readInOrder` (`read-in-order.ts`), up
+  to 16 reads under way, in order.
 
 ## Live Preview and math
 

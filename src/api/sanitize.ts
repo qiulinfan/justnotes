@@ -21,9 +21,13 @@ const CONFIG: Config & { RETURN_DOM_FRAGMENT: true } = {
 
 let purify: Purifier | null = null;
 
+// The config is set once: passed to every sanitize call, DOMPurify parses and
+// clones it each time, which cost more than the sanitizing itself when the
+// reading view renders a long note section by section.
 function instance() {
 	if (!purify) {
 		purify = DOMPurify(window);
+		purify.setConfig(CONFIG);
 		purify.addHook("afterSanitizeAttributes", (node) => {
 			if (node.tagName === "IFRAME") node.setAttribute("sandbox", SANDBOX);
 		});
@@ -34,7 +38,7 @@ function instance() {
 // justnotes: sanitizeHTMLToDom with a hook that may edit the fragment while
 // it is still inert, before images in it start loading.
 export function sanitizeHTML(html: string, prepare?: (fragment: DocumentFragment) => void): DocumentFragment {
-	const fragment = instance().sanitize(html, CONFIG);
+	const fragment = instance().sanitize(html) as unknown as DocumentFragment;
 	prepare?.(fragment);
 	// Adopted, the fragment belongs to the page like any node a plugin creates.
 	return document.adoptNode(fragment);

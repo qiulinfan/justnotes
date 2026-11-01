@@ -6,6 +6,7 @@ import { setIcon } from "../api/icons";
 import { Keymap } from "../api/keymap";
 import { getAllTags } from "../api/metadata-utils";
 import { isIndexedNote } from "../api/note-files";
+import { readInOrder } from "../api/read-in-order";
 import { Menu } from "../api/ui/menu";
 import { type HoverPopover, PopoverState } from "../api/ui/popover";
 import { Setting } from "../api/ui/setting";
@@ -124,9 +125,8 @@ abstract class BaseGraphView extends ItemView {
 		// Excluded files (userIgnoreFilters) are left out, as in Obsidian.
 		const files = vault.getFiles().filter((file) => this.focused(file.path) || !metadataCache.isUserIgnored(file.path));
 		if (queries.some((q) => q.needsText)) {
-			for (const file of files) {
-				if (!isIndexedNote(file) || this.#texts.has(file.path)) continue;
-				const text = await vault.cachedRead(file);
+			const unread = files.filter((file) => isIndexedNote(file) && !this.#texts.has(file.path));
+			for await (const [file, text] of readInOrder(vault, unread)) {
 				if (generation !== this.#generation) return;
 				this.#texts.set(file.path, text);
 			}

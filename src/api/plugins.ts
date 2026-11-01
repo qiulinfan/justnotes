@@ -10,6 +10,7 @@ import * as lezerCommon from "@lezer/common";
 import * as lezerHighlight from "@lezer/highlight";
 import * as lezerLr from "@lezer/lr";
 import type { App } from "./app";
+import type { CodeCache } from "./code-cache";
 import { getElectron } from "./dom";
 import * as obsidian from "./index";
 import type { Plugin, PluginManifest } from "./plugin";
@@ -63,9 +64,15 @@ export class Plugins {
 	#overlay: EnabledOverlay = { enabled: [], disabled: [] };
 	// community-plugins.json's ids, before the overlay.
 	#listed: string[] = [];
+	#codeCache: CodeCache | null = null;
 
 	constructor(app: App) {
 		this.app = app;
+	}
+
+	// Set by the host before initialize(): plugins' compiled code is kept there.
+	useCodeCache(cache: CodeCache) {
+		this.#codeCache = cache;
 	}
 
 	getPluginFolder() {
@@ -110,7 +117,12 @@ export class Plugins {
 		const saved = this.app.loadLocalStorage("enabled-plugins");
 		this.#overlay = { enabled: saved?.enabled ?? [], disabled: saved?.disabled ?? [] };
 		this.#listed = Array.isArray(ids) ? ids : [];
-		for (const id of applyOverlay(this.#listed, this.#overlay)) await this.enablePlugin(id);
+		for (const id of applyOverlay(this.#listed, this.#overlay)) {
+			const start = performance.now();
+			await this.enablePlugin(id);
+			// Each plugin's load time, for profiles and startup measurements.
+			performance.measure(`justnotes:plugin:${id}`, { start });
+		}
 	}
 
 	// The core plugin that keeps this community plugin from loading now, if any.
@@ -190,12 +202,15 @@ export class Plugins {
 		this.loadingPluginId = id;
 		let plugin: Plugin | undefined;
 		try {
-			plugin = await this.#instantiate(manifest);
+			const instance = await this.#instantiate(manifest);
+			plugin = instance.plugin;
 			this.plugins[id] = plugin;
 			this.enabledPlugins.add(id);
 			await this.#loadStyles(manifest);
 			const loading = plugin;
 			await this.#pluginCode(id, () => loading.load());
+			// After onload, so the stored code holds what loading compiled.
+			instance.compiled?.save().catch((err) => console.warn(`Could not cache the code of plugin "${id}"`, err));
 			return this.plugins[id] === plugin;
 		} catch (err) {
 			console.error(`Plugin "${id}" failed to load`, err);
@@ -265,10 +280,12 @@ export class Plugins {
 	async #instantiate(manifest: PluginManifest) {
 		const code = await this.app.vault.adapter.read(`${manifest.dir}/main.js`);
 		const module = { exports: {} as any };
-		const fn = window.eval(`(function anonymous(require, module, exports){${code}\n})\n//# sourceURL=plugin:${manifest.id}`);
+		const source = `(function anonymous(require, module, exports){${code}\n})\n//# sourceURL=plugin:${manifest.id}`;
+		const compiled = this.#codeCache ? await this.#codeCache.compile(manifest.id, source, `plugin:${manifest.id}`) : null;
+		const fn = compiled ? compiled.run() : window.eval(source);
 		fn(pluginRequire, module, module.exports);
 		const PluginClass = module.exports.default ?? module.exports;
-		return new PluginClass(this.app, manifest) as Plugin;
+		return { plugin: new PluginClass(this.app, manifest) as Plugin, compiled };
 	}
 
 	// Adding or removing a plugin's styles.css is a css-change, as in Obsidian.
