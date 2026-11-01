@@ -41,7 +41,8 @@ function linkCommand(name: string, target: string, shim: boolean) {
 
 function installMac() {
 	const app = "/Applications/justnotes.app";
-	if (output("pgrep", ["-f", `${app}/Contents/MacOS/justnotes`]).trim()) throw new Error("justnotes is running from /Applications: quit it first");
+	// Anchored, so a shell whose command line merely names the app is not taken for it.
+	if (output("pgrep", ["-f", `^${app}/Contents/MacOS/justnotes`]).trim()) throw new Error("justnotes is running from /Applications: quit it first");
 	run("bun", ["run", "build"]);
 	const arch = process.arch === "arm64" ? "arm64" : "x64";
 	run("node", ["node_modules/electron-builder/cli.js", "--mac", "--dir", `--${arch}`, "--publish", "never"]);
