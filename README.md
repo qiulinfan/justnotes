@@ -25,7 +25,7 @@ bun scripts/install.ts
 
 macOS 上它从当前 checkout 打包, 装到 `/Applications/justnotes.app`; Windows 上它下载 main 最新一次 CI 构建的 release, 装到 `%LOCALAPPDATA%\Programs\justnotes`. 两边都把 `justnotes` 命令放进 `~/.local/bin`. 装之前先退出正在运行的 justnotes; vault 列表, 布局和设置在应用之外, 重装不会丢.
 
-装好之后它会自己更新: 启动时和之后每 6 小时去 GitHub 看 main 最新的构建, 有新的就在后台下好, 提示 "Restart to update". 点它就原地换成新版并重新打开; 不点的话下次退出时换. 设置 → General 里可以关掉自动更新, 或者手动 Check for updates. 从源码跑 (`bun run start`) 时不会自己更新. 版本号的第三位是提交数, 每次推到 main 自动加一; 前两位在 `package.json` 里手动改.
+装好之后它会自己更新: 启动时和之后每 6 小时去 GitHub 看 main 最新的构建, 有新的就在后台下好, 提示 "Restart to update". 点它就原地换成新版并重新打开; 不点的话下次退出时换. 设置 → General 里可以关掉自动更新, 或者手动 Check for updates. 从源码跑 (`bun run start`) 时不会自己更新. 版本号从第一个正式构建 (0.1.0) 开始, 每个提交第三位加一, 超过 80 进一位到中间那位; 大版本或中版本手动升, 在那个提交上打一个 `v` tag.
 
 ## 这是一个对 Obsidian 的 reverse engineering 吗
 

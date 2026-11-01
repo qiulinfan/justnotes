@@ -887,16 +887,21 @@ plain style. Development notes belong in this file.
   first. Output goes to `release/` (ignored). Name and author come from
   package.json, the app id is `io.github.qiulinfan.justnotes`. The default
   profile is the same `justnotes` user data folder the source build uses.
-- Version: package.json's major and minor are set by hand, raised when the
-  owner says a change is a new major version; the patch is counted at build
-  time, the number of commits in the history (`scripts/version.ts`, which
-  refuses a shallow clone), so every push to main counts up. `dist.ts`
-  gives it to the package (`-c.extraMetadata.version`: the packaged
+- Version (`scripts/version.ts`, tested): counted from the newest version
+  tag (`vMAJOR.MINOR.PATCH`) the commit descends from (`git describe`): each
+  commit after it adds one to the patch, and past 80 the patch rolls over
+  into the next minor (81 commits after v0.1.0 is 0.2.0). `v0.1.0` marks
+  a557f2e, the first build published. A new major or minor, when the owner
+  says a change is one, is a tag on its commit (`v0.4.0`, `v1.0.0`), which
+  must be above the version counted there; tags only mark versions and start
+  no workflow. A shallow clone is refused; without git or a tag the version
+  is package.json's, which is otherwise not used. `dist.ts` gives the
+  version to the package (`-c.extraMetadata.version`: the packaged
   package.json, which `app.getVersion()` reads, and the artifacts' names)
   and `build.ts` to the packaged command (`process.env.JUSTNOTES_VERSION`,
   defined at build time); `JUSTNOTES_VERSION` set in the environment wins
-  over both. package.json is never rewritten, so run from source the app
-  and the command report package.json's version.
+  over both. Run from source the app and the command report package.json's
+  version.
 - The asar holds `package.json`, `dist/` without source maps and the
   command, and of node_modules only `@electron/remote`, which main and the
   page require at runtime, and node-pty (unpacked: `asarUnpack`, since its
@@ -960,7 +965,7 @@ plain style. Development notes belong in this file.
   package already running on a test profile, macOS sends the file to it.
 - CI (`.github/workflows/build.yml`, actions pinned by commit): on pushes
   and pull requests to main, macOS (macos-15) checks out the whole history
-  (for the version), runs `bun install --frozen-lockfile`, `bun run check`,
+  and its tags (for the version), runs `bun install --frozen-lockfile`, `bun run check`,
   `bun test test` and `scripts/dist.ts` (build and package); Windows (windows-2025) checks, builds and packages without the
   tests, which assume POSIX (Unix sockets and file modes, symlinks, bash
   completion). Bun's cache and the Electron and electron-builder downloads
@@ -1010,11 +1015,8 @@ plain style. Development notes belong in this file.
   /Applications and launched with its own `--profile`: it downloads the
   real latest release and, on Restart to update, replaces that copy and
   reopens it. The Windows script is not verified on Windows yet.
-- Release: set `version` in package.json, commit, tag `v<version>` and push
-  the tag. A v* tag's packages carry package.json's version as written; the
-  workflow checks the tag matches it and creates a
-  draft GitHub Release with the `.dmg`, `.zip` and `-setup.exe` files and
-  generated notes; publish it by hand.
+- Releases: every push to main is one (the CI bullet above); there are no
+  others. A version tag is pushed with `git push origin <tag>`.
 
 ## TeX and text notes
 
