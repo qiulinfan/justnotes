@@ -299,13 +299,18 @@ body.theme-dark .cm-editor .cm-panels {
 	outline: none;
 }
 
-/* Source and data files (code-view.ts): monospace, with gutters */
+/* Source and data files (code-view.ts): monospace at the note text size,
+   with gutters. The size is set once: a relative size such as --code-size
+   (0.875em) on each nested layer would shrink the text at every one. */
 .code-file-view .cm-editor,
 .code-file-view .cm-scroller,
 .code-file-view .cm-content,
 .code-file-view .cm-line {
 	font-family: var(--font-monospace);
-	font-size: var(--code-size, var(--font-text-size));
+}
+
+.code-file-view .cm-editor {
+	font-size: var(--font-text-size);
 }
 
 .code-file-view .cm-gutters {
