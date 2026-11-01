@@ -12,6 +12,7 @@ import { MarkdownView } from "../api/markdown-view";
 import { installNativeSelectionScroll } from "../api/selection-scroll";
 import { Notice } from "../api/ui/notice";
 import { installTooltips } from "../api/ui/tooltip";
+import { installUpdates } from "../api/updates";
 import { installAppearance } from "./appearance";
 import { installBases } from "./bases-view";
 import { installCli } from "./cli";
@@ -148,6 +149,7 @@ async function boot() {
 	registerViewCommands(app);
 	registerWorkspaceCommands(app);
 	if (!single) installVaultSwitcher(app);
+	installUpdates(app);
 
 	await indexed;
 	mark("metadata-indexed");

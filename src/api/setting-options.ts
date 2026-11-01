@@ -12,6 +12,7 @@ import { Modal } from "./ui/modal";
 import { Notice } from "./ui/notice";
 import type { Setting } from "./ui/setting";
 import type { SettingDefinition, SettingDefinitionGroup, SettingDefinitionItem, SettingGroupItem } from "./ui/setting-definitions";
+import { automaticUpdates, checkForUpdates, setAutomaticUpdates, updateState } from "./updates";
 import { apiVersion } from "./util";
 
 export const FONT_SIZE_MIN = 10;
@@ -82,13 +83,27 @@ export class GeneralTab extends SettingTab {
 		try {
 			version = getElectron().remote.app.getVersion();
 		} catch {}
+		const commit = updateState().commit;
 		return [
 			{
 				type: "group",
 				items: [
 					{
 						name: "Current version",
-						desc: `justnotes ${version} (Obsidian API ${apiVersion}). Updates come from the repository or a release; justnotes does not update itself.`,
+						desc: `justnotes ${version}${commit ? ` (${commit.slice(0, 7)})` : ""}, Obsidian API ${apiVersion}.`,
+						render: (setting) => {
+							setting.addButton((b) => b.setButtonText("Check for updates").onClick(() => void checkForUpdates()));
+						},
+					},
+					{
+						name: "Automatic updates",
+						desc:
+							updateState().status === "unsupported"
+								? "justnotes updates itself only when installed as an app, in a folder it can write; run from the repository, it updates with git."
+								: "Check GitHub for a newer build at start and every six hours, download it, and install it when justnotes quits or restarts.",
+						render: (setting) => {
+							setting.addToggle((t) => t.setValue(automaticUpdates()).onChange((on) => setAutomaticUpdates(on)));
+						},
 					},
 					{
 						name: "Language",

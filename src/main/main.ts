@@ -6,12 +6,13 @@ import { enclosingVault } from "../cli/vaults";
 import { startCli, trackCliWindow } from "./cli";
 import { knownVaults, realPathOf, registerIpc, rememberVault, vaultNamed, vaultOf } from "./ipc";
 import { setupWindowLifecycle } from "./lifecycle";
-import { isLaunchData, isObsidianUrl, type LaunchData, type LaunchRequest, launchRequest } from "./launch-args";
+import { isLaunchData, isObsidianUrl, type LaunchData, type LaunchRequest, launchRequest, restartArgs } from "./launch-args";
 import { droppedSchemes, sameAppPage } from "./link-policy";
 import { microphoneRequest, systemMicrophoneAccess } from "./media";
 import { isPopoutOpen } from "./popout";
 import { registerPty } from "./pty";
 import { handleSchemes, registerSchemes } from "./protocol";
+import { registerUpdater } from "./updater";
 import { currentVaultPicker, openVaultPicker } from "./vault-picker";
 import { confirmUnknownVault, registerVaultSwitcher } from "./vault-switcher";
 
@@ -504,6 +505,7 @@ if (primary) {
 	registerSchemes();
 	registerIpc();
 	registerPty();
+	registerUpdater(() => restartArgs(process.argv.slice(1), [...vaultWindows.keys()]));
 	app.on("second-instance", (_evt, argv, cwd, data) => onSecondInstance(argv, cwd, data));
 	app.whenReady().then(() => {
 		if (background && process.platform === "darwin") app.setActivationPolicy("accessory");

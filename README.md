@@ -25,6 +25,8 @@ bun scripts/install.ts
 
 macOS 上它从当前 checkout 打包, 装到 `/Applications/justnotes.app`; Windows 上它下载 main 最新一次 CI 构建的 release, 装到 `%LOCALAPPDATA%\Programs\justnotes`. 两边都把 `justnotes` 命令放进 `~/.local/bin`. 装之前先退出正在运行的 justnotes; vault 列表, 布局和设置在应用之外, 重装不会丢.
 
+装好之后它会自己更新: 启动时和之后每 6 小时去 GitHub 看 main 最新的构建, 有新的就在后台下好, 提示 "Restart to update". 点它就原地换成新版并重新打开; 不点的话下次退出时换. 设置 → General 里可以关掉自动更新, 或者手动 Check for updates. 从源码跑 (`bun run start`) 时不会自己更新.
+
 ## 这是一个对 Obsidian 的 reverse engineering 吗
 
 不是. 这是一个 reimplementation of (most) APIs. 用 Electron 做一个 md 编辑器本质上是一个很简单的事情. 甚至在无 AI 时代就很容易做了 (只不过很慢).

@@ -3,6 +3,7 @@ import * as esbuild from "esbuild";
 import components from "prismjs/components.js";
 import getLoader from "prismjs/dependencies.js";
 
+
 const common = {
 	bundle: true,
 	sourcemap: "linked",
@@ -61,6 +62,14 @@ await Promise.all([
 		external: ["electron"],
 	}),
 ]);
+
+// What the updater (main/updater.ts) compares a release with: the commit
+// built (CI's GITHUB_SHA, else the checkout's HEAD) and when, honouring
+// SOURCE_DATE_EPOCH as reproducible builds do.
+const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { stderr: "ignore" });
+const commit = process.env.GITHUB_SHA || (head.exitCode === 0 ? head.stdout.toString().trim() : "");
+const time = process.env.SOURCE_DATE_EPOCH ? Number(process.env.SOURCE_DATE_EPOCH) * 1000 : Date.now();
+await Bun.write("dist/build-info.json", JSON.stringify({ commit, time }));
 
 await Bun.write("dist/index.html", Bun.file("src/renderer/index.html"));
 await Bun.write("dist/picker.html", Bun.file("src/picker/picker.html"));

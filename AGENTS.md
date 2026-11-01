@@ -599,8 +599,9 @@ plain style. Development notes belong in this file.
     status bar, Show inline title (justnotes has no inline title), Ribbon
     menu configuration, Native menus, Window frame style, Custom app icon,
     Translucent window, Hardware acceleration, Override config folder,
-    Allow URI callbacks, Rebuild vault cache, automatic updates and the
-    account.
+    Allow URI callbacks, Rebuild vault cache and the account. General's
+    Automatic updates and Check for updates are justnotes' own updater
+    (see Packaging and releases).
 
 ## Terminal
 
@@ -967,6 +968,37 @@ plain style. Development notes belong in this file.
   `justnotes.previous`), with a `~/.local/bin/justnotes.cmd` shim. Both
   refuse while the installed app runs. The profile (vaults, layout, the
   built-in plugins' settings) is outside the app and survives every install.
+- Updates (`main/updater.ts`, decisions and swap scripts in
+  `main/update-check.ts`, tested; the page's side in `api/updates.ts`): the
+  packaged app updates itself in place from GitHub's latest release, which
+  CI makes from every push to main. `build.ts` writes
+  `dist/build-info.json` (the commit, CI's `GITHUB_SHA` else `git rev-parse
+  HEAD`, and the build time, `SOURCE_DATE_EPOCH` when set). A release is an
+  update when its `main-<version>-<commit7>` tag names another commit and it
+  was published after the build (so neither the installed release nor a
+  local build of a commit not pushed yet counts). Its zip for the platform
+  (`-mac-<arch>.zip`, `-win-x64.zip`) downloads through `net.fetch` into
+  `<userData>/updates/<tag>` and is unpacked there (ditto, tar); a notice
+  in every window offers "Restart to update". On `will-quit` (after the
+  quit flush) a detached script waits for the process to exit and swaps the
+  staged app in by rename as `scripts/install.ts` does: on macOS a copy
+  beside the bundle renamed over it, then `lsregister -f`; on Windows the
+  folder becomes `justnotes.previous` and an NSIS uninstaller is carried
+  over. Only "Restart to update" reopens it, with `restartArgs` (the
+  launch's options and a `--vault` per open vault); a plain quit installs
+  without reopening. Same path, so the Dock and Start menu entries open the
+  new app. Electron's autoUpdater is not used: Squirrel.Mac needs a
+  Developer ID signature. The page asks for checks: at start and every six
+  hours while General's "Automatic updates" is on (plain localStorage
+  `automatic-updates`, on by default), and from "Check for updates"
+  (`app:check-for-updates`, General's button). Run from the repository, or
+  installed where it cannot write, the app reports it does not update
+  itself. A download that comes out of the zip without the app fails the
+  check; the updates folder is emptied at every start. Verify on a package
+  built with `GITHUB_SHA=<zeros> SOURCE_DATE_EPOCH=<old>` copied outside
+  /Applications and launched with its own `--profile`: it downloads the
+  real latest release and, on Restart to update, replaces that copy and
+  reopens it. The Windows script is not verified on Windows yet.
 - Release: bump `version` in package.json, commit, tag `v<version>` and push
   the tag. The workflow checks the tag matches package.json and creates a
   draft GitHub Release with the `.dmg`, `.zip` and `-setup.exe` files and
