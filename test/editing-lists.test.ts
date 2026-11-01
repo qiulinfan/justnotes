@@ -393,13 +393,22 @@ describe("Backspace in a list item", () => {
 });
 
 describe("very long lists", () => {
-	test("Enter in a 10,000-item list renumbers it within a frame budget", () => {
-		const doc = Array.from({ length: 10000 }, (_, i) => `${i + 1}. item`).join("\n");
-		const state = stateOf(`1. first|\n${doc}`);
-		const t = performance.now();
-		const next = press(state, ...keys.Enter);
-		const elapsed = performance.now() - t;
-		expect(next.doc.line(10002).text).toBe("10002. item");
-		expect(elapsed).toBeLessThan(200);
+	// A wall-clock budget fails on slow CI runners (8× slower than a laptop),
+	// so the guard is the growth: linear work is about 5× from 2,000 to 10,000
+	// items, a quadratic renumbering about 25×.
+	test("Enter in a long list renumbers it in time linear in the list's length", () => {
+		const run = (n: number) => {
+			const doc = Array.from({ length: n }, (_, i) => `${i + 1}. item`).join("\n");
+			const state = stateOf(`1. first|\n${doc}`);
+			const t = performance.now();
+			const next = press(state, ...keys.Enter);
+			const elapsed = performance.now() - t;
+			expect(next.doc.line(n + 2).text).toBe(`${n + 2}. item`);
+			return elapsed;
+		};
+		run(2000); // warms up the parser and the JIT
+		const small = Math.min(run(2000), run(2000));
+		const large = Math.min(run(10000), run(10000));
+		expect(large / small).toBeLessThan(12);
 	});
 });
