@@ -473,7 +473,7 @@ plain style. Development notes belong in this file.
   Windows and Linux have no menu.
 - `require("electron").clipboard` is Obsidian's synchronous clipboard
   (latex-live's paste-as-table reads `readText` and `readHTML` in one go,
-  `obsidian://new?clipboard` reads text). Electron 45's renderer has none and
+  `obsidian://new?clipboard` reads text). This Electron's renderer has none and
   main's is asynchronous (promises, `read`/`write` of MIME-typed items), so
   `dom.ts` serves `readText`, `writeText`, `readHTML`, `writeHTML`,
   `readImage`, `writeImage`, `availableFormats`, `has` and `clear` over
@@ -840,6 +840,12 @@ plain style. Development notes belong in this file.
   `CFBundleName` justnotes, the app icon and an ad-hoc signature, remade when
   Electron or `packaging/icon.png` changes, so the menu bar and Dock say
   justnotes rather than Electron. scripts/smoke.ts keeps plain Electron.
+- Electron is held at 44 (`44.9.3`, exact in devDependencies): on Electron
+  45.2.0 a macOS input method (Pinyin and the like) does not compose in a
+  `<webview>` (the omp sidebar) until it has composed once in the page
+  itself; until then the keys arrive as plain letters. Under 44 it composes
+  at once. Move to a newer major only after typing Chinese straight into the
+  omp sidebar of a fresh window works there.
 - electron-builder (`electron-builder.yml`, pinned in devDependencies)
   packages the built `dist/`: `bun run dist:mac` makes `justnotes.app` for
   arm64 and x64 as `.dmg` and `.zip`, `bun run dist:win` an x64 NSIS
@@ -1575,7 +1581,7 @@ synthetic vault and on a copy of blogs with five of its plugins.
   main skip the system check. Not `--use-fake-ui-for-media-stream`: it
   grants every media request before main's permission handler sees it.
 - Never touch the system clipboard: intercept `navigator.clipboard` in the
-  page and replace main's clipboard with one in Electron 45's asynchronous
+  page and replace main's clipboard with one in this Electron's asynchronous
   shape. A synchronous stub in the page hides failures of the synchronous
   clipboard plugins get.
 - Plugins with outside effects need a sandbox in the copy: kgdistiller 3.0.2

@@ -184,7 +184,7 @@ export function getElectron() {
 	return electronModule;
 }
 
-// Electron 45's renderer has no `clipboard`, which Obsidian's renderer still
+// This Electron's renderer has no `clipboard`, which Obsidian's renderer still
 // has: Electron's old synchronous one, which plugins read and write as such
 // (latex-live reads a copied table's text and HTML in one go). The main
 // process's clipboard is asynchronous, so each call waits for it on sendSync

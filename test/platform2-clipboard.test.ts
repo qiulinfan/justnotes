@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { clipboardCall } from "../src/main/ipc";
 
-// Electron 45's clipboard: asynchronous, with read() and write() of items by
+// This Electron's clipboard: asynchronous, with read() and write() of items by
 // MIME type. This one keeps what is written, like the system clipboard.
 class Item {
 	types: string[];

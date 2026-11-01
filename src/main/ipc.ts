@@ -33,7 +33,7 @@ export type ClipboardReply = { value: unknown } | { error: string };
 
 // Obsidian's renderer has Electron's old synchronous clipboard, and plugins
 // call it as such (latex-live reads the text and the HTML of a copied table).
-// Electron 45 has only the main process's clipboard, asynchronous, with read()
+// This Electron has only the main process's clipboard, asynchronous, with read()
 // and write() of items by MIME type; the old calls are made of those here.
 // Images cross as PNG bytes, null when the clipboard holds none. The renderer
 // waits for the reply, so this resolves with the value or the error and never
