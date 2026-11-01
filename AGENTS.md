@@ -1265,7 +1265,12 @@ stale or corrupt cache gives the same result, more slowly.
   it (`destinationText`: no angle brackets, backslash escapes unescaped, so
   `[x](a\_b.md)` opens `a_b.md`); reference links (`[text][ref]`,
   `[text][]`, `[text]`) render with the destination of the note's definition,
-  found in the same tree pass and applied after it; reference images
+  found in the same tree pass and applied after it; one whose label the note
+  never defines is plain text, brackets included, cursor on it or not
+  (`cm-unresolved-reference`, checked against the whole note's definitions),
+  as `[static hissing]` and `[00:23:58–00:24:01]` read in Obsidian. The
+  editor's Markdown drops GFM's `:shortcode:` Emoji parser, which Obsidian
+  does not have and which took a timestamp's `:23:` for one; reference images
   (`![alt][ref]`) take theirs from `referenceDefinitions`, computed once per
   state; a definition line shows its label small (`cm-link-ref-label`) and its
   destination as a link.

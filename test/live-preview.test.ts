@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { syntaxTree } from "@codemirror/language";
 import { Compartment, EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
 import { type Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 import { obsidianMarkdown } from "../src/api/editor-extensions";
@@ -260,6 +261,20 @@ describe("links", () => {
 		expect(decos.find((d) => d.mark === "cm-link-ref-label")).toMatchObject({ from: doc.indexOf("[ref]:"), to: doc.indexOf("[ref]:") + 5 });
 		expect(clickableTokenAt(stateOf(doc, 0), 2)).toMatchObject({ type: "external-link", text: "https://example.com" });
 		expect(clickableTokenAt(stateOf(doc, 0), doc.indexOf("Other"))).toMatchObject({ type: "internal-link", text: "Known" });
+	});
+
+	// A transcript's "[00:23:58.04–00:23:59.98]" and "[static hissing]" showed
+	// as links, with the ":23:" of each time styled as an emoji shortcode.
+	test("a reference link with no definition is plain text, cursor on it or not; a defined one is still a link", () => {
+		const doc = "**[00:23:58.04–00:23:59.98] `a:b`** [static hissing] [known]\n\n[known]: https://example.com\nend";
+		for (const cursor of [doc.length, doc.indexOf("static")]) {
+			const plain = decorate(doc, cursor).filter((d) => d.mark === "cm-unresolved-reference").map((d) => doc.slice(d.from, d.to));
+			expect(plain).toEqual(["[00:23:58.04–00:23:59.98]", "[static hissing]"]);
+		}
+		const tree = syntaxTree(stateOf(doc, doc.length));
+		const names = new Set<string>();
+		tree.iterate({ enter: (n) => void names.add(n.name) });
+		expect(names.has("Emoji")).toBe(false);
 	});
 
 	// Typora writes paths with bare spaces, which CommonMark leaves as text.

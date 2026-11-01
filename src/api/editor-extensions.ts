@@ -406,7 +406,12 @@ const formattingClasses: MarkdownConfig = {
 	],
 };
 
+// Obsidian has no `:shortcode:` emoji: GFM's Emoji parser would style the
+// `:23:` of a timestamp (00:23:58) as one.
+const noEmoji: MarkdownConfig = { remove: ["Emoji"] };
+
 export const obsidianMarkdown: MarkdownConfig[] = [
+	noEmoji,
 	frontmatterSyntax,
 	mathSyntax,
 	commentSyntax,

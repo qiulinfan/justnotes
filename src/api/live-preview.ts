@@ -732,6 +732,8 @@ const frontmatterRevealed = StateField.define<boolean>({
 });
 
 const hide = Decoration.replace({});
+// A reference link with no definition in the note: plain text, as Obsidian shows it.
+const unresolvedReference = Decoration.mark({ class: "cm-unresolved-reference" });
 
 function ancestors(node: SyntaxNode, ...names: string[]) {
 	let n = 0;
@@ -811,6 +813,9 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 	// note, are known.
 	const definitions = new Map<string, string>();
 	const referenceLinks: { from: number; to: number; textFrom: number; textTo: number; key: string }[] = [];
+	// Every reference link, the cursor on it or not: one whose label the note
+	// never defines is plain text ([static hissing], [00:23:58–00:24:01]).
+	const referenceSpans: { from: number; to: number; key: string }[] = [];
 	// Footnotes in the order the reading view numbers them: a reference's label
 	// (its first reference counts), or null for an inline ^[note].
 	const footnoteOrder: (string | null)[] = [];
@@ -957,6 +962,10 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 				}
 				case "Link": {
 					if (state.sliceDoc(from - 1, from) === "^") footnoteOrder.push(null);
+					if (destination(state, node) === null) {
+						const key = referenceLabel(state, node);
+						if (key !== null) referenceSpans.push({ from, to, key });
+					}
 					if (touches(from, to)) return;
 					const marks = node.getChildren("LinkMark");
 					const href = destination(state, node);
@@ -1110,6 +1119,10 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 	for (const link of referenceLinks) {
 		const href = definitions.get(link.key);
 		if (href !== undefined) renderLink(link.from, link.to, link.textFrom, link.textTo, href);
+	}
+	for (const span of referenceSpans) {
+		// The whole note's definitions: one may sit outside the lines this pass covers.
+		if (!referenceDefinitions(state).has(span.key)) decos.push(unresolvedReference.range(span.from, span.to));
 	}
 	for (const [from, depth] of quoteDepth) {
 		addLine(from, `HyperMD-quote HyperMD-quote-${depth}`);

@@ -396,3 +396,14 @@
 	color: var(--text-muted);
 	line-height: 0;
 }
+
+/* A reference link whose label the note never defines ([static hissing],
+   [00:23:58–00:24:01]) is plain text, brackets included, as Obsidian shows it.
+   The mark may sit inside or outside the syntax highlighter's link spans. */
+.markdown-source-view.mod-cm6 .cm-unresolved-reference,
+.markdown-source-view.mod-cm6 .cm-unresolved-reference :is(.cm-link, .cm-formatting-link),
+.markdown-source-view.mod-cm6 :is(.cm-link, .cm-formatting-link) .cm-unresolved-reference {
+	color: var(--text-normal);
+	text-decoration: none;
+	cursor: text;
+}
