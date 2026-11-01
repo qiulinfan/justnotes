@@ -30,6 +30,15 @@ await Promise.all([
 		external: ["electron"],
 		loader: { ".css": "text" },
 	}),
+	// Runs renderer.js with V8's cached code (loader.ts).
+	esbuild.build({
+		...common,
+		entryPoints: ["src/renderer/loader.ts"],
+		outfile: "dist/loader.js",
+		platform: "node",
+		format: "iife",
+		external: ["electron"],
+	}),
 ]);
 
 await Bun.write("dist/index.html", Bun.file("src/renderer/index.html"));

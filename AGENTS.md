@@ -70,7 +70,8 @@ plain style. Development notes belong in this file.
   `completion.ts` (the shell scripts) and `complete.ts` (their candidates).
   `src/main/cli.ts` and `cli-server.ts` serve the socket,
   `src/renderer/cli.ts` runs a request in the vault window.
-- `src/renderer/`: host UI (boot, core commands, file explorer, search, view
+- `src/renderer/`: host UI (`loader.ts` runs the bundle, `boot.ts` starts the
+  app; core commands, file explorer, search, view
   and workspace commands, bases view, the core plugins in `core-plugins.ts`
   and the modules it installs) and `styles/NN-*.css`, which keep
   Obsidian's CSS variable and class names so plugin stylesheets apply.
@@ -621,6 +622,11 @@ stale or corrupt cache gives the same result, more slowly.
   before it did) using that file when present, and writes it after the
   plugin's `onload` (so it holds what loading compiled) when it was missing or
   V8 rejected it; an older text's file of the same plugin is removed then.
+  The renderer: `index.html` loads `loader.js` (`src/renderer/loader.ts`),
+  which runs `renderer.js` the same way from `<profile>/code-cache/renderer-
+  <hash>.bin` (hash of V8, the bundle's size and mtime), written 3 s after
+  layout-ready when it was missing or rejected. Packaging must ship
+  `loader.js` beside `renderer.js`.
 - Startup leaves those notes' texts unread, so the vault's text cache
   (`cachedRead`) fills on the first search, unlinked-mentions scan or graph
   content query; they read through `readInOrder` (`read-in-order.ts`), up
