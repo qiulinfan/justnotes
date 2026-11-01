@@ -27,6 +27,8 @@ macOS 上它从当前 checkout 打包, 装到 `/Applications/justnotes.app`; Win
 
 装好之后它会自己更新: 启动时和之后每 6 小时去 GitHub 看 main 最新的构建, 有新的就在后台下好, 提示 "Restart to update". 点它就原地换成新版并重新打开; 不点的话下次退出时换. 设置 → General 里可以关掉自动更新, 或者手动 Check for updates. 从源码跑 (`bun run start`) 时不会自己更新. 版本号从第一个正式构建 (0.1.0) 开始, 每个提交第三位加一, 超过 80 进一位到中间那位; 大版本或中版本手动升, 在那个提交上打一个 `v` tag.
 
+Windows 更新时保留原安装目录, 只替换发布包里的应用文件, 上一版保存在 `.previous`. 替换失败会回滚; profile, vault 和已有快捷方式不变. 更新源只用 `qiulinfan/justnotes` 的 Releases, 上游源码同步单独处理.
+
 ## 这是一个对 Obsidian 的 reverse engineering 吗
 
 不是. 这是一个 reimplementation of (most) APIs. 用 Electron 做一个 md 编辑器本质上是一个很简单的事情. 甚至在无 AI 时代就很容易做了 (只不过很慢).
