@@ -60,7 +60,8 @@ function installLocation(): string | null {
 	} catch {
 		return null;
 	}
-	return location;
+	// Normalize 8.3 aliases before the swap helper compares directory boundaries.
+	return process.platform === "win32" ? fs.realpathSync.native(location) : location;
 }
 
 function setState(next: Omit<UpdateState, "commit">) {
@@ -96,7 +97,7 @@ async function stage(release: LatestRelease) {
 	if (unzip.status !== 0) throw new Error(`${release.asset!.name} could not be unpacked`);
 	const found = process.platform === "darwin" ? findIn(out, (p) => p.endsWith(".app") && fs.existsSync(path.join(p, "Contents", "MacOS", "justnotes"))) : findIn(out, (p) => fs.existsSync(path.join(p, "justnotes.exe")));
 	if (!found) throw new Error(`${release.asset!.name} holds no justnotes app`);
-	return found;
+	return process.platform === "win32" ? fs.realpathSync.native(found) : found;
 }
 
 // `dir` itself or a folder directly in it.

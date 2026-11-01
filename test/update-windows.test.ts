@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { psWord, windowsSwapScript } from "../src/main/update-check";
 
 function fixture() {
-	const root = fs.mkdtempSync(path.join(os.tmpdir(), "justnotes 更新 ' "));
+	const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "justnotes 更新 ' ")));
 	const installed = path.join(root, "installed app");
 	const staged = path.join(root, "downloaded app");
 	for (const [folder, value] of [
@@ -57,7 +57,12 @@ test.skipIf(process.platform !== "win32")("Windows relaunch preserves vault and 
 	try {
 		fs.unlinkSync(path.join(staged, "justnotes.exe"));
 		const resultFile = path.join(root, "arguments.txt");
-		const code = `public class Entry { public static void Main(string[] args) { System.IO.File.WriteAllLines(${JSON.stringify(resultFile)}, args); } }`;
+		const pidFile = resultFile + ".pid";
+		const code = `public class Entry { public static void Main(string[] args) {
+System.IO.File.WriteAllLines(${JSON.stringify(resultFile)}, args);
+System.IO.File.WriteAllText(${JSON.stringify(pidFile + ".tmp")}, System.Diagnostics.Process.GetCurrentProcess().Id.ToString());
+System.IO.File.Move(${JSON.stringify(pidFile + ".tmp")}, ${JSON.stringify(pidFile)});
+} }`;
 		const compile = `$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; Add-Type -TypeDefinition ${psWord(code)} -OutputAssembly ${psWord(path.join(staged, "justnotes.exe"))} -OutputType WindowsApplication`;
 		const compiler = spawnSync("powershell.exe", ["-NoProfile", "-EncodedCommand", Buffer.from(compile, "utf16le").toString("base64")], { encoding: "utf8", windowsHide: true });
 		expect({ status: compiler.status, error: compiler.stderr }).toEqual({ status: 0, error: "" });
@@ -65,10 +70,14 @@ test.skipIf(process.platform !== "win32")("Windows relaunch preserves vault and 
 		const result = run(windowsSwapScript(0, staged, installed, args), root, root);
 		expect(result.status).toBe(0);
 		const deadline = Date.now() + 5000;
-		while (!fs.existsSync(resultFile)) {
+		while (!fs.existsSync(pidFile)) {
 			if (Date.now() > deadline) throw new Error("Updated application did not relaunch");
 			await Bun.sleep(20);
 		}
+		const pid = Number(fs.readFileSync(pidFile, "utf8"));
+		expect(Number.isInteger(pid) && pid > 0).toBe(true);
+		const exited = spawnSync("powershell.exe", ["-NoProfile", "-Command", `Wait-Process -Id ${pid} -ErrorAction SilentlyContinue`], { timeout: 10_000, windowsHide: true });
+		if (exited.error) throw exited.error;
 		expect(
 			fs
 				.readFileSync(resultFile, "utf8")
@@ -101,9 +110,8 @@ test.skipIf(process.platform !== "win32")(
 	() => {
 		const { root, installed, staged } = fixture();
 		try {
-			const failure = path.join(staged, "resources");
 			const fault = `function Move-Item { param($LiteralPath, $Destination)
-if ($LiteralPath -eq ${psWord(failure)}) { throw [IO.IOException]::new('test move failure') }
+if ((Split-Path -Leaf $LiteralPath) -eq 'resources' -and (Get-Content -LiteralPath (Join-Path $LiteralPath 'app.asar') -Raw) -eq 'new') { throw [IO.IOException]::new('test move failure') }
 Microsoft.PowerShell.Management\\Move-Item -LiteralPath $LiteralPath -Destination $Destination
 }\n`;
 			const result = run(fault + windowsSwapScript(0, staged, installed, null), root, root);

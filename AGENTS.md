@@ -1005,6 +1005,10 @@ plain style. Development notes belong in this file.
   which moves the payload entries inside the existing install directory,
   keeps replaced files in `justnotes.previous`, preserves unmanaged files
   and the NSIS uninstaller, and rolls back all moves after a failure.
+  Windows resolves both app directories to physical paths before checking
+  their boundaries, including 8.3 aliases. The packaged regression launches
+  through a short alias when the volume supplies one and compares directory
+  file identities across the update.
   The script has a UTF-8 BOM for Windows PowerShell's Unicode paths. Only "Restart to update" reopens it, with `restartArgs` (the
   launch's options and a `--vault` per open vault); a plain quit installs
   without reopening. Same path, so the Dock and Start menu entries open the

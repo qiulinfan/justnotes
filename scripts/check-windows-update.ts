@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { psWord } from "../src/main/update-check";
 
 if (process.platform !== "win32") throw new Error("This package check runs on Windows");
 const packaged = path.resolve(process.argv[2] ?? "release/win-unpacked/justnotes.exe");
@@ -24,8 +25,21 @@ const archive = Bun.spawnSync(["tar", "-a", "-cf", zip, "-C", payload, "."], {
 	windowsHide: true,
 });
 if (archive.exitCode !== 0) throw new Error(archive.stderr.toString());
-const before = fs.statSync(installed, { bigint: true }).ino;
-const child = spawn(path.join(installed, "justnotes.exe"), ["--background", "--use-mock-keychain", "--profile", profile, "--vault", vault, "--remote-debugging-port=0", "--disable-background-timer-throttling"], {
+const before = fs.statSync(installed, { bigint: true });
+let launchDirectory = installed;
+const aliasScript = `[Console]::OutputEncoding = [Text.Encoding]::UTF8; [Console]::Write((New-Object -ComObject Scripting.FileSystemObject).GetFolder(${psWord(installed)}).ShortPath)`;
+const alias = Bun.spawnSync(["powershell.exe", "-NoProfile", "-EncodedCommand", Buffer.from(aliasScript, "utf16le").toString("base64")], { stdout: "pipe", stderr: "pipe", windowsHide: true });
+const shortDirectory = alias.stdout
+	.toString()
+	.replace(/^\uFEFF/, "")
+	.trim();
+if (alias.exitCode === 0 && shortDirectory.includes("~") && fs.existsSync(shortDirectory)) {
+	const identity = fs.statSync(shortDirectory, { bigint: true });
+	if (identity.ino !== before.ino || identity.dev !== before.dev) throw new Error("Short path does not identify the package directory");
+	launchDirectory = shortDirectory;
+	console.log("Exercising Windows 8.3 launch-path aliases");
+} else console.log("Windows 8.3 alias check skipped: this volume supplied no short alias");
+const child = spawn(path.join(launchDirectory, "justnotes.exe"), ["--background", "--use-mock-keychain", "--profile", profile, "--vault", vault, "--remote-debugging-port=0", "--disable-background-timer-throttling"], {
 	cwd: root,
 	stdio: "ignore",
 	windowsHide: true,
@@ -177,7 +191,8 @@ electron.net.fetch = async input => {
 	await until(async () => (fs.existsSync(path.join(installed, "updated-marker.txt")) ? true : null), 60_000, "replacement complete");
 	page = await connect();
 	if ((await page.evaluate("localStorage.getItem('updater-test-sentinel')")) !== "preserved") throw new Error("The profile changed during update");
-	if (fs.statSync(installed, { bigint: true }).ino !== before) throw new Error("The installation directory was replaced");
+	const after = fs.statSync(installed, { bigint: true });
+	if (after.ino !== before.ino || after.dev !== before.dev) throw new Error("The installation directory was replaced");
 	if (fs.readFileSync(path.join(vault, "Welcome.md"), "utf8") !== "# Preserved note\n") throw new Error("The vault changed during update");
 	if (!fs.existsSync(path.join(installed + ".previous", "justnotes.exe"))) throw new Error("No previous binary was retained");
 	console.log("Windows package update passed: automatic discovery, download, in-place replacement, relaunch, profile and vault preservation");
