@@ -31,11 +31,12 @@ const extra = dashes >= 0 ? process.argv.slice(dashes + 1) : [];
 // Test windows are usually hidden behind others, where Chromium throttles
 // timers and animation frames; pdf.js pages then take a minute to render.
 const unthrottled = ["--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"];
+// `--background` keeps the instance from ever taking the user's focus (main.ts).
 // SecretStorage encrypts with safeStorage, which on macOS uses the login
 // keychain; a test instance must neither touch it nor prompt for access.
 const mockKeychain = "--use-mock-keychain";
 const child = Bun.spawn(
-	[path.join(root, "node_modules/.bin/electron"), root, ...unthrottled, mockKeychain, ...extra, "--vault", path.resolve(vault), "--profile", profile, `--remote-debugging-port=${port}`],
+	[path.join(root, "node_modules/.bin/electron"), root, ...unthrottled, mockKeychain, "--background", ...extra, "--vault", path.resolve(vault), "--profile", profile, `--remote-debugging-port=${port}`],
 	{ stdout: "ignore", stderr: "ignore" },
 );
 

@@ -26,6 +26,10 @@ function argValue(name: string): string | undefined {
 // `--profile <dir>` gives this instance its own Electron user data
 // (localStorage, caches), so several instances can run side by side.
 const profile = argValue("--profile");
+// `--background` (scripts/smoke.ts): a test instance that never takes the
+// user's focus. Its windows show inactive, and on macOS the app stays an
+// accessory (no Dock icon, never activated), so it cannot steal keystrokes.
+const background = process.argv.includes("--background");
 if (profile) app.setPath("userData", path.resolve(profile));
 
 // One instance per profile: Electron's lock lives in the user data folder, so
@@ -362,6 +366,7 @@ function openVault(vault: string) {
 	const win = new BrowserWindow({
 		width: 1280,
 		height: 860,
+		show: !background,
 		titleBarStyle: "hiddenInset",
 		backgroundColor: theme === "dark" ? "#1e1e1e" : "#ffffff",
 		webPreferences: {
@@ -374,6 +379,7 @@ function openVault(vault: string) {
 			webviewTag: true,
 		},
 	});
+	if (background) win.once("ready-to-show", () => win.showInactive());
 	vaultWindows.set(key, win);
 	win.on("closed", () => vaultWindows.delete(key));
 	const contents = win.webContents;
@@ -480,12 +486,13 @@ if (primary) {
 	registerPty();
 	app.on("second-instance", (_evt, argv, cwd, data) => onSecondInstance(argv, cwd, data));
 	app.whenReady().then(() => {
+		if (background && process.platform === "darwin") app.setActivationPolicy("accessory");
 		handleSchemes();
 		handlePermissions(session.defaultSession);
 		setApplicationMenu();
 		// The packaged app carries the icon in its bundle; run from the repo, the
 		// Dock would show Electron's.
-		if (!app.isPackaged && process.platform === "darwin") {
+		if (!app.isPackaged && !background && process.platform === "darwin") {
 			const icon = path.join(__dirname, "..", "packaging", "icon.png");
 			if (fs.existsSync(icon)) app.dock?.setIcon(icon);
 		}
