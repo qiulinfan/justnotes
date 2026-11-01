@@ -7,7 +7,7 @@
 import { webFrame } from "electron";
 import type { App } from "../api/app";
 import { onWindowAdded } from "../api/dom";
-import { applyLineHeight } from "../api/editor-settings";
+import { applyEditorSettings } from "../api/editor-settings";
 import { clampFontSize, fontFamilyList, storeZoom, ZOOM_MAX, ZOOM_MIN } from "../api/setting-options";
 import { Notice } from "../api/ui/notice";
 
@@ -60,7 +60,7 @@ export function installAppearance(app: App) {
 	media.addEventListener("change", apply);
 	vault.on("config-changed", apply);
 	apply();
-	applyLineHeight(app);
+	applyEditorSettings(app);
 	vault.on("config-unreadable", (name: string) => new Notice(`${vault.configDir}/${name} could not be read; settings changes are not saved until it can.`));
 	installQuickFontSize(app);
 	restoreZoom();

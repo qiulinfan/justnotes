@@ -48,6 +48,7 @@ macOS 上它从当前 checkout 打包, 装到 `/Applications/justnotes.app`; Win
 - Live Preview: 标题, 粗体斜体, 链接 (包括引用式链接, 脚注, 路径带空格的 Typora 写法), `[[wikilink]]`, 图片 (包括 `<img>` 和 HTML 块), 任务列表, 引用, callout, 表格, 行内和块级公式 (MathJax), mermaid, 嵌入 (笔记, 标题段落, PDF, base) 和插件的代码块.
 - 空的 `>` 行按 Enter 退出一层引用, 像 Typora.
 - 代码块像 Typora: 光标在里面也不显示 ``` 行, 语言在框右下角填. 选区包住整个代码块时才显示源码, 其它时候打字和删除不会弄坏 ``` 行.
+- 设置的 Editor 页有 Code blocks 和 Math blocks 两组: 代码块可以换回 Obsidian 的显示方式, 调字号, 显示行号, 语言框只在编辑时显示; 公式块可以像 Typora 那样编辑时在下面显示渲染结果, 调大小, 靠左对齐.
 - 右键菜单有格式, 段落, 插入 (脚注, 表格, callout, 代码块, 公式块, 分隔线).
 - 粘贴和拖进来的图片默认写成 Typora 的 `<img>`. 双击图片可以缩放, 对齐, 重命名, 移动.
 - 选中文本拖到边缘时的滚动速度和笔记的行间距可以在设置的 Editor 页调.
@@ -64,6 +65,7 @@ macOS 上它从当前 checkout 打包, 装到 `/Applications/justnotes.app`; Win
 - tex 和 txt 也是笔记: `.tex` 用内置的 LaTeX 编辑器 (就是 LaTeX Live: 补全, 实时预览, 用本机 TeX 编译, PDF 预览和 SyncTeX 双向跳转, 导出 HTML), `.txt` 用纯文本编辑器. 它们在文件栏, 快速切换, 搜索, 大纲, 图谱, 反向链接里都和 md 一样, `[[main.tex]]` 这种链接也能用. 往 `.tex` 里粘贴图片会存成附件, 弹出一个小表单选宽度, 标题, 标签. 需要装 TeX (MacTeX 或 TeX Live), 补全需要 texlab.
 - 代码和数据文件 (json, yaml, cpp, py, rust, ts, js, css, html 等) 在 justnotes 里直接打开, 有语法高亮, 也能改.
 - 内置终端: 在标签页里开你的登录 shell, 字体, 配色和背景图沿用 Ghostty 的配置. 命令面板 "Terminal: Open terminal" 或侧栏按钮打开.
+- 不在任何 vault 里的文件 (没有上层 `.obsidian`, 也不是打开过的 vault) 会单独开一个窗口: 只有这个文件和它引用的图片, 链接, 不扫描文件夹, 不加载插件, 不进 vault 列表, 也不在文件夹里建 `.obsidian`. 能编辑保存, 有大纲; 反向链接, 搜索, 图谱这些没有. 窗口里改的设置不保存.
 - 默认显示所有类型的文件.
 - LaTeX 和终端在设置的 "Core plugins" 页可以关掉. 开着时 justnotes 不加载社区插件 latex-live 和 terminal (它们在 Obsidian 里照常用).
 - 测过的 Obsidian 插件: Copy Location, Quick LaTeX, Completr, YOLO Completion Only, Background, kgdistiller, LaTeX Live, Git, omp, QuickAdd, Terminal, Translate.

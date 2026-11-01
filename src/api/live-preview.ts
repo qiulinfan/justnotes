@@ -5,6 +5,7 @@ import type { SyntaxNode } from "@lezer/common";
 import type { App } from "./app";
 import { closedFence, codeFences, coversFence, FenceLanguageWidget, FenceTopWidget } from "./code-fences";
 import { AppResizeObserver } from "./dom";
+import { editorSettings } from "./editor-settings";
 import type { Component } from "./events";
 import { setIcon } from "./icons";
 import { finishRenderMath, MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, onCodeBlockProcessorsChange, renderMath, resolveHtmlSrc, toggledTask } from "./markdown";
@@ -246,16 +247,19 @@ class MathWidget extends WidgetType {
 	constructor(
 		readonly tex: string,
 		readonly display: boolean,
+		// Shown under the source being edited; clicks on it go to the editor.
+		readonly preview = false,
 	) {
 		super();
 	}
 
 	eq(other: MathWidget) {
-		return other.tex === this.tex && other.display === this.display;
+		return other.tex === this.tex && other.display === this.display && other.preview === this.preview;
 	}
 
 	toDOM() {
 		const el = createEl(this.display ? "div" : "span", { cls: this.display ? ["math", "math-block", "cm-embed-block"] : ["math", "math-inline"] });
+		if (this.preview) el.addClass("math-block-preview");
 		el.appendChild(renderMath(this.tex, this.display));
 		el.addClass("is-loaded");
 		queueMicrotask(() => finishRenderMath());
@@ -768,6 +772,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 	const decos: Range<Decoration>[] = [];
 	const ranges = state.selection.ranges;
 	const live = state.field(editorLivePreviewField, false) !== false;
+	const settings = editorSettings(host.app);
 	const touches = (from: number, to: number) => !live || ranges.some((r) => r.from <= to && r.to >= from);
 	const touchesLines = (from: number, to: number) => touches(doc.lineAt(from).from, doc.lineAt(to).to);
 	const lineClasses = new Map<number, string[]>();
@@ -873,8 +878,10 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const closed = marks.length > 1 && last.number > first.number;
 					// Typora's code box: fence lines hidden even with the cursor
 					// inside, until a selection covers the whole block.
-					const fence = live ? closedFence(state, node) : null;
+					const fence = live && settings.codeBlockStyle === "typora" ? closedFence(state, node) : null;
 					const boxed = fence && !coversFence(state, fence);
+					// The code's line numbers, which CSS shows when they are on.
+					if (closed) eachLine(first.to + 1, last.from - 1, (l) => lineAttrs.set(l.from, { "data-code-line": String(l.number - first.number) }));
 					if (boxed) eachLine(first.to + 1, last.from - 1, (l) => addLine(l.from, "HyperMD-codeblock HyperMD-codeblock-bg"));
 					else {
 						eachLine(from, to, (l) => addLine(l.from, "HyperMD-codeblock HyperMD-codeblock-bg"));
@@ -896,7 +903,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (boxed) {
 						decos.push(Decoration.replace({ block: true, widget: new FenceTopWidget() }).range(first.from, first.to));
 						const infoText = state.sliceDoc(fence.infoFrom, first.to).trim();
-						decos.push(Decoration.replace({ block: true, widget: new FenceLanguageWidget(infoText) }).range(last.from, last.to));
+						decos.push(Decoration.replace({ block: true, widget: new FenceLanguageWidget(infoText, touchesLines(from, to)) }).range(last.from, last.to));
 						return false;
 					}
 					if (marks[0].from < first.to) decos.push(hide.range(marks[0].from, first.to));
@@ -1106,7 +1113,15 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					return false;
 				}
 				case "BlockMath": {
-					if (touchesLines(from, to)) return false;
+					if (touchesLines(from, to)) {
+						// Typora's math block: the rendered math under the source being edited.
+						if (live && settings.mathBlockStyle === "typora" && ownsLines(node)) {
+							const content = node.getChild("math");
+							const widget = new MathWidget(content ? mathText(state, content).trim() : "", true, true);
+							decos.push(Decoration.widget({ widget, block: true, side: 1 }).range(doc.lineAt(to).to));
+						}
+						return false;
+					}
 					const content = node.getChild("math");
 					const widget = new MathWidget(content ? mathText(state, content).trim() : "", true);
 					if (ownsLines(node)) decos.push(Decoration.replace({ widget, block: true }).range(doc.lineAt(from).from, doc.lineAt(to).to));
@@ -1207,7 +1222,7 @@ export function livePreview(host: LivePreviewHost): Extension {
 			return true;
 		},
 	});
-	return [frontmatterRevealed, field, tagClicks, processorRefresh, codeFences(), Prec.high(keymap.of([{ key: "ArrowUp", run: enterProperties }]))];
+	return [frontmatterRevealed, field, tagClicks, processorRefresh, codeFences(() => editorSettings(host.app).codeBlockStyle === "typora"), Prec.high(keymap.of([{ key: "ArrowUp", run: enterProperties }]))];
 }
 
 // ArrowUp out of the note's first line goes to the Properties block above it.

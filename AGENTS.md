@@ -22,12 +22,13 @@ plain style. Development notes belong in this file.
 ## Layout
 
 - `src/main/`: the Electron main process. `main.ts` opens one window per vault
-  (Node integration on, context isolation off, `webviewTag`,
-  `@electron/remote`), owns the external-link policy (`link-policy.ts` has
-  the schemes it drops) and routes `obsidian://` URLs to the vault window.
-  One instance runs per profile (`app.requestSingleInstanceLock()`, which
-  Electron keeps in the user data folder, so test instances with their own
-  `--profile` stay independent): a second launch on a running profile hands
+  and one per file in no vault (see Files in no vault), with Node integration
+  on, context isolation off, `webviewTag` and `@electron/remote`, owns the
+  external-link policy (`link-policy.ts` has the schemes it drops) and
+  routes `obsidian://` URLs to the vault window. One instance runs per
+  profile (`app.requestSingleInstanceLock()`, which Electron keeps in the
+  user data folder, so test instances with their own `--profile` stay
+  independent): a second launch on a running profile hands
   its arguments and working folder to the running instance (`second-instance`;
   `--vault` folders, Markdown files and `obsidian://` URLs open there, read by
   `launchRequest` in `launch-args.ts` as the first launch's are; with none
@@ -556,7 +557,7 @@ plain style. Development notes belong in this file.
   key), never for its own change, which would take the focus from a field
   being typed in. Other parts of justnotes add a group to the Editor page
   through `editorSections`; the justnotes section (selection scroll speed,
-  line height, pasted image format) is one. Every option shown changes behaviour live:
+  line height, pasted image format), Code blocks and Math blocks are three. Every option shown changes behaviour live:
   - Editor (`editor-options.ts`, a per-editor compartment reconfigured on
     `config-changed`): line numbers, auto-pair brackets (CodeMirror's
     closeBrackets), auto-pair Markdown syntax (`markdownPairs`: `*`, `_`,
@@ -817,6 +818,37 @@ plain style. Development notes belong in this file.
   bash)` (bash 3.2 and later). The scripts call `justnotes` on PATH, so they
   need no regenerating when commands change.
 
+## Files in no vault
+
+- A file that no known vault holds and that has no folder with `.obsidian`
+  above it opens in a window of its own (`openFileWindow` in `main.ts`,
+  `index.html?file=`, one per file by real path; opening it again focuses
+  it). Nothing is asked, since nothing runs: the window is not recorded in
+  `vaults.json`, never appears in the vault switcher (not installed there)
+  and serves no CLI. The page (`boot.ts`, `renderer/single-file.ts`) builds
+  an `App(folder, name)`: the file's folder is the vault root, but the
+  adapter is scoped (`FileSystemAdapter.setScope`/`admit`): the folder is
+  never listed, the file table holds only the file, what is admitted and
+  what the window writes (pasted images), and only the folders holding
+  entries are watched, each without its subfolders. Each note opened in the
+  window admits what it refers to whenever its links resolve again
+  (`referencedPaths`: unresolved links relative to the note, a name without
+  an extension also as `.md`, and HTML media srcs), one level deep, never
+  outside the folder or hidden; so images, linked notes and a TeX root's
+  chapters resolve and open as in a vault. Settings changes stay in memory
+  (the config store writes nothing, `saveLayoutState` saves nothing), so the
+  folder never gets a `.obsidian`. The core plugins are only those needing
+  the files at hand (`SINGLE_FILE_PLUGINS`: file explorer, outline, word
+  count, slides, LaTeX); community plugins, the metadata store and the code
+  cache are not used. Every file window shares the localStorage id
+  `single-file`, so justnotes' own settings (the Editor page's justnotes
+  section) carry from one file to the next. The layout is fixed
+  (`singleFileLayout`: the file, the outline on the right, the file explorer
+  in the collapsed left sidebar) and the file opens after layout-ready (a
+  `.tex` waits for the LaTeX core plugin's `latex-live:api-ready`, which
+  registers its view later). Launch arguments take Markdown files only;
+  `.tex` arrives through macOS `open-file`.
+
 ## Code files
 
 - Source and data files (`api/code-files.ts`: json, yaml, toml, C/C++, Python,
@@ -886,8 +918,9 @@ plain style. Development notes belong in this file.
   file instead of launching it again) or as an argument (any platform; a
   second launch hands its own to the running instance); `openFile` in `main.ts`
   opens it in the vault holding it (a known vault, else the nearest folder
-  above with `.obsidian`, else its folder) through `obsidian://open?path=`,
-  asking first for a vault not opened before, since its plugins would run.
+  above with `.obsidian`) through `obsidian://open?path=`, asking first for a
+  vault not opened before, since its plugins would run; a file in no vault
+  opens alone in a file window (see Files in no vault).
   The app still does not register `obsidian://` with the OS (see Layout), so
   only links inside the app, `obsidian://` launch arguments and the command
   reach it.
@@ -1259,7 +1292,8 @@ stale or corrupt cache gives the same result, more slowly.
   edits without a user event, from code and plugins, pass). Backspace at the
   start of an empty block removes it, on the empty line under a block
   removes that line; Up or Down out of a block at the very start or end of
-  the note adds an empty line there. Blocks a plugin renders keep their
+  the note adds an empty line there. "Code block style: Obsidian" (Editor
+  settings) turns all of this off. Blocks a plugin renders keep their
   rendered widget while the cursor is outside. Lines in the note editor
   have no side padding (the text's space is `.cm-content`'s margin), so the
   box, block widgets and text share one left edge.
@@ -1463,14 +1497,32 @@ stale or corrupt cache gives the same result, more slowly.
   (`caretPositionFromPoint`) after each step. Measure with real CDP mouse
   events (press, moves past the scroller's edge, scrollTop over a held
   second); the frame loop needs the test window shown.
-- Line height (1 to 2.5, default 1.5, Obsidian's `--line-height-normal`):
-  `applyLineHeight` (at boot from `installAppearance`, and on change) sets
-  `--line-height-normal` on the body, or removes it at the default so a
-  theme's value stays. CodeMirror does not notice a line height changing
-  alone (its height map keeps the old heights), so every editor in every
-  window is then re-measured through `viewState.mustMeasureContent =
-  "refresh"`, what CodeMirror sets itself once fonts load; recheck the name
-  when upgrading @codemirror/view.
+- `setEditorSetting` saves and calls `applyEditorSettings` (also at boot,
+  from `installAppearance`): CSS variables and classes on the body, which
+  both views read and popouts mirror (a variable at its default is removed,
+  so a theme's value stays), then every editor in every window rebuilds its
+  Live Preview and re-measures. CodeMirror does not notice a line height or
+  font size changing alone (its height map keeps the old heights), so the
+  re-measure goes through `viewState.mustMeasureContent = "refresh"`, what
+  CodeMirror sets itself once fonts load; recheck the name when upgrading
+  @codemirror/view.
+- Line height (1 to 2.5, default 1.5): `--line-height-normal`.
+- Code blocks (a group of its own): Code block style (`typora`, the box of
+  `code-fences.ts`, default; `obsidian`, fences shown while the cursor is in
+  the block: Live Preview builds no box and `codeFences` guards nothing),
+  Code font size (70 to 130 percent of the text, default 87.5, Obsidian's
+  `--code-size`; `--code-block-size`, blocks only, not inline code), Line
+  numbers (`code-block-line-numbers`: Live Preview's code lines carry
+  `data-code-line`, the reading view's `pre` a `data-lines` list, both drawn
+  in the left padding; the reading view's `code` is then a block so the two
+  share a line height), Language field (`always`, or `editing`:
+  `code-language-while-editing` hides the field of a box the cursor is not
+  in, `.is-active` on its footer).
+- Math blocks (a group of its own): Math block style (`obsidian`, default;
+  `typora`: with the cursor in a `$$` block that has its lines to itself, a
+  `MathWidget` preview, `.math-block-preview`, renders under the closing
+  line), Math block size (70 to 200 percent, `--math-block-size`), Math
+  block alignment (`math-block-align-left` overrides MathJax's centring).
 - Pasted and dropped images as (`html` default, `wikilink`, `markdown`;
   `imageLink` in `attachments.ts`): an image file pasted, dropped from
   outside or dragged from the explorer into a note is written as Typora

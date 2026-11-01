@@ -235,7 +235,7 @@ describe("embeds", () => {
 describe("code blocks", () => {
 	test("a fence carries its language, escaped text and a copy button", () => {
 		const out = html("```js\n<b>\n```");
-		expect(tags(out, "pre")[0]).toEqual({ class: "language-js", tabindex: "0" });
+		expect(tags(out, "pre")[0]).toEqual({ class: "language-js", "data-lines": "1", tabindex: "0" });
 		expect(tags(out, "code")[0].class).toBe("language-js is-loaded");
 		expect(out).toContain(">&lt;b&gt;</code>");
 		expect(out).toContain('<button class="copy-code-button">Copy</button>');

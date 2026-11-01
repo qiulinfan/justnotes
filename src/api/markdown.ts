@@ -840,9 +840,11 @@ md.renderer.rules.list_item_open = (tokens, idx, options, env, self) => {
 };
 
 // Prism highlights the code once it is on the page (highlightCode).
+// data-lines holds the line numbers, which CSS shows when they are on.
 function codeBlockHTML(text: string, lang: string) {
 	const cls = lang ? `language-${esc(lang)}` : "";
-	return `<pre${cls ? ` class="${cls}"` : ""} tabindex="0"><code${cls ? ` class="${cls} is-loaded"` : ""}>${esc(text)}</code><button class="copy-code-button">Copy</button></pre>\n`;
+	const lines = Array.from({ length: text.split("\n").length }, (_, i) => i + 1).join("\n");
+	return `<pre${cls ? ` class="${cls}"` : ""} data-lines="${lines}" tabindex="0"><code${cls ? ` class="${cls} is-loaded"` : ""}>${esc(text)}</code><button class="copy-code-button">Copy</button></pre>\n`;
 }
 md.renderer.rules.fence = (tokens, idx) => codeBlockHTML(tokens[idx].content.replace(/\n$/, ""), tokens[idx].info.trim().split(/\s+/)[0] ?? "");
 md.renderer.rules.code_block = (tokens, idx) => codeBlockHTML(tokens[idx].content.replace(/\n$/, ""), "");

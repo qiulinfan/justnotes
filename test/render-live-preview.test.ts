@@ -10,6 +10,7 @@ import { MarkdownPreviewRenderer, resolveHtmlSrc } from "../src/api/markdown";
 const files: Record<string, string> = { Note: "Note.md", "pic.png": "pic.png", "doc.pdf": "doc.pdf" };
 const host = {
 	app: {
+		loadLocalStorage: () => null,
 		vault: { getConfig: () => undefined },
 		metadataCache: { getFirstLinkpathDest: (path: string) => (files[path] ? { path: files[path] } : null), getCache: () => null },
 	},

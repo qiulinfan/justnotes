@@ -13,6 +13,7 @@ import { MarkdownPreviewRenderer, renderMarkdownSections } from "../src/api/mark
 
 const host = {
 	app: {
+		loadLocalStorage: () => null,
 		vault: { getConfig: () => undefined },
 		metadataCache: { getFirstLinkpathDest: () => null, getCache: () => null },
 	},

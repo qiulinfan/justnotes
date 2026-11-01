@@ -71,7 +71,7 @@ describe("Settings pages", () => {
 	test("settings search finds the Editor page's options, the justnotes section included", () => {
 		const app = { vault: { getConfig: () => undefined } } as unknown as App;
 		const items = EditorTab.prototype.getSettingDefinitions.call({ app } as EditorTab);
-		expect(searchDefinitions(items, "line numbers").map((m) => m.name)).toEqual(["Show line numbers"]);
+		expect(searchDefinitions(items, "line numbers").map((m) => m.name)).toEqual(["Show line numbers", "Line numbers in code blocks"]);
 		expect(searchDefinitions(items, "tab size").map((m) => m.name)).toEqual(["Indent visual width"]);
 		expect(searchDefinitions(items, "selection scroll").map((m) => m.name)).toEqual(["Selection scroll speed"]);
 		expect(searchDefinitions(items, "line height").map((m) => m.name)).toEqual(["Line height"]);

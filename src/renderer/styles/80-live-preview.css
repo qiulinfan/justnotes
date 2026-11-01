@@ -27,7 +27,7 @@
 /* Fenced code: a box over its lines, the language at the top right. */
 .markdown-source-view.mod-cm6 .HyperMD-codeblock {
 	font-family: var(--font-monospace);
-	font-size: var(--code-size, 0.875em);
+	font-size: var(--code-block-size, var(--code-size, 0.875em));
 	background: var(--code-background);
 	padding-left: 16px !important;
 	padding-right: 16px !important;
@@ -97,6 +97,38 @@
 
 .markdown-source-view.mod-cm6 .code-block-language:focus {
 	text-align: left;
+}
+
+/* "Language field: While editing" (editor-settings.ts): the field of a
+   block the cursor is not in stays hidden unless it has the focus. */
+.code-language-while-editing .cm-codeblock-footer:not(.is-active) .code-block-language:not(:focus) {
+	visibility: hidden;
+}
+
+/* "Line numbers in code blocks": each code line carries its number
+   (data-code-line), drawn in the line's left padding. */
+.code-block-line-numbers .markdown-source-view.mod-cm6 .HyperMD-codeblock[data-code-line] {
+	position: relative;
+	padding-left: calc(16px + 2.5em) !important;
+}
+
+.code-block-line-numbers .markdown-source-view.mod-cm6 .HyperMD-codeblock[data-code-line]::before {
+	content: attr(data-code-line);
+	position: absolute;
+	left: 8px;
+	width: 2em;
+	text-align: right;
+	color: var(--text-faint);
+	user-select: none;
+	pointer-events: none;
+}
+
+/* "Math block style: Typora": the rendered math under the source being
+   edited. */
+.markdown-source-view.mod-cm6 .math-block-preview {
+	margin: 4px 0;
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
 }
 
 /* Quotes, in Live Preview where the > marks are hidden. As in Obsidian, the

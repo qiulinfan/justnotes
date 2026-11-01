@@ -7,8 +7,12 @@ import { obsidianMarkdown } from "../src/api/editor-extensions";
 import { clickableTokenAt, editorLivePreviewField, type LivePreviewHost, livePreview, tableCellOffset, toggleRenderedTask } from "../src/api/live-preview";
 import { renderMarkdownSections } from "../src/api/markdown";
 
+// justnotes' own editor settings the tests set (localStorage `justnotes-editor`).
+let savedSettings: Record<string, unknown> | null = null;
+
 const host = {
 	app: {
+		loadLocalStorage: () => savedSettings,
 		vault: { getConfig: () => undefined, on: () => ({}), offref() {} },
 		metadataCache: { getFirstLinkpathDest: (path: string) => (path === "Known" ? {} : null), getCache: () => null },
 	},
@@ -182,6 +186,23 @@ describe("fenced code box", () => {
 	test("a selection covering the block deletes it", () => {
 		const covering = at(0).update({ selection: { anchor: open, head: close + 3 } }).state;
 		expect(edit(covering, { changes: { from: open, to: close + 3 }, userEvent: "delete.backward" })).toBe("text\n\n\n\nend");
+	});
+
+	test("the Obsidian style shows the fences while the cursor is in the block", () => {
+		savedSettings = { codeBlockStyle: "obsidian" };
+		try {
+			expect(blocks(at(doc.indexOf("let b")))).toEqual([]);
+			// No fence is guarded then: Backspace at the start of the code joins the lines.
+			const start = doc.indexOf("let a");
+			expect(edit(at(start), { changes: { from: start - 1, to: start }, userEvent: "delete.backward" })).toBe(doc.slice(0, start - 1) + doc.slice(start));
+		} finally {
+			savedSettings = null;
+		}
+	});
+
+	test("code lines carry their numbers", () => {
+		const numbers = decorations(at(doc.length)).filter((d) => d.attrs?.["data-code-line"]).map((d) => d.attrs!["data-code-line"]);
+		expect(numbers).toEqual(["1", "2"]);
 	});
 
 	test("a cursor landing on a fence line moves into the code", () => {
@@ -424,5 +445,25 @@ describe("tasks in a rendered callout", () => {
 		expect(state.doc.toString()).toBe("top\n\n> [!todo] Tasks\n> - [ ] first\n> - [ ] second\n\nend");
 		toggleRenderedTask(view, 3, box(lines[0]));
 		expect(state.doc.toString()).toBe("top\n\n> [!todo] Tasks\n> - [x] first\n> - [ ] second\n\nend");
+	});
+});
+
+describe("math block style", () => {
+	const doc = "text\n\n$$\nx^2\n$$\n\nend";
+	const previews = (state: EditorState) => decorations(state).filter((d) => d.widget === "MathWidget" && d.block && d.from === d.to);
+
+	test("Obsidian's shows only the source while the cursor is in the block", () => {
+		expect(previews(stateOf(doc, doc.indexOf("x^2")))).toEqual([]);
+	});
+
+	test("Typora's adds the rendered math under the source being edited", () => {
+		savedSettings = { mathBlockStyle: "typora" };
+		try {
+			expect(previews(stateOf(doc, doc.indexOf("x^2"))).map((d) => d.from)).toEqual([doc.indexOf("$$\n\nend") + 2]);
+			// Away from the block it renders in place, as before.
+			expect(previews(stateOf(doc, doc.length))).toEqual([]);
+		} finally {
+			savedSettings = null;
+		}
 	});
 });

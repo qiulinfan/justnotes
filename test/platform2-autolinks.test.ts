@@ -7,6 +7,7 @@ import { clickableTokenAt, type LivePreviewHost, livePreview } from "../src/api/
 
 const host = {
 	app: {
+		loadLocalStorage: () => null,
 		vault: { getConfig: () => undefined, on: () => ({}), offref() {} },
 		metadataCache: { getFirstLinkpathDest: () => null, getCache: () => null },
 	},

@@ -6,12 +6,12 @@
 // rather than shown as a toggle that does nothing.
 import type { App } from "./app";
 import { getElectron } from "./dom";
-import { applyLineHeight, editorSettings, LINE_HEIGHT_MAX, LINE_HEIGHT_MIN, type PastedImageFormat, setEditorSetting } from "./editor-settings";
+import { EDITOR_SETTING_RANGES, type EditorSettings, editorSettings, setEditorSetting } from "./editor-settings";
 import { SettingTab } from "./plugin";
 import { Modal } from "./ui/modal";
 import { Notice } from "./ui/notice";
 import type { Setting } from "./ui/setting";
-import type { SettingDefinitionGroup, SettingDefinitionItem, SettingGroupItem } from "./ui/setting-definitions";
+import type { SettingDefinition, SettingDefinitionGroup, SettingDefinitionItem, SettingGroupItem } from "./ui/setting-definitions";
 import { apiVersion } from "./util";
 
 export const FONT_SIZE_MIN = 10;
@@ -138,8 +138,44 @@ export class GeneralTab extends SettingTab {
 // Sections other parts of justnotes add at the end of the Editor page.
 export const editorSections: ((app: App) => SettingDefinitionGroup)[] = [];
 
-// justnotes' own editor settings (editor-settings.ts, localStorage
-// `justnotes-editor`), after Obsidian's.
+// Controls for justnotes' own editor settings (editor-settings.ts,
+// localStorage `justnotes-editor`): each saves and applies at once.
+type NumberKey = keyof typeof EDITOR_SETTING_RANGES;
+type ChoiceKey = { [K in keyof EditorSettings]: EditorSettings[K] extends string ? K : never }[keyof EditorSettings];
+type ToggleKey = { [K in keyof EditorSettings]: EditorSettings[K] extends boolean ? K : never }[keyof EditorSettings];
+
+function settingSlider(app: App, key: NumberKey, step: number): SettingDefinition["render"] {
+	const [min, max] = EDITOR_SETTING_RANGES[key];
+	return (setting) => {
+		setting.addSlider((slider) =>
+			slider
+				.setLimits(min, max, step)
+				.setValue(editorSettings(app)[key])
+				.setDynamicTooltip()
+				.setInstant(true)
+				.onChange((value) => setEditorSetting(app, key, value)),
+		);
+	};
+}
+
+function settingDropdown<K extends ChoiceKey>(app: App, key: K, options: Record<EditorSettings[K], string>): SettingDefinition["render"] {
+	return (setting) => {
+		setting.addDropdown((dropdown) =>
+			dropdown
+				.addOptions(options)
+				.setValue(editorSettings(app)[key])
+				.onChange((value) => setEditorSetting(app, key, value as EditorSettings[K])),
+		);
+	};
+}
+
+function settingToggle(app: App, key: ToggleKey): SettingDefinition["render"] {
+	return (setting) => {
+		setting.addToggle((toggle) => toggle.setValue(editorSettings(app)[key]).onChange((value) => setEditorSetting(app, key, value)));
+	};
+}
+
+// justnotes' own editor settings, after Obsidian's.
 function justnotesEditorSection(app: App): SettingDefinitionGroup {
 	return {
 		type: "group",
@@ -148,49 +184,77 @@ function justnotesEditorSection(app: App): SettingDefinitionGroup {
 			{
 				name: "Selection scroll speed",
 				desc: "How fast a note scrolls while you drag a selection past its top or bottom edge, in the editor and the reading view. It speeds up the farther the pointer goes past the edge; 1 is a little faster than Obsidian.",
-				render: (setting) => {
-					setting.addSlider((slider) =>
-						slider
-							.setLimits(1, 10, 1)
-							.setValue(editorSettings(app).selectionScrollSpeed)
-							.setInstant(true)
-							.onChange((value) => setEditorSetting(app, "selectionScrollSpeed", value)),
-					);
-				},
+				render: settingSlider(app, "selectionScrollSpeed", 1),
 			},
 			{
 				name: "Line height",
 				desc: "The space between lines in notes, in the editor and the reading view, as a multiple of the font size. 1.5 is Obsidian's.",
-				render: (setting) => {
-					setting.addSlider((slider) =>
-						slider
-							.setLimits(LINE_HEIGHT_MIN, LINE_HEIGHT_MAX, 0.05)
-							.setValue(editorSettings(app).lineHeight)
-							.setDynamicTooltip()
-							.setInstant(true)
-							.onChange((value) => {
-								setEditorSetting(app, "lineHeight", value);
-								applyLineHeight(app);
-							}),
-					);
-				},
+				render: settingSlider(app, "lineHeight", 0.05),
 			},
 			{
 				name: "Pasted and dropped images as",
 				desc: "How an image pasted or dropped into a note is written: an HTML <img> with a zoom style, as Typora writes it, a wikilink embed, or a Markdown image link.",
-				render: (setting) => {
-					setting.addDropdown((dropdown) =>
-						dropdown
-							.addOptions({ html: "HTML img", wikilink: "Wikilink embed", markdown: "Markdown link" })
-							.setValue(editorSettings(app).pastedImageFormat)
-							.onChange((value) => setEditorSetting(app, "pastedImageFormat", value as PastedImageFormat)),
-					);
-				},
+				render: settingDropdown(app, "pastedImageFormat", { html: "HTML img", wikilink: "Wikilink embed", markdown: "Markdown link" }),
 			},
 		],
 	};
 }
 editorSections.push(justnotesEditorSection);
+
+function codeBlockSection(app: App): SettingDefinitionGroup {
+	return {
+		type: "group",
+		heading: "Code blocks",
+		items: [
+			{
+				name: "Code block style",
+				desc: "Typora: the ``` lines stay hidden while you edit the code, the language is set at the bottom right, and the source shows only when a selection covers the whole block. Obsidian: the ``` lines show while the cursor is in the block.",
+				render: settingDropdown(app, "codeBlockStyle", { typora: "Typora", obsidian: "Obsidian" }),
+			},
+			{
+				name: "Code font size",
+				desc: "The size of code in code blocks, in percent of the text's, in the editor and the reading view. 87.5 is Obsidian's.",
+				render: settingSlider(app, "codeFontSize", 2.5),
+			},
+			{
+				name: "Line numbers in code blocks",
+				desc: "Number the lines of every code block, in the editor and the reading view.",
+				render: settingToggle(app, "codeLineNumbers"),
+			},
+			{
+				name: "Language field",
+				desc: "With the Typora style, when the language field at a block's bottom right shows: always, or only while the cursor is in the block.",
+				render: settingDropdown(app, "codeLanguageField", { always: "Always", editing: "While editing" }),
+			},
+		],
+	};
+}
+editorSections.push(codeBlockSection);
+
+function mathBlockSection(app: App): SettingDefinitionGroup {
+	return {
+		type: "group",
+		heading: "Math blocks",
+		items: [
+			{
+				name: "Math block style",
+				desc: "What a $$ block shows while the cursor is in it. Obsidian: only its source. Typora: its source with the rendered math below, updated as you type.",
+				render: settingDropdown(app, "mathBlockStyle", { obsidian: "Obsidian", typora: "Typora" }),
+			},
+			{
+				name: "Math block size",
+				desc: "The size of display math, in percent, in the editor and the reading view.",
+				render: settingSlider(app, "mathSize", 5),
+			},
+			{
+				name: "Math block alignment",
+				desc: "Where display math sits in the line, in the editor and the reading view.",
+				render: settingDropdown(app, "mathAlign", { center: "Center", left: "Left" }),
+			},
+		],
+	};
+}
+editorSections.push(mathBlockSection);
 
 export class EditorTab extends SettingTab {
 	constructor(app: App) {

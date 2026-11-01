@@ -1,5 +1,5 @@
 import { syntaxTree } from "@codemirror/language";
-import { Annotation, EditorSelection, EditorState, type Extension, Prec, RangeSet, type Transaction } from "@codemirror/state";
+import { Annotation, EditorSelection, EditorState, type Extension, Facet, Prec, RangeSet, type Transaction } from "@codemirror/state";
 import { Decoration, EditorView, keymap, WidgetType } from "@codemirror/view";
 import type { SyntaxNode, Tree } from "@lezer/common";
 import { editorLivePreviewField } from "./live-preview";
@@ -57,8 +57,12 @@ function fencesOf(state: EditorState): Fence[] {
 	return list;
 }
 
-export function hiddenFences(state: EditorState): Fence[] {
-	if (state.field(editorLivePreviewField, false) === false) return [];
+// Whether fences are boxed at all ("Code block style"), asked when needed so
+// a settings change applies without reconfiguring the editor.
+const boxing = Facet.define<() => boolean, () => boolean>({ combine: (values) => values[0] ?? (() => true) });
+
+function hiddenFences(state: EditorState): Fence[] {
+	if (state.field(editorLivePreviewField, false) === false || !state.facet(boxing)()) return [];
 	return fencesOf(state).filter((f) => !coversFence(state, f));
 }
 
@@ -189,16 +193,21 @@ export class FenceTopWidget extends WidgetType {
 // (the language) in a field at its right. A change applies on Enter or when
 // the field loses focus; Escape puts the field back.
 export class FenceLanguageWidget extends WidgetType {
-	constructor(readonly info: string) {
+	constructor(
+		readonly info: string,
+		// Whether the cursor is in the block: with "Language field" set to
+		// "While editing", CSS shows the field only then.
+		readonly active: boolean,
+	) {
 		super();
 	}
 
 	eq(other: FenceLanguageWidget) {
-		return other.info === this.info;
+		return other.info === this.info && other.active === this.active;
 	}
 
 	toDOM(view: EditorView) {
-		const el = createDiv("cm-codeblock-footer");
+		const el = createDiv({ cls: this.active ? "cm-codeblock-footer is-active" : "cm-codeblock-footer" });
 		const input = el.createEl("input", { cls: "code-block-language", type: "text", value: this.info, attr: { placeholder: "language", spellcheck: "false", "aria-label": "Code block language" } });
 		input.addEventListener("change", () => this.#apply(view, el, input.value));
 		input.addEventListener("keydown", (evt) => {
@@ -218,6 +227,7 @@ export class FenceLanguageWidget extends WidgetType {
 	updateDOM(dom: HTMLElement) {
 		const input = dom.querySelector("input");
 		if (!input) return false;
+		dom.toggleClass("is-active", this.active);
 		input.defaultValue = this.info;
 		if (input.ownerDocument.activeElement !== input) input.value = this.info;
 		return true;
@@ -238,8 +248,9 @@ export class FenceLanguageWidget extends WidgetType {
 	}
 }
 
-export function codeFences(): Extension {
+export function codeFences(boxed: () => boolean): Extension {
 	return [
+		boxing.of(boxed),
 		protectFences,
 		keepCursorInCode,
 		atomicFences,
