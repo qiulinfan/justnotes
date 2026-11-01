@@ -92,8 +92,16 @@ jobs:
       - if: matrix.test
         run: bun test test
 
+      - name: Test Windows update transactions
+        if: matrix.name == 'Windows'
+        run: bun test test/update-check.test.ts test/update-windows.test.ts
+
       - name: Package
         run: bun scripts/dist.ts ${{ matrix.platform }}
+
+      - name: Check Windows package update lifecycle
+        if: matrix.name == 'Windows'
+        run: bun scripts/check-windows-update.ts release/win-unpacked/justnotes.exe
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

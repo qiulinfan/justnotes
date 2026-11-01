@@ -4,15 +4,14 @@ import * as path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { app, BrowserWindow, ipcMain, net } from "electron";
-import { type BuildInfo, isUpdate, type LatestRelease, macSwapScript, parseRelease, windowsSwapScript } from "./update-check";
+import { type BuildInfo, isUpdate, type LatestRelease, macSwapScript, parseRelease, windowsSwapScript, psWord } from "./update-check";
 
 // The packaged app updates itself from the latest GitHub release, in place:
 // a newer release's zip is downloaded and unpacked into the profile
-// (<userData>/updates/<tag>), and once the app has quit a detached script
-// swaps it in where the app is installed, by rename as scripts/install.ts
-// does, and opens it again when the user asked to restart. Electron's
+// (<userData>/updates/<tag>), and once the app has quit a helper swaps it
+// in where the app is installed and reopens it when the user asked to restart. Electron's
 // autoUpdater (Squirrel.Mac) would need a Developer ID signature; the app is
-// only ad-hoc signed. The page asks for checks (renderer/updates.ts): at
+// only ad-hoc signed. The page asks for checks (api/updates.ts): at
 // start and every few hours while automatic updates are on, and from the
 // command; the profile and the vaults are never touched.
 
@@ -39,7 +38,10 @@ let relaunchArgs: string[] | null = null;
 function readBuildInfo(): BuildInfo {
 	try {
 		const info = JSON.parse(fs.readFileSync(path.join(__dirname, "build-info.json"), "utf8"));
-		return { commit: typeof info.commit === "string" ? info.commit : "", time: Number(info.time) || 0 };
+		return {
+			commit: typeof info.commit === "string" ? info.commit : "",
+			time: Number(info.time) || 0,
+		};
 	} catch {
 		return { commit: "", time: 0 };
 	}
@@ -67,7 +69,9 @@ function setState(next: Omit<UpdateState, "commit">) {
 }
 
 async function latestRelease(): Promise<LatestRelease> {
-	const res = await net.fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { accept: "application/vnd.github+json" } });
+	const res = await net.fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+		headers: { accept: "application/vnd.github+json" },
+	});
 	if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
 	const release = parseRelease(await res.json(), process.platform, process.arch);
 	if (!release) throw new Error("GitHub's latest release could not be read");
@@ -98,7 +102,12 @@ async function stage(release: LatestRelease) {
 // `dir` itself or a folder directly in it.
 function findIn(dir: string, test: (p: string) => boolean) {
 	if (test(dir)) return dir;
-	return fs.readdirSync(dir).map((name) => path.join(dir, name)).find(test) ?? null;
+	return (
+		fs
+			.readdirSync(dir)
+			.map((name) => path.join(dir, name))
+			.find(test) ?? null
+	);
 }
 
 async function check(): Promise<UpdateState> {
@@ -140,8 +149,13 @@ function applyOnQuit() {
 		spawn("/bin/sh", [script], { detached: true, stdio: "ignore" }).unref();
 	} else {
 		const script = path.join(dir, "swap.ps1");
-		fs.writeFileSync(script, windowsSwapScript(process.pid, staged.path, location, relaunchArgs));
-		spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+		fs.writeFileSync(script, "\uFEFF" + `Start-Transcript -Path ${psWord(path.join(dir, "swap.log"))} -Append | Out-Null\n` + windowsSwapScript(process.pid, staged.path, location, relaunchArgs));
+		const powershell = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+		// Electron's relauncher keeps the helper alive across browser-process exit.
+		app.relaunch({
+			execPath: powershell,
+			args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script],
+		});
 	}
 	staged = null;
 }

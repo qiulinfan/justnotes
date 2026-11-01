@@ -999,11 +999,13 @@ plain style. Development notes belong in this file.
   (`-mac-<arch>.zip`, `-win-x64.zip`) downloads through `net.fetch` into
   `<userData>/updates/<tag>` and is unpacked there (ditto, tar); a notice
   in every window offers "Restart to update". On `will-quit` (after the
-  quit flush) a detached script waits for the process to exit and swaps the
+  quit flush) a helper waits for the process to exit and swaps the
   staged app in by rename as `scripts/install.ts` does: on macOS a copy
-  beside the bundle renamed over it, then `lsregister -f`; on Windows the
-  folder becomes `justnotes.previous` and an NSIS uninstaller is carried
-  over. Only "Restart to update" reopens it, with `restartArgs` (the
+  beside the bundle renamed over it, then `lsregister -f`; on Windows Electron's native relauncher starts the PowerShell helper,
+  which moves the payload entries inside the existing install directory,
+  keeps replaced files in `justnotes.previous`, preserves unmanaged files
+  and the NSIS uninstaller, and rolls back all moves after a failure.
+  The script has a UTF-8 BOM for Windows PowerShell's Unicode paths. Only "Restart to update" reopens it, with `restartArgs` (the
   launch's options and a `--vault` per open vault); a plain quit installs
   without reopening. Same path, so the Dock and Start menu entries open the
   new app. Electron's autoUpdater is not used: Squirrel.Mac needs a
@@ -1017,7 +1019,13 @@ plain style. Development notes belong in this file.
   built with `GITHUB_SHA=<zeros> SOURCE_DATE_EPOCH=<old>` copied outside
   /Applications and launched with its own `--profile`: it downloads the
   real latest release and, on Restart to update, replaces that copy and
-  reopens it. The Windows script is not verified on Windows yet.
+  reopens it. `bun test test/update-check.test.ts test/update-windows.test.ts` runs native
+  Windows transaction, rollback and argument-preservation tests. After packaging,
+  `bun scripts/check-windows-update.ts release/win-unpacked/justnotes.exe`
+  checks discovery, download, native quit handoff, in-place swap and relaunch
+  in a disposable profile/vault, with HTTP release responses replaced in main;
+  it never changes the installed app or the owner's profile. Windows CI runs
+  both checks.
 - Releases: every push to main is one (the CI bullet above); there are no
   others. A version tag is pushed with `git push origin <tag>`.
 

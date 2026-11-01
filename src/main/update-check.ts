@@ -30,7 +30,7 @@ interface GithubRelease {
 
 // The commit a main-<version>-<commit> tag was made on.
 export function releaseCommit(tag: string): string | null {
-	return /^main-.+-([0-9a-f]{7,40})$/.exec(tag)?.[1] ?? null;
+	return /^main-[0-9A-Za-z.+-]+-([0-9a-f]{7,40})$/.exec(tag)?.[1] ?? null;
 }
 
 // The zip electron-builder makes for this platform and architecture
@@ -43,9 +43,10 @@ export function assetName(platform: string, arch: string): RegExp | null {
 }
 
 export function parseRelease(json: GithubRelease, platform: string, arch: string): LatestRelease | null {
-	if (typeof json.tag_name !== "string") return null;
+	if (typeof json.tag_name !== "string" || !releaseCommit(json.tag_name)) return null;
 	const pattern = assetName(platform, arch);
-	const found = pattern && json.assets?.find((a) => typeof a.name === "string" && pattern.test(a.name));
+	const prefix = `https://github.com/qiulinfan/justnotes/releases/download/${json.tag_name}/`;
+	const found = pattern && json.assets?.find((a) => typeof a.name === "string" && pattern.test(a.name) && typeof a.browser_download_url === "string" && a.browser_download_url === prefix + a.name);
 	const asset = found && typeof found.browser_download_url === "string" ? { name: String(found.name), url: found.browser_download_url, size: Number(found.size) || 0 } : null;
 	const publishedAt = typeof json.published_at === "string" ? Date.parse(json.published_at) : Number.NaN;
 	return { tag: json.tag_name, commit: releaseCommit(json.tag_name), publishedAt, asset };
@@ -90,20 +91,58 @@ rm -rf ${shellWord(old)} ${shellWord(staged)}
 ${open}`;
 }
 
-// The same on Windows: the install folder becomes <folder>.previous (as
-// scripts/install.ts keeps the last install) and the staged folder takes its
-// place; renames are retried while Windows still holds the exiting app's
-// files. An NSIS install's uninstaller is carried over.
+// Windows keeps the install directory itself, backs up replaced entries to
+// <folder>.previous, and rolls them back together when a move fails. Unmanaged
+// files (including an NSIS uninstaller) remain in place.
+// Start-Process joins ArgumentList into a Windows command line.
+export function windowsArgument(value: string) {
+	if (!/[\s"]/.test(value)) return value;
+	return '"' + value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1") + '"';
+}
+
 export function windowsSwapScript(pid: number, staged: string, dir: string, relaunch: string[] | null) {
-	const previous = `${dir}.previous`;
-	const exe = `${dir}\\justnotes.exe`;
-	const start = relaunch === null ? "" : `Start-Process -FilePath ${psWord(exe)}${relaunch.length ? ` -ArgumentList @(${relaunch.map((a) => psWord(a.includes(" ") ? `"${a}"` : a)).join(", ")})` : ""}\r\n`;
-	return `$ErrorActionPreference = 'Stop'\r
-Wait-Process -Id ${pid} -ErrorAction SilentlyContinue\r
-function Retry($action) { for ($i = 0; $i -lt 50; $i++) { try { & $action; return } catch { Start-Sleep -Milliseconds 200 } }; & $action }\r
-if (Test-Path ${psWord(previous)}) { Remove-Item -Recurse -Force ${psWord(previous)} }\r
-Retry { Rename-Item -LiteralPath ${psWord(dir)} -NewName ${psWord(previous.slice(previous.lastIndexOf("\\") + 1))} }\r
-try { Retry { Move-Item -LiteralPath ${psWord(staged)} -Destination ${psWord(dir)} } } catch { Rename-Item -LiteralPath ${psWord(previous)} -NewName ${psWord(dir.slice(dir.lastIndexOf("\\") + 1))}; exit 1 }\r
-Get-ChildItem -LiteralPath ${psWord(previous)} -Filter 'Uninstall *.exe' | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination ${psWord(dir)} }\r
+	const start = relaunch === null ? "" : `Start-Process -FilePath (Join-Path $destination 'justnotes.exe')${relaunch.length ? ` -ArgumentList @(${relaunch.map((arg) => psWord(windowsArgument(arg))).join(", ")})` : ""}\n`;
+	return `$ErrorActionPreference = 'Stop'
+$destination = [IO.Path]::GetFullPath(${psWord(dir)}).TrimEnd('\\')
+$staged = [IO.Path]::GetFullPath(${psWord(staged)}).TrimEnd('\\')
+$previous = $destination + '.previous'
+if ($destination -eq [IO.Path]::GetPathRoot($destination).TrimEnd('\\') -or
+    $staged.StartsWith($destination + '\\', [StringComparison]::OrdinalIgnoreCase) -or
+    $destination.StartsWith($staged + '\\', [StringComparison]::OrdinalIgnoreCase) -or
+    $staged -eq $destination -or $staged -eq $previous -or
+    $staged.StartsWith($previous + '\\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Overlapping update paths' }
+foreach ($folder in @($destination, $staged, $previous)) {
+    if ((Test-Path -LiteralPath $folder) -and ((Get-Item -LiteralPath $folder).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Linked update directory' }
+}
+if (-not (Test-Path -LiteralPath (Join-Path $staged 'justnotes.exe') -PathType Leaf)) { throw 'Incomplete update' }
+$entries = @(Get-ChildItem -LiteralPath $staged -Force)
+if ($entries | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }) { throw 'Linked update entry' }
+Wait-Process -Id ${pid} -ErrorAction SilentlyContinue
+Set-Location -LiteralPath ([IO.Path]::GetTempPath())
+function Retry($action) { for ($i = 0; $i -lt 50; $i++) { try { & $action; return } catch { Start-Sleep -Milliseconds 200 } }; & $action }
+if (Test-Path -LiteralPath $previous) { Remove-Item -LiteralPath $previous -Recurse -Force }
+New-Item -ItemType Directory -Path $previous | Out-Null
+$movedOld = [Collections.Generic.List[string]]::new()
+$movedNew = [Collections.Generic.List[string]]::new()
+try {
+    foreach ($entry in $entries) {
+        $target = Join-Path $destination $entry.Name
+        if (Test-Path -LiteralPath $target) {
+            Retry { Move-Item -LiteralPath $target -Destination (Join-Path $previous $entry.Name) }
+            $movedOld.Add($entry.Name)
+        }
+        Retry { Move-Item -LiteralPath $entry.FullName -Destination $target }
+        $movedNew.Add($entry.Name)
+    }
+} catch {
+    $failure = $_
+    for ($i = $movedNew.Count - 1; $i -ge 0; $i--) {
+        Move-Item -LiteralPath (Join-Path $destination $movedNew[$i]) -Destination (Join-Path $staged $movedNew[$i])
+    }
+    for ($i = $movedOld.Count - 1; $i -ge 0; $i--) {
+        Move-Item -LiteralPath (Join-Path $previous $movedOld[$i]) -Destination (Join-Path $destination $movedOld[$i])
+    }
+    throw $failure
+}
 ${start}`;
 }
