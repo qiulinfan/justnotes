@@ -883,10 +883,20 @@ plain style. Development notes belong in this file.
   packages the built `dist/`: `bun run dist:mac` makes `justnotes.app` for
   arm64 and x64 as `.dmg` and `.zip`, `bun run dist:win` an x64 NSIS
   installer (`-setup.exe`, per user, folder choosable) and `.zip`, `bun run
-  dist` both; each runs `bun run build` first. Output goes to `release/`
-  (ignored). Name, version and author come from package.json, the app id is
-  `io.github.qiulinfan.justnotes`. The default profile is the same
-  `justnotes` user data folder the source build uses.
+  dist` both, all through `scripts/dist.ts`, which runs `bun run build`
+  first. Output goes to `release/` (ignored). Name and author come from
+  package.json, the app id is `io.github.qiulinfan.justnotes`. The default
+  profile is the same `justnotes` user data folder the source build uses.
+- Version: package.json's major and minor are set by hand, raised when the
+  owner says a change is a new major version; the patch is counted at build
+  time, the number of commits in the history (`scripts/version.ts`, which
+  refuses a shallow clone), so every push to main counts up. `dist.ts`
+  gives it to the package (`-c.extraMetadata.version`: the packaged
+  package.json, which `app.getVersion()` reads, and the artifacts' names)
+  and `build.ts` to the packaged command (`process.env.JUSTNOTES_VERSION`,
+  defined at build time); `JUSTNOTES_VERSION` set in the environment wins
+  over both. package.json is never rewritten, so run from source the app
+  and the command report package.json's version.
 - The asar holds `package.json`, `dist/` without source maps and the
   command, and of node_modules only `@electron/remote`, which main and the
   page require at runtime, and node-pty (unpacked: `asarUnpack`, since its
@@ -949,15 +959,16 @@ plain style. Development notes belong in this file.
   (and with that profile's instance running, hands it the file). With the
   package already running on a test profile, macOS sends the file to it.
 - CI (`.github/workflows/build.yml`, actions pinned by commit): on pushes
-  and pull requests to main, macOS (macos-15) runs `bun install
-  --frozen-lockfile`, `bun run check`, `bun test test`, `bun run build` and
-  packages; Windows (windows-2025) checks, builds and packages without the
+  and pull requests to main, macOS (macos-15) checks out the whole history
+  (for the version), runs `bun install --frozen-lockfile`, `bun run check`,
+  `bun test test` and `scripts/dist.ts` (build and package); Windows (windows-2025) checks, builds and packages without the
   tests, which assume POSIX (Unix sockets and file modes, symlinks, bash
   completion). Bun's cache and the Electron and electron-builder downloads
   are cached; the packages are workflow artifacts (`justnotes-macOS`,
   `justnotes-Windows`). A push to main then publishes them as the latest
   GitHub Release, tag `main-<version>-<commit7>` made on the built commit
-  (`publish` job; a tag pushed with the workflow token starts no run).
+  with the version the package job computed (`publish` job; a tag pushed
+  with the workflow token starts no run).
 - Installing on the owner's machines: `bun scripts/install.ts`. macOS builds
   the checkout (`--mac --dir` for the host arch), swaps it into
   `/Applications/justnotes.app` by rename, re-registers it with Launch
@@ -999,8 +1010,9 @@ plain style. Development notes belong in this file.
   /Applications and launched with its own `--profile`: it downloads the
   real latest release and, on Restart to update, replaces that copy and
   reopens it. The Windows script is not verified on Windows yet.
-- Release: bump `version` in package.json, commit, tag `v<version>` and push
-  the tag. The workflow checks the tag matches package.json and creates a
+- Release: set `version` in package.json, commit, tag `v<version>` and push
+  the tag. A v* tag's packages carry package.json's version as written; the
+  workflow checks the tag matches it and creates a
   draft GitHub Release with the `.dmg`, `.zip` and `-setup.exe` files and
   generated notes; publish it by hand.
 

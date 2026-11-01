@@ -2,7 +2,11 @@ import * as fs from "node:fs/promises";
 import * as esbuild from "esbuild";
 import components from "prismjs/components.js";
 import getLoader from "prismjs/dependencies.js";
+import { appVersion } from "./scripts/version";
 
+// The version the packaged command reports (scripts/dist.ts gives the same
+// to the package).
+const version = process.env.JUSTNOTES_VERSION || appVersion();
 
 const common = {
 	bundle: true,
@@ -41,6 +45,7 @@ await Promise.all([
 		platform: "node",
 		format: "esm",
 		external: ["electron"],
+		define: { "process.env.JUSTNOTES_VERSION": JSON.stringify(version) },
 		banner: { js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);' },
 	}),
 	// The vault picker's page (src/picker, main/vault-picker.ts).

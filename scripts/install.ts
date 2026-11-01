@@ -43,9 +43,8 @@ function installMac() {
 	const app = "/Applications/justnotes.app";
 	// Anchored, so a shell whose command line merely names the app is not taken for it.
 	if (output("pgrep", ["-f", `^${app}/Contents/MacOS/justnotes`]).trim()) throw new Error("justnotes is running from /Applications: quit it first");
-	run("bun", ["run", "build"]);
 	const arch = process.arch === "arm64" ? "arm64" : "x64";
-	run("node", ["node_modules/electron-builder/cli.js", "--mac", "--dir", `--${arch}`, "--publish", "never"]);
+	run("bun", ["scripts/dist.ts", "--mac", "--dir", `--${arch}`]);
 	const built = path.join(root, "release", arch === "arm64" ? "mac-arm64" : "mac", "justnotes.app");
 	if (!fs.existsSync(path.join(built, "Contents", "MacOS", "justnotes"))) throw new Error(`No app at ${built}`);
 	// Copied beside the old app, then swapped in by rename, so a failed copy

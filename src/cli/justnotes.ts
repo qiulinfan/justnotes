@@ -115,10 +115,10 @@ async function readStdin() {
 	return Buffer.concat(chunks).toString("utf8");
 }
 
-// Read at build time in the packaged command (dist/cli/justnotes.mjs), from
-// the checkout when run from source.
+// Set at build time in the packaged command (dist/cli/justnotes.mjs, the
+// version scripts/version.ts computes), package.json's when run from source.
 function version(): string {
-	return pkg.version;
+	return process.env.JUSTNOTES_VERSION || pkg.version;
 }
 
 // The vault a command runs in when no app runs: by vault=, else the folder
