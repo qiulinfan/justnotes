@@ -54,6 +54,51 @@
 	user-select: none;
 }
 
+/* The box of a block whose fence lines are hidden (code-fences.ts): a top
+   edge, and a bottom edge with the language field at the right. */
+.markdown-source-view.mod-cm6 .cm-codeblock-header,
+.markdown-source-view.mod-cm6 .cm-codeblock-footer {
+	background: var(--code-background);
+}
+
+.markdown-source-view.mod-cm6 .cm-codeblock-header {
+	height: 8px;
+	border-top-left-radius: var(--radius-s);
+	border-top-right-radius: var(--radius-s);
+}
+
+.markdown-source-view.mod-cm6 .cm-codeblock-footer {
+	display: flex;
+	justify-content: flex-end;
+	padding: 2px 8px 4px;
+	border-bottom-left-radius: var(--radius-s);
+	border-bottom-right-radius: var(--radius-s);
+}
+
+.markdown-source-view.mod-cm6 .code-block-language {
+	width: 9em;
+	padding: 1px 6px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-s);
+	background: transparent;
+	color: var(--text-faint);
+	font-family: var(--font-interface);
+	font-size: var(--font-ui-smaller);
+	text-align: right;
+	outline: none;
+}
+
+.markdown-source-view.mod-cm6 .code-block-language:hover,
+.markdown-source-view.mod-cm6 .code-block-language:focus {
+	border-color: var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-normal);
+}
+
+.markdown-source-view.mod-cm6 .code-block-language:focus {
+	text-align: left;
+}
+
 /* Quotes, in Live Preview where the > marks are hidden. As in Obsidian, the
    first level's bar is the line's inline-start border and the indent its
    inline-start padding, with no more than three classes, so a plugin rule of
@@ -62,7 +107,6 @@
    important indent, so a fenced block inside a quote keeps the quote's look. */
 .markdown-source-view.is-live-preview .HyperMD-quote {
 	--quote-bar: linear-gradient(var(--blockquote-border-color, var(--interactive-accent)), var(--blockquote-border-color, var(--interactive-accent)));
-	margin-inline-start: 6px;
 	border-inline-start: var(--blockquote-border-thickness, 3px) solid var(--blockquote-border-color, var(--interactive-accent));
 	border-radius: 0;
 	padding-inline-start: 9px !important;

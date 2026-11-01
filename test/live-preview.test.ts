@@ -126,12 +126,67 @@ describe("line classes", () => {
 		]);
 	});
 
-	test("fenced code marks its first and last lines", () => {
+	test("fenced code shown as source marks its first and last lines", () => {
 		const doc = "```js\nx\n```\n\nend";
-		const decos = decorate(doc, doc.length);
+		const decos = decorations(stateOf(doc, 0).update({ selection: { anchor: 0, head: doc.indexOf("\n\nend") } }).state);
 		expect(lineClass(decos, doc, 0)).toContain("HyperMD-codeblock-begin");
 		expect(lineClass(decos, doc, 1)).toBe("HyperMD-codeblock HyperMD-codeblock-bg");
 		expect(lineClass(decos, doc, 2)).toContain("HyperMD-codeblock-end");
+	});
+});
+
+// Typora's code box: the fence lines stay hidden with the cursor inside.
+describe("fenced code box", () => {
+	const doc = "text\n\n```js\nlet a\nlet b\n```\n\nend";
+	const open = doc.indexOf("```js");
+	const close = doc.lastIndexOf("```");
+	const blocks = (state: EditorState) => decorations(state).filter((d) => d.block).map((d) => [d.widget, doc.slice(d.from, d.to)]);
+	const at = (pos: number) => stateOf(doc, pos);
+
+	test("hides the fence lines wherever the cursor is, until a selection covers the block", () => {
+		const boxed = [
+			["FenceTopWidget", "```js"],
+			["FenceLanguageWidget", "```"],
+		];
+		expect(blocks(at(doc.length))).toEqual(boxed);
+		expect(blocks(at(doc.indexOf("let b")))).toEqual(boxed);
+		expect(blocks(at(0).update({ selection: { anchor: open, head: close + 3 } }).state)).toEqual([]);
+	});
+
+	test("an empty block, one in a quote or one not closed keeps its fences", () => {
+		for (const text of ["```js\n```\nend", "> ```js\n> x\n> ```\nend", "```js\nx"]) {
+			expect(decorations(stateOf(text, text.length)).filter((d) => d.block)).toEqual([]);
+		}
+	});
+
+	const edit = (state: EditorState, spec: TransactionSpec) => state.update(spec).state.doc.toString();
+	const inCode = at(doc.indexOf("let a"));
+
+	test("typing or deleting may not break a hidden fence", () => {
+		const start = doc.indexOf("let a");
+		// Backspace at the start of the code, Delete at its end.
+		expect(edit(inCode, { changes: { from: start - 1, to: start }, userEvent: "delete.backward" })).toBe(doc);
+		expect(edit(inCode, { changes: { from: close - 1, to: close }, userEvent: "delete.forward" })).toBe(doc);
+		// A selection from the text above into the code.
+		expect(edit(inCode, { changes: { from: 2, to: start + 3 }, userEvent: "delete.cut" })).toBe(doc);
+	});
+
+	test("edits that keep the fences whole go through", () => {
+		expect(edit(inCode, { changes: { from: close - 1, insert: "\n" }, userEvent: "input" })).toBe(doc.slice(0, close - 1) + "\n" + doc.slice(close - 1));
+		// Removing the whole line above the block.
+		expect(edit(inCode, { changes: { from: 0, to: 6 }, userEvent: "delete.line" })).toBe(doc.slice(6));
+		// Code and plugins write without a user event.
+		expect(edit(inCode, { changes: { from: open, to: open + 3 } })).toBe(doc.slice(0, open) + doc.slice(open + 3));
+	});
+
+	test("a selection covering the block deletes it", () => {
+		const covering = at(0).update({ selection: { anchor: open, head: close + 3 } }).state;
+		expect(edit(covering, { changes: { from: open, to: close + 3 }, userEvent: "delete.backward" })).toBe("text\n\n\n\nend");
+	});
+
+	test("a cursor landing on a fence line moves into the code", () => {
+		expect(at(0).update({ selection: { anchor: open + 2 } }).state.selection.main.head).toBe(doc.indexOf("let a"));
+		expect(at(0).update({ selection: { anchor: close + 1 } }).state.selection.main.head).toBe(close - 1);
 	});
 });
 

@@ -3,6 +3,7 @@ import { type EditorState, type Extension, Prec, type Range, StateEffect, StateF
 import { Decoration, type DecorationSet, EditorView, keymap, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 import type { App } from "./app";
+import { closedFence, codeFences, coversFence, FenceLanguageWidget, FenceTopWidget } from "./code-fences";
 import { AppResizeObserver } from "./dom";
 import type { Component } from "./events";
 import { setIcon } from "./icons";
@@ -870,19 +871,32 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const last = doc.lineAt(to);
 					const marks = node.getChildren("CodeMark");
 					const closed = marks.length > 1 && last.number > first.number;
-					eachLine(from, to, (l) => addLine(l.from, "HyperMD-codeblock HyperMD-codeblock-bg"));
-					addLine(from, "HyperMD-codeblock-begin HyperMD-codeblock-begin-bg");
-					if (closed) addLine(to, "HyperMD-codeblock-end HyperMD-codeblock-end-bg");
-					if (touchesLines(from, to)) return false;
+					// Typora's code box: fence lines hidden even with the cursor
+					// inside, until a selection covers the whole block.
+					const fence = live ? closedFence(state, node) : null;
+					const boxed = fence && !coversFence(state, fence);
+					if (boxed) eachLine(first.to + 1, last.from - 1, (l) => addLine(l.from, "HyperMD-codeblock HyperMD-codeblock-bg"));
+					else {
+						eachLine(from, to, (l) => addLine(l.from, "HyperMD-codeblock HyperMD-codeblock-bg"));
+						addLine(from, "HyperMD-codeblock-begin HyperMD-codeblock-begin-bg");
+						if (closed) addLine(to, "HyperMD-codeblock-end HyperMD-codeblock-end-bg");
+						if (touchesLines(from, to)) return false;
+					}
 					const info = node.getChild("CodeInfo");
 					const language = info ? state.sliceDoc(info.from, info.to).trim().split(/\s/)[0] : "";
 					const handler = language ? codeBlockProcessor(language) : undefined;
-					if (closed && handler && ownsLines(node)) {
+					if (closed && handler && ownsLines(node) && !touchesLines(from, to)) {
 						const indent = doc.sliceString(first.from, from);
 						const lines = last.number - first.number > 1 ? doc.sliceString(first.to + 1, last.from - 1).split("\n") : [];
 						const source = lines.map((line) => dedent(line, indent)).join("\n");
 						const widget = new CodeBlockWidget(language, source, last.number - first.number, first.from, handler, host);
 						decos.push(Decoration.replace({ block: true, widget }).range(first.from, last.to));
+						return false;
+					}
+					if (boxed) {
+						decos.push(Decoration.replace({ block: true, widget: new FenceTopWidget() }).range(first.from, first.to));
+						const infoText = state.sliceDoc(fence.infoFrom, first.to).trim();
+						decos.push(Decoration.replace({ block: true, widget: new FenceLanguageWidget(infoText) }).range(last.from, last.to));
 						return false;
 					}
 					if (marks[0].from < first.to) decos.push(hide.range(marks[0].from, first.to));
@@ -1193,7 +1207,7 @@ export function livePreview(host: LivePreviewHost): Extension {
 			return true;
 		},
 	});
-	return [frontmatterRevealed, field, tagClicks, processorRefresh, Prec.high(keymap.of([{ key: "ArrowUp", run: enterProperties }]))];
+	return [frontmatterRevealed, field, tagClicks, processorRefresh, codeFences(), Prec.high(keymap.of([{ key: "ArrowUp", run: enterProperties }]))];
 }
 
 // ArrowUp out of the note's first line goes to the Properties block above it.

@@ -47,6 +47,7 @@ macOS 上它从当前 checkout 打包, 装到 `/Applications/justnotes.app`; Win
 
 - Live Preview: 标题, 粗体斜体, 链接 (包括引用式链接, 脚注, 路径带空格的 Typora 写法), `[[wikilink]]`, 图片 (包括 `<img>` 和 HTML 块), 任务列表, 引用, callout, 表格, 行内和块级公式 (MathJax), mermaid, 嵌入 (笔记, 标题段落, PDF, base) 和插件的代码块.
 - 空的 `>` 行按 Enter 退出一层引用, 像 Typora.
+- 代码块像 Typora: 光标在里面也不显示 ``` 行, 语言在框右下角填. 选区包住整个代码块时才显示源码, 其它时候打字和删除不会弄坏 ``` 行.
 - 右键菜单有格式, 段落, 插入 (脚注, 表格, callout, 代码块, 公式块, 分隔线).
 - 粘贴和拖进来的图片默认写成 Typora 的 `<img>`. 双击图片可以缩放, 对齐, 重命名, 移动.
 - 选中文本拖到边缘时的滚动速度可以在设置的 Editor 页调.

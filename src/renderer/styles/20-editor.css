@@ -50,11 +50,17 @@
 
 /* The text's side space is a margin, not padding: CodeMirror draws a
    selection's full lines from the content box's edge plus the first line's
-   padding, so padding on .cm-content would widen them into the gutter. */
+   padding, so padding on .cm-content would widen them into the gutter.
+   Lines have no side padding of their own, so text, code boxes and block
+   widgets share one left edge. */
 .markdown-source-view .cm-content {
 	caret-color: var(--interactive-accent);
 	padding-inline: 0;
-	margin-inline: 8px 24px;
+	margin-inline: 14px 24px;
+}
+
+.markdown-source-view .cm-line {
+	padding-inline: 0;
 }
 
 .markdown-source-view .cm-gutters {

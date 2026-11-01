@@ -63,7 +63,7 @@ plain style. Development notes belong in this file.
     `markdown-view.ts` (editing and reading halves of MarkdownView),
     `markdown-preview.ts` (reading view), `markdown.ts` (MarkdownRenderer, post
     processors, code-block registry, the math grammar, MathJax/pdf.js/Prism/
-    Mermaid loaders), `live-preview.ts` and `editor-*.ts` (CodeMirror 6),
+    Mermaid loaders), `live-preview.ts`, `code-fences.ts` (fenced code's box) and `editor-*.ts` (CodeMirror 6),
     `selection-scroll.ts` (drag-select scrolling), `image-menu.ts` (the
     image double-click menu), `editor-settings.ts`
     (justnotes' own editor options), `editor-options.ts` (the Editor
@@ -1245,6 +1245,24 @@ stale or corrupt cache gives the same result, more slowly.
   line syntax (heading marks, quote marks, list bullets, tasks, rules, block
   math) shows while the selection is on those lines.
 - `editorLivePreviewField` false means Source mode: no decorations at all.
+- Fenced code (`code-fences.ts`) shows as Typora shows it, not as Obsidian
+  does: a closed block with at least one line of code and its lines to
+  itself (not in a quote) keeps its fence lines hidden wherever the cursor
+  is. The opening line is a block widget (the box's top edge), the closing
+  one the box's bottom edge with the info string in a field at the right
+  (`.code-block-language`; Enter or leaving it applies, Escape restores; a
+  change is one undo step). The source shows only while one selection
+  covers the whole block. While hidden, the stretches of the fence lines
+  with the line breaks on both sides are atomic, a cursor landing on a
+  fence line moves into the code, and a typed, deleted, cut or dropped edit
+  that would leave either fence line not whole is dropped (`protectFences`;
+  edits without a user event, from code and plugins, pass). Backspace at the
+  start of an empty block removes it, on the empty line under a block
+  removes that line; Up or Down out of a block at the very start or end of
+  the note adds an empty line there. Blocks a plugin renders keep their
+  rendered widget while the cursor is outside. Lines in the note editor
+  have no side padding (the text's space is `.cm-content`'s margin), so the
+  box, block widgets and text share one left edge.
 - Paths with bare spaces, as Typora writes them (`![shot](a.assets/Screenshot
   2025-02-09 at 15.04.04.png)`, `[N](My Note.md#Part one)`), are links and
   images in all three parsers (reading view `spaced_link`, Live Preview
