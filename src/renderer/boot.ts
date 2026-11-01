@@ -22,6 +22,7 @@ import { defaultRightSidebar, installCorePlugins, registerCorePluginViews } from
 import { registerMediaViews } from "./media-view";
 import { SearchView } from "./search";
 import { registerPlainTextView } from "./plain-text-view";
+import { installRightSidebarToggle } from "./sidebar-toggle";
 import { installVaultSwitcher } from "./vault-switcher";
 import { registerViewCommands } from "./view-commands";
 import { EmptyView, FileExplorerView } from "./views";
@@ -45,6 +46,7 @@ function buildShell(app: App) {
 	root.appendChild(app.statusBar);
 	const ribbon = app.workspace.leftRibbon;
 	ribbon.addRibbonItemButton("toggle-left", "panel-left", "Toggle left sidebar", () => app.workspace.leftSplit.toggle());
+	installRightSidebarToggle(app);
 	ribbon.addRibbonItemButton("switcher", "file-search", "Open quick switcher", () => app.commands.executeCommandById("switcher:open"));
 	ribbon.addRibbonItemButton("palette", "terminal-square", "Open command palette", () => app.commands.executeCommandById("command-palette:open"));
 	const settings = ribbon.containerEl.createDiv("side-dock-settings");

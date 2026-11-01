@@ -281,6 +281,13 @@ body.is-grabbing :is(webview, iframe) {
 	height: var(--icon-s);
 }
 
+/* The right sidebar's toggle (sidebar-toggle.ts), last in a tab header. */
+.sidebar-toggle-button.mod-right {
+	align-self: center;
+	display: flex;
+	margin-right: 4px;
+}
+
 .mod-sidedock .workspace-tab-header-container {
 	align-items: center;
 }
