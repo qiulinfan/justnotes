@@ -277,7 +277,11 @@ export class WorkspaceLeaf extends WorkspaceItem implements HoverParent {
 				this.detach();
 			}
 		});
-		this.tabHeaderEl.addEventListener("click", () => this.app.workspace.setActiveLeaf(this, { focus: true }));
+		// A tab of a collapsed group opens the group again.
+		this.tabHeaderEl.addEventListener("click", () => {
+			if (this.parent instanceof WorkspaceTabs) this.parent.setCollapsed(false);
+			this.app.workspace.setActiveLeaf(this, { focus: true });
+		});
 		this.tabHeaderEl.addEventListener("contextmenu", (evt) => this.#showTabMenu(evt));
 		// Tabs move by drag and drop: within their group, to another group, to a
 		// pane's edge (a split), into a sidebar, or out of every window (a popout).
@@ -590,6 +594,10 @@ export class WorkspaceTabs extends WorkspaceParent {
 	tabHeaderContainerEl: HTMLElement;
 	tabsContainerEl: HTMLElement;
 	currentTab = 0;
+	// Folded down to its tab header, in a sidebar column it shares with
+	// another tab group (kgdistiller's Lookup above its Capture, say).
+	collapsed = false;
+	#collapseEl: HTMLElement;
 
 	constructor(app: App, id?: string) {
 		super(app, createDiv("workspace-tabs"), id);
@@ -605,6 +613,10 @@ export class WorkspaceTabs extends WorkspaceParent {
 			this.app.workspace.setActiveLeaf(leaf, { focus: true });
 		});
 		this.headerEl.createDiv("workspace-tab-header-spacer");
+		// Shown only for a group stacked with another in a sidebar (CSS).
+		this.#collapseEl = this.headerEl.createDiv("workspace-tab-header-collapse clickable-icon");
+		this.#collapseEl.addEventListener("click", () => this.setCollapsed(!this.collapsed));
+		this.#syncCollapseButton();
 		// Obsidian's tab list: the group's tabs, and what plugins add on the
 		// workspace's `tab-group-menu` (Bookmarks' "Bookmark N tabs...").
 		const tabList = this.headerEl.createDiv("workspace-tab-header-tab-list clickable-icon");
@@ -612,6 +624,21 @@ export class WorkspaceTabs extends WorkspaceParent {
 		setTooltip(tabList, "Tabs");
 		tabList.addEventListener("click", (evt) => this.#showTabList(evt));
 		this.tabsContainerEl = this.containerEl.createDiv("workspace-tab-container");
+	}
+
+	setCollapsed(collapsed: boolean) {
+		if (this.collapsed === collapsed) return;
+		this.collapsed = collapsed;
+		this.containerEl.toggleClass("is-collapsed", collapsed);
+		this.#syncCollapseButton();
+		if (!collapsed) this.children[this.currentTab]?.onResize();
+		this.app.workspace.requestResize();
+		this.app.workspace.onLayoutChange();
+	}
+
+	#syncCollapseButton() {
+		setIcon(this.#collapseEl, this.collapsed ? "chevrons-up-down" : "chevrons-down-up");
+		setTooltip(this.#collapseEl, this.collapsed ? "Expand" : "Collapse");
 	}
 
 	#showTabList(evt: MouseEvent) {
@@ -685,6 +712,7 @@ export class WorkspaceTabs extends WorkspaceParent {
 		const data: Record<string, unknown> = { id: this.id, type: "tabs", children: this.children.map((c) => c.serialize()) };
 		if (this.currentTab) data.currentTab = this.currentTab;
 		if (this.dimension !== null) data.dimension = this.dimension;
+		if (this.collapsed) data.collapsed = true;
 		return data;
 	}
 }
@@ -1591,6 +1619,7 @@ export class Workspace extends Events {
 	async revealLeaf(leaf: WorkspaceLeaf) {
 		const root = leaf.getRoot();
 		if (root instanceof WorkspaceSidedock && root.collapsed) root.expand();
+		if (leaf.parent instanceof WorkspaceTabs) leaf.parent.setCollapsed(false);
 		leaf.parent?.selectTab(leaf);
 		await leaf.loadIfDeferred();
 	}
@@ -2084,6 +2113,7 @@ export class Workspace extends Events {
 			item = split;
 		}
 		if (item && typeof data.dimension === "number") item.setDimension(data.dimension);
+		if (item instanceof WorkspaceTabs && data.collapsed === true) item.setCollapsed(true);
 		return item;
 	}
 

@@ -281,6 +281,35 @@ body.is-grabbing :is(webview, iframe) {
 	height: var(--icon-s);
 }
 
+/* Collapse (WorkspaceTabs.setCollapsed): only a sidebar tab group stacked
+   with another one shows the button; a collapsed group keeps just its tab
+   header, and the group beside it takes the room. */
+.workspace-tab-header-collapse {
+	display: none;
+	align-self: center;
+	margin: 0 2px;
+}
+
+.workspace-tab-header-collapse .svg-icon {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+.mod-sidedock .workspace-split.mod-horizontal > .workspace-tabs:is(:has(~ .workspace-tabs), .workspace-tabs ~ .workspace-tabs) > .workspace-tab-header-container > .workspace-tab-header-collapse,
+.workspace-split.mod-sidedock.mod-horizontal > .workspace-tabs:is(:has(~ .workspace-tabs), .workspace-tabs ~ .workspace-tabs) > .workspace-tab-header-container > .workspace-tab-header-collapse {
+	display: flex;
+}
+
+.workspace-tabs.is-collapsed {
+	flex: 0 0 auto !important;
+}
+
+.workspace-tabs.is-collapsed > .workspace-tab-container,
+.workspace-tabs.is-collapsed > .workspace-leaf-resize-handle,
+.workspace-tabs:has(+ .workspace-tabs.is-collapsed) > .workspace-leaf-resize-handle {
+	display: none;
+}
+
 /* The right sidebar's toggle (sidebar-toggle.ts), last in a tab header. */
 .sidebar-toggle-button.mod-right {
 	align-self: center;

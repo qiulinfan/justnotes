@@ -421,6 +421,14 @@ plain style. Development notes belong in this file.
   unknown folder's plugins. The built-in `open` and `new` refuse a `file=` or
   `name=` with a `..` or hidden (`.obsidian`, `.git`) segment
   (`urlPathOutsideNotes`): a link must never write plugin code or settings.
+- Stacked sidebar panes (justnotes' own; Obsidian has none): a tab group that
+  shares a sidebar column with another (kgdistiller's Lookup above its
+  Capture) shows a collapse button, `.workspace-tab-header-collapse`, before
+  its tab list (CSS shows it only there). `WorkspaceTabs.setCollapsed` folds
+  the group to its tab header (`.is-collapsed`: no tab container, no resize
+  handles beside it) and the other groups take the room; clicking one of its
+  tabs or `revealLeaf` on one of its leaves opens it again. The layout keeps
+  `collapsed: true` on the tab group.
 - Vault switcher (`renderer/vault-switcher.ts`, main's side in
   `main/vault-switcher.ts`): Obsidian's vault profile at the bottom of the
   left sidebar, `.workspace-sidedock-vault-profile` holding
