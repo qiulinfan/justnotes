@@ -17,6 +17,14 @@ bun run start --vault /path/to/your/vault
 
 vault 就是一个放 Markdown 文件的文件夹. 已有的 Obsidian vault 可以直接打开, 里面装的社区插件会被加载.
 
+装成应用:
+
+```bash
+bun scripts/install.ts
+```
+
+macOS 上它从当前 checkout 打包, 装到 `/Applications/justnotes.app`; Windows 上它下载 main 最新一次 CI 构建的 release, 装到 `%LOCALAPPDATA%\Programs\justnotes`. 两边都把 `justnotes` 命令放进 `~/.local/bin`. 装之前先退出正在运行的 justnotes; vault 列表, 布局和设置在应用之外, 重装不会丢.
+
 ## 这是一个对 Obsidian 的 reverse engineering 吗
 
 不是. 这是一个 reimplementation of (most) APIs. 用 Electron 做一个 md 编辑器本质上是一个很简单的事情. 甚至在无 AI 时代就很容易做了 (只不过很慢).
