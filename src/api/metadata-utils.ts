@@ -32,10 +32,39 @@ export function stripHeadingForLink(heading: string) {
 // paths (`![shot](note.assets/Screenshot 2025-02-09 at 15.04.04.png)`):
 // CommonMark allows no spaces there, but notes are full of these. It counts
 // only when it reads as a file path (ending in an extension, maybe with a
-// `#subpath`) and not as a standard destination with a title (`a.png "t"`),
-// so prose in parentheses stays prose.
+// `#subpath` or a `:line[:col]` as agents and terminals write them) and not
+// as a standard destination with a title (`a.png "t"`), so prose in
+// parentheses stays prose. Parentheses in it are balanced or escaped
+// (`08(Transport from Paradise\)/a.md`), as `spacedLinkEnd` finds them.
 export function spacedDestination(text: string) {
-	return /^[^\s()<>][^()<>\n]*\s[^()<>\n]*$/.test(text) && /\.[A-Za-z0-9]{1,8}(?:#[^()\n]*)?$/.test(text.trimEnd()) && !/\s("[^"\n]*"|'[^'\n]*')\s*$/.test(text);
+	return (
+		/^[^\s()<>][^<>\n]*\s[^<>\n]*$/.test(text) &&
+		/\.[A-Za-z0-9]{1,8}(?:#[^()\n]*|:\d+(?::\d+)?)?$/.test(text.trimEnd()) &&
+		!/\s("[^"\n]*"|'[^'\n]*')\s*$/.test(text)
+	);
+}
+
+// Where the destination that starts at `from` (just after a link's `(`)
+// ends: the index of its closing `)`, or -1 when the line ends first. A
+// backslash escapes the next character, and unescaped parentheses nest, as
+// CommonMark reads a destination. A path that escapes only its closing
+// parentheses (`08(Transport from Paradise\)/a.md`, as agents write them)
+// leaves an unbalanced `(`; then the first unescaped `)` closes it.
+export function spacedLinkEnd(text: string, from: number) {
+	let depth = 0;
+	let first = -1;
+	for (let i = from; i < text.length; i++) {
+		const c = text[i];
+		if (c === "\n") break;
+		if (c === "\\") i++;
+		else if (c === "(") depth++;
+		else if (c === ")") {
+			if (depth === 0) return i;
+			if (first < 0) first = i;
+			depth--;
+		}
+	}
+	return first;
 }
 
 // A link destination as written, read as CommonMark (and the reading view)
@@ -44,6 +73,24 @@ export function spacedDestination(text: string) {
 export function destinationText(text: string) {
 	const bare = text.startsWith("<") && text.endsWith(">") ? text.slice(1, -1) : text;
 	return bare.replace(/\\([!-/:-@[-`{-~])/g, "$1");
+}
+
+// A link path as agents and terminals write one, read as a vault link: a
+// `:line[:col]` after the file name (`notes/a.md:12`, 1-based) and an
+// absolute file system path inside the vault (`/Users/me/vault/notes/a.md`),
+// which Obsidian would read from the vault's root instead. Null when the path
+// has neither. `line` is 0-based, as a view's ephemeral state takes it.
+export function filePathLink(linkpath: string, vaultBase: string | undefined): { path: string; line: number | null } | null {
+	let path = linkpath;
+	let line: number | null = null;
+	const at = /^(.*\.[A-Za-z0-9]{1,8}):(\d+)(?::\d+)?$/.exec(path);
+	if (at) {
+		path = at[1];
+		line = Math.max(0, Number(at[2]) - 1);
+	}
+	const base = vaultBase?.replace(/\/+$/, "");
+	if (base && path.startsWith(`${base}/`)) path = `/${path.slice(base.length + 1)}`;
+	return path === linkpath ? null : { path, line };
 }
 
 // The frontmatter block: '---' on the first line up to the next '---' line,

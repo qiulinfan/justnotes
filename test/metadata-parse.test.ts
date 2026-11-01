@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseMetadata } from "../src/api/metadata";
-import { getAllTags, getFrontMatterInfo, parseFrontMatterAliases, parseFrontMatterStringArray, parseFrontMatterTags, resolveSubpath, stripHeadingForLink } from "../src/api/metadata-utils";
+import { filePathLink, getAllTags, getFrontMatterInfo, parseFrontMatterAliases, parseFrontMatterStringArray, parseFrontMatterTags, resolveSubpath, stripHeadingForLink } from "../src/api/metadata-utils";
 
 const lines = (p: { start: { line: number }; end: { line: number } }) => [p.start.line, p.end.line];
 
@@ -251,6 +251,24 @@ describe("parseMetadata paths with bare spaces", () => {
 		const c = parseMetadata("![Shot](a.assets/Screenshot 2025.png) [N](My Note.md#Part one) (a b c)");
 		expect(c.embeds?.map((e) => e.link)).toEqual(["a.assets/Screenshot 2025.png"]);
 		expect(c.links?.map((l) => l.link)).toEqual(["My Note.md#Part one"]);
+	});
+
+	// An agent's citation: an absolute path with a folder like "08(Transport
+	// from Paradise\)" and a :line, which once showed as raw source.
+	test("parentheses in the path, escaped or balanced, and a :line still make a link", () => {
+		const text = "[课堂讲解，约 1:14:20 (line 767)](/v/08(Transport from Paradise\\)/课堂转写.md:767)；[b](/v/a (1).md) then (prose)";
+		const c = parseMetadata(text);
+		expect(c.links?.map((l) => l.link)).toEqual(["/v/08(Transport from Paradise)/课堂转写.md:767", "/v/a (1).md"]);
+		expect(c.links?.[0].original).toBe("[课堂讲解，约 1:14:20 (line 767)](/v/08(Transport from Paradise\\)/课堂转写.md:767)");
+	});
+});
+
+describe("filePathLink", () => {
+	test("reads a :line and an absolute path inside the vault; leaves other paths alone", () => {
+		expect(filePathLink("/vault/notes/a b.md:767", "/vault")).toEqual({ path: "/notes/a b.md", line: 766 });
+		expect(filePathLink("notes/a.md:3:9", "/vault")).toEqual({ path: "notes/a.md", line: 2 });
+		expect(filePathLink("/elsewhere/a.md", "/vault")).toBeNull();
+		expect(filePathLink("notes/a.md", "/vault")).toBeNull();
 	});
 });
 

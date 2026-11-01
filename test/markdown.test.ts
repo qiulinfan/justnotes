@@ -268,5 +268,10 @@ describe("paths with bare spaces", () => {
 		expect(tags(out, "a")[0]).toMatchObject({ "data-href": "My Note.md#Part one" });
 		expect(out).toContain("(see the note)");
 	});
+
+	test("a path with escaped or balanced parentheses and a :line is a link, with the escapes removed", () => {
+		const out = html("[c](/v/08(Transport from Paradise\\)/a.md:767) and [d](/v/x (1).md)");
+		expect(tags(out, "a").map((t) => t["data-href"])).toEqual(["/v/08(Transport from Paradise)/a.md:767", "/v/x (1).md"]);
+	});
 });
 

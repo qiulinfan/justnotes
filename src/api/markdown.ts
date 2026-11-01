@@ -3,7 +3,7 @@ import type { App } from "./app";
 import { Component } from "./events";
 import { setIcon } from "./icons";
 import { Keymap } from "./keymap";
-import { getLinkpath, parseLinktext, spacedDestination, stripHeading } from "./metadata-utils";
+import { destinationText, getLinkpath, parseLinktext, spacedDestination, spacedLinkEnd, stripHeading } from "./metadata-utils";
 import { sanitizeHTML } from "./sanitize";
 import { Menu } from "./ui/menu";
 import { parseYaml } from "./util";
@@ -422,11 +422,11 @@ md.inline.ruler.before("link", "spaced_link", (state, silent) => {
 	if (src.charCodeAt(open) !== 0x5b) return false;
 	const labelEnd = state.md.helpers.parseLinkLabel(state, open, true);
 	if (labelEnd < 0 || src.charCodeAt(labelEnd + 1) !== 0x28) return false;
-	const close = src.indexOf(")", labelEnd + 2);
+	const close = spacedLinkEnd(src, labelEnd + 2);
 	if (close < 0 || close > state.posMax) return false;
 	const dest = src.slice(labelEnd + 2, close).trim();
 	if (!spacedDestination(dest)) return false;
-	const href = state.md.normalizeLink(dest);
+	const href = state.md.normalizeLink(destinationText(dest));
 	if (!state.md.validateLink(href)) return false;
 	if (!silent) {
 		const content = src.slice(open + 1, labelEnd);

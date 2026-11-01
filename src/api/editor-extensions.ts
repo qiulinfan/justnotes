@@ -23,7 +23,7 @@ import { setIcon } from "./icons";
 import { imageMenu } from "./image-menu";
 import { type LivePreviewHost, livePreview, livePreviewState, refreshLivePreview } from "./live-preview";
 import { inlineMathEnd, mathBlockClose } from "./markdown";
-import { parseLinktext, spacedDestination } from "./metadata-utils";
+import { parseLinktext, spacedDestination, spacedLinkEnd } from "./metadata-utils";
 import type { MarkdownView } from "./markdown-view";
 import { editorSelectionScroll } from "./selection-scroll";
 import { debounce, htmlToMarkdown } from "./util";
@@ -278,7 +278,7 @@ const wikilinkSyntax: MarkdownConfig = {
 // (spacedDestination): lezer-markdown, following CommonMark, leaves them as
 // text. They become the same Link and Image nodes, with LinkMark and URL
 // children, so Live Preview renders and opens them like any other.
-const SPACED_LINK = /^\[((?:[^[\]\n\\]|\\.)*)\]\(([^()\n]*)\)/;
+const SPACED_LABEL = /^\[((?:[^[\]\n\\]|\\.)*)\]\(/;
 const spacedLinkSyntax: MarkdownConfig = {
 	parseInline: [
 		{
@@ -287,12 +287,16 @@ const spacedLinkSyntax: MarkdownConfig = {
 			parse(cx, next, pos) {
 				const open = next === 33 ? pos + 1 : pos;
 				if (cx.char(open) !== 91) return -1;
-				const m = SPACED_LINK.exec(cx.slice(open, cx.end));
-				if (!m || !spacedDestination(m[2].trim())) return -1;
+				const text = cx.slice(open, cx.end);
+				const m = SPACED_LABEL.exec(text);
+				const close = m ? spacedLinkEnd(text, m[0].length) : -1;
+				if (!m || close < 0) return -1;
+				const dest = text.slice(m[0].length, close);
+				if (!spacedDestination(dest.trim())) return -1;
 				const labelEnd = open + 1 + m[1].length;
-				const destFrom = labelEnd + 2 + (m[2].length - m[2].trimStart().length);
-				const destTo = labelEnd + 2 + m[2].trimEnd().length;
-				const end = open + m[0].length;
+				const destFrom = labelEnd + 2 + (dest.length - dest.trimStart().length);
+				const destTo = labelEnd + 2 + dest.trimEnd().length;
+				const end = open + close + 1;
 				return cx.addElement(
 					cx.elt(next === 33 ? "Image" : "Link", pos, end, [
 						cx.elt("LinkMark", pos, open + 1),

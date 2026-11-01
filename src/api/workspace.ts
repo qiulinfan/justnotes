@@ -7,7 +7,7 @@ import { Events } from "./events";
 import { setIcon, setTooltip } from "./icons";
 import { Keymap } from "./keymap";
 import { MarkdownRenderer } from "./markdown";
-import { parseLinktext } from "./metadata-utils";
+import { filePathLink, parseLinktext } from "./metadata-utils";
 import { mirrorDocument, openPopoutWindow, type PopoutBounds } from "./popout-window";
 import { Menu } from "./ui/menu";
 import { type HoverParent, HoverPopover, PopoverState } from "./ui/popover";
@@ -1665,8 +1665,10 @@ export class Workspace extends Events {
 	async openLinkTextIn(leaf: () => WorkspaceLeaf, linktext: string, sourcePath: string, openViewState?: OpenViewState) {
 		const { path, subpath } = parseLinktext(linktext);
 		let file = this.app.metadataCache.getFirstLinkpathDest(path, sourcePath);
+		// A `:line` after the file name (filePathLink) opens the note at that line.
+		const line = file && !this.app.vault.getFileByPath(path.replace(/^\/+/, "")) ? filePathLink(path, this.app.vault.adapter.basePath)?.line : null;
 		if (!file) file = await this.app.fileManager.createNewMarkdownFileFromLinktext(path, sourcePath);
-		const eState = subpath ? { ...openViewState?.eState, subpath } : openViewState?.eState;
+		const eState = subpath ? { ...openViewState?.eState, subpath } : line != null ? { ...openViewState?.eState, line } : openViewState?.eState;
 		await leaf().openFile(file, { ...openViewState, eState });
 	}
 

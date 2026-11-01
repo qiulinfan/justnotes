@@ -2,7 +2,7 @@ import * as nodePath from "node:path";
 import { Events } from "./events";
 import type { MetadataStore, StoredMetadata } from "./metadata-store";
 import { textParserFor } from "./metadata-text";
-import { destinationText, getAllTags, getLinkpath, locateFrontMatter, parseFrontMatterAliases, spacedDestination } from "./metadata-utils";
+import { destinationText, filePathLink, getAllTags, getLinkpath, locateFrontMatter, parseFrontMatterAliases, spacedDestination, spacedLinkEnd } from "./metadata-utils";
 import { isIndexedNote, isNoteExtension } from "./note-files";
 import { parseYaml } from "./util";
 import { type TAbstractFile, TFile, type Vault } from "./vault";
@@ -126,7 +126,8 @@ export const WIKILINK = /(!?)\[\[([^[\]]+?)\]\]/g;
 // [text](dest "title"), dest possibly in <...>, one level of nesting in both.
 const MDLINK = /(!?)\[((?:[^[\]\n]|\[[^[\]\n]*\])*)\]\(\s*(<[^<>\n]*>|(?:[^\s()]|\([^\s()]*\))*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)/g;
 const MDLINK_ONE = new RegExp(MDLINK.source);
-const SPACED_MDLINK = /(!?)\[((?:[^[\]\n]|\[[^[\]\n]*\])*)\]\(([^()<>\n]*\s[^()<>\n]*)\)/g;
+// The start of a link whose destination `spacedLinkEnd` then reads (balanced or escaped parentheses).
+const SPACED_MDLINK_OPEN = /(!?)\[((?:[^[\]\n]|\[[^[\]\n]*\])*)\]\(/g;
 const TAG = /(?<=^|\s)#([\p{L}\p{N}\p{M}\p{Extended_Pictographic}_\-/‍️]+)/gu;
 const FOOTNOTE_REF = /\[\^([^\]\s]+)\](?!:)/g;
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
@@ -375,14 +376,18 @@ export function parseMetadata(text: string): CachedMetadata {
 			tagText = tagText.slice(0, destAt) + blankOut(hit[0].slice(destAt - hit.index!)) + tagText.slice(hit.index! + hit[0].length);
 		}
 		// Paths with bare spaces, as Typora writes them, which MDLINK cannot match.
-		if (masked.includes("](")) for (const hit of masked.matchAll(SPACED_MDLINK)) {
-			const dest = hit[3].trim();
+		if (masked.includes("](")) for (const hit of masked.matchAll(SPACED_MDLINK_OPEN)) {
+			const destStart = hit.index! + hit[0].length;
+			const close = spacedLinkEnd(masked, destStart);
+			if (close < 0) continue;
+			const dest = raw.slice(destStart, close).trim();
 			if (!spacedDestination(dest)) continue;
+			const end = close + 1;
 			const s = base + hit.index!;
-			const original = raw.slice(hit.index!, hit.index! + hit[0].length);
-			(hit[1] ? embeds : links).push({ link: safeDecode(dest), original, displayText: hit[2], position: pos(s, s + hit[0].length) });
-			const destAt = hit.index! + hit[0].indexOf("](") + 1;
-			tagText = tagText.slice(0, destAt) + blankOut(hit[0].slice(destAt - hit.index!)) + tagText.slice(hit.index! + hit[0].length);
+			const original = raw.slice(hit.index!, end);
+			(hit[1] ? embeds : links).push({ link: safeDecode(destinationText(dest)), original, displayText: hit[2], position: pos(s, base + end) });
+			const destAt = hit.index! + hit[0].length - 1;
+			tagText = tagText.slice(0, destAt) + blankOut(masked.slice(destAt, end)) + tagText.slice(end);
 		}
 		if (tagText.includes("#")) for (const m of tagText.matchAll(TAG)) {
 			if (/^[\d/]+$/.test(m[1])) continue;
@@ -1079,9 +1084,18 @@ export class MetadataCache extends Events {
 		return this.#dests(linkpath, sourcePath, false);
 	}
 
+	// A link that resolves as written wins; otherwise one as agents and
+	// terminals write paths (filePathLink) gets a second try.
+	#dests(linkpath: string, sourcePath: string, first: boolean): TFile[] {
+		const found = this.#destsAsWritten(linkpath, sourcePath, first);
+		if (found.length) return found;
+		const alternative = filePathLink(linkpath, (this.vault.adapter as { basePath?: string }).basePath);
+		return alternative === null ? found : this.#destsAsWritten(alternative.path, sourcePath, first);
+	}
+
 	// With `first`, only the first destination: resolving a vault's links asks
 	// for it once per link, and many notes can share a name.
-	#dests(linkpath: string, sourcePath: string, first: boolean): TFile[] {
+	#destsAsWritten(linkpath: string, sourcePath: string, first: boolean): TFile[] {
 		if (!linkpath) {
 			const self = this.vault.getFileByPath(sourcePath);
 			return self ? [self] : [];

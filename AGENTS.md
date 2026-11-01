@@ -1242,10 +1242,19 @@ stale or corrupt cache gives the same result, more slowly.
 - Paths with bare spaces, as Typora writes them (`![shot](a.assets/Screenshot
   2025-02-09 at 15.04.04.png)`, `[N](My Note.md#Part one)`), are links and
   images in all three parsers (reading view `spaced_link`, Live Preview
-  `spacedLinkSyntax`, metadata `SPACED_MDLINK`), though CommonMark leaves them
-  text. One rule decides (`spacedDestination`): the path ends in a file
-  extension (maybe with a `#subpath`) and is not `url "title"`, so prose in
-  parentheses stays prose.
+  `spacedLinkSyntax`, metadata `SPACED_MDLINK_OPEN`), though CommonMark leaves
+  them text. One rule decides (`spacedDestination`): the path ends in a file
+  extension (maybe with a `#subpath`, or a `:line[:col]` as agents write
+  citations) and is not `url "title"`, so prose in parentheses stays prose.
+  `spacedLinkEnd` finds the closing `)` for all three: escapes skipped,
+  unescaped parentheses nested, and when that never closes (a path escaping
+  only its `)`: `08(Transport from Paradise\)/a.md`) the first unescaped `)`.
+- Link paths as agents and terminals write them (`filePathLink`): when a
+  link does not resolve as written, an absolute file system path inside the
+  vault resolves to that vault file (Obsidian would read it from the vault's
+  root), and a `:line[:col]` after the file name resolves to the file and
+  opens it at that line (`openLinkTextIn` passes `eState.line`), never
+  creating a note named after the link.
 - Links as Obsidian renders them: a destination is read as CommonMark reads
   it (`destinationText`: no angle brackets, backslash escapes unescaped, so
   `[x](a\_b.md)` opens `a_b.md`); reference links (`[text][ref]`,
