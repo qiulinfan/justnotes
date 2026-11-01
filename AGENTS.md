@@ -556,7 +556,7 @@ plain style. Development notes belong in this file.
   key), never for its own change, which would take the focus from a field
   being typed in. Other parts of justnotes add a group to the Editor page
   through `editorSections`; the justnotes section (selection scroll speed,
-  pasted image format) is one. Every option shown changes behaviour live:
+  line height, pasted image format) is one. Every option shown changes behaviour live:
   - Editor (`editor-options.ts`, a per-editor compartment reconfigured on
     `config-changed`): line numbers, auto-pair brackets (CodeMirror's
     closeBrackets), auto-pair Markdown syntax (`markdownPairs`: `*`, `_`,
@@ -1463,6 +1463,14 @@ stale or corrupt cache gives the same result, more slowly.
   (`caretPositionFromPoint`) after each step. Measure with real CDP mouse
   events (press, moves past the scroller's edge, scrollTop over a held
   second); the frame loop needs the test window shown.
+- Line height (1 to 2.5, default 1.5, Obsidian's `--line-height-normal`):
+  `applyLineHeight` (at boot from `installAppearance`, and on change) sets
+  `--line-height-normal` on the body, or removes it at the default so a
+  theme's value stays. CodeMirror does not notice a line height changing
+  alone (its height map keeps the old heights), so every editor in every
+  window is then re-measured through `viewState.mustMeasureContent =
+  "refresh"`, what CodeMirror sets itself once fonts load; recheck the name
+  when upgrading @codemirror/view.
 - Pasted and dropped images as (`html` default, `wikilink`, `markdown`;
   `imageLink` in `attachments.ts`): an image file pasted, dropped from
   outside or dragged from the explorer into a note is written as Typora

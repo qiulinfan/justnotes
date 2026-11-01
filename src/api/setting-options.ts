@@ -6,7 +6,7 @@
 // rather than shown as a toggle that does nothing.
 import type { App } from "./app";
 import { getElectron } from "./dom";
-import { type PastedImageFormat, editorSettings, setEditorSetting } from "./editor-settings";
+import { applyLineHeight, editorSettings, LINE_HEIGHT_MAX, LINE_HEIGHT_MIN, type PastedImageFormat, setEditorSetting } from "./editor-settings";
 import { SettingTab } from "./plugin";
 import { Modal } from "./ui/modal";
 import { Notice } from "./ui/notice";
@@ -155,6 +155,23 @@ function justnotesEditorSection(app: App): SettingDefinitionGroup {
 							.setValue(editorSettings(app).selectionScrollSpeed)
 							.setInstant(true)
 							.onChange((value) => setEditorSetting(app, "selectionScrollSpeed", value)),
+					);
+				},
+			},
+			{
+				name: "Line height",
+				desc: "The space between lines in notes, in the editor and the reading view, as a multiple of the font size. 1.5 is Obsidian's.",
+				render: (setting) => {
+					setting.addSlider((slider) =>
+						slider
+							.setLimits(LINE_HEIGHT_MIN, LINE_HEIGHT_MAX, 0.05)
+							.setValue(editorSettings(app).lineHeight)
+							.setDynamicTooltip()
+							.setInstant(true)
+							.onChange((value) => {
+								setEditorSetting(app, "lineHeight", value);
+								applyLineHeight(app);
+							}),
 					);
 				},
 			},

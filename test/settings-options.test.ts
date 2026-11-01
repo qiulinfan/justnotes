@@ -3,6 +3,7 @@ import { insertNewlineContinueMarkup } from "@codemirror/lang-markdown";
 import { EditorSelection, EditorState, type TransactionSpec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import type { App } from "../src/api/app";
+import { editorSettings } from "../src/api/editor-settings";
 import { type EditorOptions, editorOptionExtensions } from "../src/api/editor-options";
 import { attachmentLocation, EditorTab, fontFamilyList } from "../src/api/setting-options";
 import { searchDefinitions } from "../src/api/ui/setting-definitions";
@@ -73,5 +74,13 @@ describe("Settings pages", () => {
 		expect(searchDefinitions(items, "line numbers").map((m) => m.name)).toEqual(["Show line numbers"]);
 		expect(searchDefinitions(items, "tab size").map((m) => m.name)).toEqual(["Indent visual width"]);
 		expect(searchDefinitions(items, "selection scroll").map((m) => m.name)).toEqual(["Selection scroll speed"]);
+		expect(searchDefinitions(items, "line height").map((m) => m.name)).toEqual(["Line height"]);
+	});
+
+	test("a saved line height out of range falls back to the default", () => {
+		const appWith = (saved: unknown) => ({ loadLocalStorage: () => saved }) as unknown as App;
+		expect(editorSettings(appWith({ lineHeight: 1.8 })).lineHeight).toBe(1.8);
+		for (const bad of [0.5, 3, "x", null]) expect(editorSettings(appWith({ lineHeight: bad })).lineHeight).toBe(1.5);
+		expect(editorSettings(appWith(null)).lineHeight).toBe(1.5);
 	});
 });
