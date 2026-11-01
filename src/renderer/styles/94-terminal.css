@@ -1,8 +1,10 @@
 /* The Terminal core plugin's view (src/renderer/terminal). xterm.js's own
    stylesheet comes before every file here (build.ts). The canvas is
    transparent: the backdrop under it draws Ghostty's background colour at
-   background-opacity over the pane, with the background image on top. */
-.workspace-leaf-content[data-type="terminal"] .view-content.terminal-view {
+   background-opacity over the pane, with the background image on top, or
+   nothing ("Ghostty's background" off), so the pane shows, with any image a
+   background plugin puts on it. */
+.workspace-leaf-content[data-type="terminal:terminal"] .view-content.terminal-view {
 	padding: 0;
 	overflow: hidden;
 	position: relative;
@@ -12,7 +14,6 @@
 	position: absolute;
 	inset: 0;
 	overflow: hidden;
-	background: var(--background-primary);
 }
 
 .terminal-backdrop {

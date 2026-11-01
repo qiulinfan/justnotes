@@ -39,6 +39,8 @@ export interface ThemeColors {
 
 export interface AppearanceOverrides {
 	fontSize?: number | null;
+	// False: no backdrop, so the pane behind the terminal shows.
+	background?: boolean;
 }
 
 // Fonts tried after the configured ones (a configured font that is not
@@ -216,7 +218,10 @@ export function terminalAppearance(config: GhosttyConfig | null, theme: ThemeCol
 	const on = (config?.fontFeature ?? []).filter((f) => !f.startsWith("-")).map((f) => `"${f.replace(/^\+/, "")}" 1`);
 	return {
 		options,
-		backdrop: { color: background, opacity: opacity === null ? 1 : Math.min(1, Math.max(0, opacity)), image },
+		backdrop:
+			overrides.background === false
+				? { color: "transparent", opacity: 0, image: null }
+				: { color: background, opacity: opacity === null ? 1 : Math.min(1, Math.max(0, opacity)), image },
 		padding: config ? { top, right, bottom, left } : { top: 4, right: 4, bottom: 4, left: 8 },
 		fontFeatureSettings: [...off, ...on].join(", "),
 	};

@@ -27,12 +27,18 @@ function recentFile(app: App): TFile | null {
 export function installTerminal(app: App, host: CorePluginHost) {
 	const service = new TerminalService(app);
 	host.register(() => service.destroy());
-	host.registerView(VIEW_TYPE, (leaf) => new TerminalView(leaf, service));
 	host.registerEvent(app.workspace.on("css-change", () => service.refresh()));
 	host.addSettingTab(new TerminalSettingTab(app, service));
-	// The community plugin goes first (turned on at runtime), and comes back when this goes.
-	host.register(() => app.plugins.coreReplacementStopped(host.id));
-	void app.plugins.coreReplacementStarted(host.id);
+	// The community plugin goes first (turned on at runtime), and comes back when
+	// this goes. Its view type is this one's, so it is gone before this registers it.
+	let unloaded = false;
+	host.register(() => {
+		unloaded = true;
+		app.plugins.coreReplacementStopped(host.id);
+	});
+	void app.plugins.coreReplacementStarted(host.id).then(() => {
+		if (!unloaded) host.registerView(VIEW_TYPE, (leaf) => new TerminalView(leaf, service));
+	});
 
 	const folderOf = (file: TAbstractFile | null) => {
 		if (!file) return null;

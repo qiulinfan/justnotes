@@ -124,6 +124,15 @@ describe("Ghostty's config as the terminal's look", () => {
 		expect(look.fontFeatureSettings).toBe('"calt" 0, "liga" 0, "dlig" 0');
 	});
 
+	// With "Ghostty's background" off the terminal is see-through, so a
+	// background plugin's terminal image on the pane shows, as with the
+	// community terminal; Ghostty's colours and fonts still apply.
+	test("without Ghostty's background nothing is drawn behind the text", () => {
+		const look = terminalAppearance(owner, THEME, { background: false });
+		expect(look.backdrop).toEqual({ color: "transparent", opacity: 0, image: null });
+		expect(look.options.theme.foreground).toBe(terminalAppearance(owner, THEME).options.theme.foreground);
+	});
+
 	test("a font size from the settings wins; a positive cell height grows the line", () => {
 		const config = configOf({ "/c/config": "font-size = 14\nadjust-cell-height = 20%\nbackground-image-fit = stretch\nbackground-image = /i.png" });
 		const look = terminalAppearance(config, THEME, { fontSize: 18 });

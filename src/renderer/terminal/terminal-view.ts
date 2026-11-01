@@ -17,7 +17,9 @@ import { appCommandAllowed, type KeyAction, terminalKeyAction } from "./keys";
 import { findPathCandidates, osc7Path, shellQuote, vaultPathOf } from "./links";
 import type { TerminalService } from "./service";
 
-export const VIEW_TYPE = "terminal";
+// The community terminal plugin's view type, which this replaces: plugins that
+// treat terminals apart (a background plugin's terminal region) find it as there.
+export const VIEW_TYPE = "terminal:terminal";
 
 export interface TerminalState {
 	cwd: string;

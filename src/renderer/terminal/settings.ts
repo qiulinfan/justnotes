@@ -10,13 +10,16 @@ export interface TerminalSettings {
 	// Null: Ghostty's font-size, else 13.
 	fontSize: number | null;
 	useGhostty: boolean;
+	// Ghostty's background colour and image behind terminals; off, they are
+	// see-through and show the pane (the theme, or a background plugin's image).
+	ghosttyBackground: boolean;
 	// Where "Open terminal" starts: the vault's folder or the active note's.
 	cwd: "vault" | "active";
 	copyOnSelect: boolean;
 	scrollback: number;
 }
 
-export const DEFAULT_SETTINGS: TerminalSettings = { shell: "", fontSize: null, useGhostty: true, cwd: "vault", copyOnSelect: false, scrollback: 10000 };
+export const DEFAULT_SETTINGS: TerminalSettings = { shell: "", fontSize: null, useGhostty: true, ghosttyBackground: false, cwd: "vault", copyOnSelect: false, scrollback: 10000 };
 
 export function readSettings(raw: unknown): TerminalSettings {
 	const s = (raw && typeof raw === "object" ? raw : {}) as Partial<TerminalSettings>;
@@ -26,6 +29,7 @@ export function readSettings(raw: unknown): TerminalSettings {
 		shell: typeof s.shell === "string" ? s.shell : DEFAULT_SETTINGS.shell,
 		fontSize: s.fontSize !== null && size >= 6 && size <= 72 ? size : null,
 		useGhostty: typeof s.useGhostty === "boolean" ? s.useGhostty : DEFAULT_SETTINGS.useGhostty,
+		ghosttyBackground: s.ghosttyBackground === true,
 		cwd: s.cwd === "active" ? "active" : "vault",
 		copyOnSelect: s.copyOnSelect === true,
 		scrollback: scrollback >= 0 && scrollback <= 1_000_000 ? Math.floor(scrollback) : DEFAULT_SETTINGS.scrollback,
@@ -80,10 +84,14 @@ export class TerminalSettingTab extends SettingTab {
 			.setName("Use Ghostty's config")
 			.setDesc(
 				files.length
-					? `Fonts, colours, cursor and background image from ${files.join(", ")}, re-read when it changes.`
+					? `Fonts, colours and cursor from ${files.join(", ")}, re-read when it changes.`
 					: "No Ghostty config was found; terminals use the theme's colours.",
 			)
 			.addToggle((toggle) => toggle.setValue(settings.useGhostty).onChange((value) => change(() => (settings.useGhostty = value))));
+		new Setting(containerEl)
+			.setName("Ghostty's background")
+			.setDesc("Draw Ghostty's background colour and image behind terminals. Off, terminals are see-through and show the pane behind them: the theme, or a background plugin's terminal image.")
+			.addToggle((toggle) => toggle.setValue(settings.ghosttyBackground).onChange((value) => change(() => (settings.ghosttyBackground = value))));
 		new Setting(containerEl)
 			.setName("Font size")
 			.setDesc("Empty for Ghostty's font-size, or 13.")

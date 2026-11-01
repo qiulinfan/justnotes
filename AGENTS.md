@@ -647,10 +647,17 @@ plain style. Development notes belong in this file.
   bold-color colour (xterm has none), keybind, font-family-bold/-italic,
   font-thicken, scrollback-limit (bytes; the settings take lines), window
   and shell-integration options. Every option a config may set gets a value
-  in each look, so turning Ghostty off restores xterm's defaults.
+  in each look, so turning Ghostty off restores xterm's defaults. The
+  backdrop is drawn only with "Ghostty's background" on (off by default):
+  otherwise nothing is behind the text, and the pane shows, with any image
+  a plugin puts on it. The view type is the community terminal plugin's
+  (`terminal:terminal`), so plugins that treat terminals apart (the owner's
+  `background` plugin and its terminal region) find these terminals; the
+  view registers once the community plugin has gone.
 - Settings (localStorage `terminal-settings`, the Terminal tab under Core
   plugins): shell, starting folder (vault or the active note's), Use
-  Ghostty's config, font size, copy on select, scrollback. Commands:
+  Ghostty's config, Ghostty's background, font size, copy on select,
+  scrollback. Commands:
   `terminal:open`, `-open-in-current-folder`, `-open-right`, `-open-below`,
   `-toggle` (Ctrl+`: into the last terminal, out of a focused one, or a new
   one below), `-clear`, `-find`, `-restart`; a ribbon button and "Open in

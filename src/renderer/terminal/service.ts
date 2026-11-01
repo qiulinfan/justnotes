@@ -142,7 +142,7 @@ export class TerminalService {
 
 	#makeAppearance() {
 		const config = this.settings.useGhostty ? this.config : null;
-		return terminalAppearance(config, this.#themeColors(), { fontSize: this.settings.fontSize });
+		return terminalAppearance(config, this.#themeColors(), { fontSize: this.settings.fontSize, background: this.settings.ghosttyBackground });
 	}
 
 	#loadConfig() {
