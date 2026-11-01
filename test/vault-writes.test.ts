@@ -26,7 +26,8 @@ afterEach(() => {
 	}
 });
 
-async function until(check: () => boolean, ms = 3000) {
+// Up to 10 s: the file watcher's reports (FSEvents) take over 3 s on a loaded CI runner.
+async function until(check: () => boolean, ms = 10_000) {
 	for (let t = 0; t < ms && !check(); t += 20) await Bun.sleep(20);
 	return check();
 }
