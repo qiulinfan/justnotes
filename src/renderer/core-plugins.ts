@@ -83,8 +83,8 @@ export function installCorePlugins(app: App) {
 }
 
 // The right sidebar of a vault opened for the first time: the panes the vault
-// enables, as Obsidian starts it.
+// enables, open (Obsidian starts it collapsed).
 export function defaultRightSidebar(app: App) {
 	const leaves = PANES.filter((p) => app.internalPlugins.getEnabledPluginById(p.plugin)).map((p) => ({ type: "leaf", state: { type: p.type } }));
-	return { type: "split", direction: "horizontal", collapsed: true, children: leaves.length ? [{ type: "tabs", children: leaves }] : [] };
+	return { type: "split", direction: "horizontal", children: leaves.length ? [{ type: "tabs", children: leaves }] : [] };
 }
