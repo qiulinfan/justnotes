@@ -29,7 +29,10 @@ export class CodeCache {
 		try {
 			cachedData = await fs.promises.readFile(file);
 		} catch {}
-		const script = new vm.Script(source, { filename, cachedData });
+		// Without importModuleDynamically, Node rejects every import() in the
+		// script (pdf.js is one); the main context's loader takes file:, data:
+		// and node: URLs, not Blink's blob: or https:.
+		const script = new vm.Script(source, { filename, cachedData, importModuleDynamically: vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER });
 		const used = !!cachedData && !script.cachedDataRejected;
 		return {
 			cached: used,

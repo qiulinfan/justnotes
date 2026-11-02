@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { CodeCache } from "../src/api/code-cache";
 
 const dirs: string[] = [];
@@ -56,4 +57,17 @@ test("an updated plugin compiles afresh and replaces its old code; unreadable st
 	const module = { exports: {} as any };
 	broken.run()(() => null, module, module.exports);
 	expect(module.exports).toBe(2);
+});
+
+test("import() in a compiled script loads a file: module, with and without stored code", async () => {
+	const codeCache = cache();
+	const mod = path.join(codeCache.dir, "..", "m.mjs");
+	fs.writeFileSync(mod, "export const answer = 42;");
+	const source = `import(${JSON.stringify(pathToFileURL(mod).href)}).then((m) => m.answer)`;
+	const first = await codeCache.compile("renderer", source, "renderer.js");
+	expect(await first.run()).toBe(42);
+	await first.save();
+	const second = await codeCache.compile("renderer", source, "renderer.js");
+	expect(second.cached).toBe(true);
+	expect(await second.run()).toBe(42);
 });

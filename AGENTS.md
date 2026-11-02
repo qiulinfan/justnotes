@@ -1354,7 +1354,13 @@ stale or corrupt cache gives the same result, more slowly.
   which runs `renderer.js` the same way from `<profile>/code-cache/renderer-
   <hash>.bin` (hash of V8, the bundle's size and mtime), written 3 s after
   layout-ready when it was missing or rejected. Packaging must ship
-  `loader.js` beside `renderer.js`.
+  `loader.js` beside `renderer.js`. `import()` in these scripts goes to
+  Node's ESM loader in the page's context (`USE_MAIN_CONTEXT_DEFAULT_LOADER`;
+  without it every `import()` throws `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`),
+  not Blink's: `file:`, `data:` and `node:` URLs load (pdf.js), `blob:` and
+  `https:` do not, and its modules are separate instances from the page's.
+  Blink's loader is reachable from vm only through a function callback, which
+  needs `--experimental-vm-modules`.
 - Startup leaves those notes' texts unread, so the vault's text cache
   (`cachedRead`) fills on the first search, unlinked-mentions scan or graph
   content query; they read through `readInOrder` (`read-in-order.ts`), up
