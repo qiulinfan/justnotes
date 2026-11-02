@@ -43,6 +43,12 @@ function buildShell(app: App) {
 	const root = document.body.createDiv("app-container");
 	app.dom.appContainerEl = root;
 	root.createDiv({ cls: "titlebar", text: app.vault.singleFile ?? app.vault.getName() });
+	// In fullscreen macOS shows the window buttons only in the bar that slides
+	// down with the menu bar, so the title bar strip would stay empty there:
+	// body.is-fullscreen (as in Obsidian) hides it. Main reports the changes.
+	const fullscreen = (on: boolean) => document.body.toggleClass("is-fullscreen", on);
+	fullscreen((window as any).require("@electron/remote").getCurrentWindow().isFullScreen());
+	ipcRenderer.on("justnotes:fullscreen", (_evt: unknown, on: boolean) => fullscreen(on));
 	const main = root.createDiv("horizontal-main-container");
 	main.appendChild(app.workspace.containerEl);
 	root.appendChild(app.statusBar);

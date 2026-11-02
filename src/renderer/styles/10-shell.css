@@ -18,6 +18,10 @@
 	border-bottom: 1px solid var(--background-modifier-border);
 }
 
+.is-fullscreen .titlebar {
+	display: none;
+}
+
 .horizontal-main-container {
 	flex: 1;
 	min-height: 0;

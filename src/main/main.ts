@@ -429,6 +429,9 @@ function createPageWindow(query: Record<string, string>, theme: "dark" | "light"
 		openUrl(evt.url, contents);
 	});
 	contents.on("did-navigate", () => listening.delete(contents));
+	// The page hides its title bar in fullscreen (boot.ts).
+	win.on("enter-full-screen", () => contents.send("justnotes:fullscreen", true));
+	win.on("leave-full-screen", () => contents.send("justnotes:fullscreen", false));
 	win.loadFile(path.join(__dirname, "index.html"), { query: { ...query, theme } }).catch((err) => console.error("Could not load the window of", query, err));
 	return win;
 }

@@ -1658,6 +1658,12 @@ stale or corrupt cache gives the same result, more slowly.
   collapsed. Search results are tree rows: `.tree-item.search-result` with a
   title row (basename, chevron folding the matches, match count as flair;
   the path is its tooltip) and `.search-result-file-matches` below.
+- The vault window's `.titlebar` strip (28px, the vault name) is the drag
+  area beside macOS's traffic lights (`titleBarStyle: "hiddenInset"`). In
+  fullscreen macOS shows those buttons only in the bar that slides down with
+  the menu bar, over the page, so `body.is-fullscreen` (Obsidian's class; main
+  sends `justnotes:fullscreen` on enter and leave, the page reads the state
+  at boot) hides the strip.
 - Main-area tabs are `--tab-width` (200px) wide, as Obsidian's, and shrink
   evenly when they no longer fit, down to their icon; past that the tab bar
   scrolls. The width is a `width`, not only a flex basis: a flex container's
