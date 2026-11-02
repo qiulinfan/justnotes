@@ -4,6 +4,7 @@ import { EditorSelection, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { Editor, EditorPosition } from "./editor";
 import type { Component } from "./events";
+import { bindTitleField } from "./file-title";
 import { setIcon, setTooltip } from "./icons";
 import { locateFrontmatter } from "./frontmatter-edit";
 import { Keymap, Scope } from "./keymap";
@@ -13,6 +14,7 @@ import { editorMetadataHost, metadataEditorOf } from "./metadata-editor";
 import { Menu } from "./ui/menu";
 import type { HoverPopover } from "./ui/popover";
 import { crlfOf, mirrorEdits, TextFileView, type ViewStateResult } from "./view";
+import type { TFile } from "./vault";
 import type { WorkspaceLeaf } from "./workspace";
 
 const SCHEME = /^[a-z][\w+.-]*:/i;
@@ -58,6 +60,10 @@ export class MarkdownView extends TextFileView {
 		this.previewMode = this.addChild(new MarkdownPreviewView(this));
 		this.modes = { source: this.editMode, preview: this.previewMode };
 		this.currentMode = this.editMode;
+		for (const el of [this.editMode.titleEl, this.previewMode.titleEl]) {
+			const write = (text: string) => void (el.value = text);
+			bindTitleField(this.app, { el, shown: () => this.file?.basename ?? "", read: () => el.value, write }, () => this.file, (cancelled) => this.#focusBody(cancelled));
+		}
 		this.#backlinks = !!this.app.internalPlugins?.getEnabledPluginById("backlink")?.options.backlinkInDocument;
 		this.#source = this.app.vault.getConfig("livePreview") === false;
 		if (this.#source) this.editMode.setLivePreview(false);
@@ -185,6 +191,55 @@ export class MarkdownView extends TextFileView {
 	#focusMode() {
 		if (this.getMode() === "preview") this.previewMode.focus();
 		else this.editor.focus();
+	}
+
+	async onLoadFile(file: TFile) {
+		this.#syncTitles(file);
+		await super.onLoadFile(file);
+	}
+
+	async onRename(file: TFile) {
+		await super.onRename(file);
+		this.#syncTitles(file);
+	}
+
+	// The inline titles follow the file's name, except one being edited.
+	#syncTitles(file: TFile) {
+		for (const el of [this.editMode.titleEl, this.previewMode.titleEl]) if (el !== el.doc.activeElement) el.value = file.basename;
+	}
+
+	// The current mode's inline title when "Show inline title" is on, else
+	// the tab title bar's. A title the editor has scrolled out of its DOM is
+	// scrolled to first.
+	focusTitle() {
+		if (this.app.vault.getConfig("showInlineTitle") === false) return super.focusTitle();
+		const el = this.getMode() === "preview" ? this.previewMode.titleEl : this.editMode.titleEl;
+		const focus = () => {
+			el.focus();
+			el.select();
+		};
+		if (el.isShown()) {
+			el.scrollIntoView({ block: "nearest" });
+			focus();
+			return true;
+		}
+		if (this.getMode() === "preview" || !this.containerEl.isShown()) return super.focusTitle();
+		const cm = this.editor.cm;
+		cm.dispatch({ effects: EditorView.scrollIntoView(0, { y: "start", yMargin: 0 }) });
+		cm.requestMeasure({ read: () => null, write: () => (el.isShown() ? focus() : super.focusTitle()) });
+		return true;
+	}
+
+	// Leaving the inline title with Enter or Escape. After Enter the caret goes
+	// to the start of the note's text, after the frontmatter, as in Obsidian;
+	// Escape leaves it where it was.
+	#focusBody(cancelled: boolean) {
+		if (this.getMode() === "preview") return this.previewMode.focus();
+		const cm = this.editor.cm;
+		if (cancelled) return cm.focus();
+		const at = Math.min(locateFrontmatter(cm.state.doc.toString())?.to ?? 0, cm.state.doc.length);
+		cm.dispatch({ selection: { anchor: at }, scrollIntoView: true });
+		cm.focus();
 	}
 
 	resolveImage(link: string) {

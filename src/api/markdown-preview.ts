@@ -35,14 +35,15 @@ const mirrored = Annotation.define<boolean>();
 // The reading view whose find results own the document's search highlights.
 let searching: MarkdownPreviewView | null = null;
 
-// An element shown under the last line of the editor, scrolling with the
-// text (the backlinks under a note). CodeMirror leaves events inside it alone.
-class FooterWidget extends WidgetType {
+// An element shown in the editor as a block of its own, scrolling with the
+// text: the inline title above the first line, the backlinks under the last.
+// CodeMirror leaves events inside it alone.
+class ElementWidget extends WidgetType {
 	constructor(readonly el: HTMLElement) {
 		super();
 	}
 
-	eq(other: FooterWidget) {
+	eq(other: ElementWidget) {
 		return other.el === this.el;
 	}
 
@@ -61,15 +62,23 @@ class FooterWidget extends WidgetType {
 	destroy() {}
 }
 
-function footerField(el: HTMLElement | null): Extension {
+function elementField(el: HTMLElement | null, side: 1 | -1): Extension {
 	if (!el) return [];
-	const deco = Decoration.widget({ widget: new FooterWidget(el), block: true, side: 1 });
-	const at = (state: EditorState) => Decoration.set(deco.range(state.doc.length));
+	const deco = Decoration.widget({ widget: new ElementWidget(el), block: true, side });
+	const at = (state: EditorState) => Decoration.set(deco.range(side < 0 ? 0 : state.doc.length));
 	return StateField.define<DecorationSet>({
 		create: at,
 		update: (value, tr) => (tr.docChanged ? at(tr.state) : value),
 		provide: (field) => EditorView.decorations.from(field),
 	});
+}
+
+// The note's name above its text (Obsidian's inline title), in both modes:
+// a textarea, not contenteditable, which inside the editor's content would
+// let the selection escape into the note. Hidden by the stylesheet unless
+// "Show inline title" is on.
+export function createInlineTitle() {
+	return createEl("textarea", { cls: "inline-title", attr: { rows: 1, spellcheck: "false", autocapitalize: "off" } });
 }
 
 // The editing mode: the CodeMirror editor, in Live Preview or source mode.
@@ -80,12 +89,13 @@ export class MarkdownEditView implements MarkdownSubView {
 	hoverPopover: Component | null = null;
 	containerEl: HTMLElement;
 	editor: Editor;
+	titleEl = createInlineTitle();
 	#plugins = new Compartment();
 	#livePreview = new Compartment();
 	#isLivePreview = true;
 	#footer = new Compartment();
 	#footerEl: HTMLElement | null = null;
-	#footerObserver = new ResizeObserver(() => {
+	#sizeObserver = new ResizeObserver(() => {
 		if (!this.#destroyed) this.editor.cm.requestMeasure();
 	});
 	#scroll = 0;
@@ -104,6 +114,7 @@ export class MarkdownEditView implements MarkdownSubView {
 		this.view = view;
 		this.app = view.app;
 		this.containerEl = view.contentEl.createDiv("markdown-source-view cm-s-obsidian mod-cm6 is-live-preview");
+		this.#sizeObserver.observe(this.titleEl);
 		this.editor = new Editor(new EditorView({ state: this.#createState(""), parent: this.containerEl }));
 		bindEditorFields(this.editor.cm, view);
 		// CodeMirror reads the selection and listens to the window of its root;
@@ -123,7 +134,8 @@ export class MarkdownEditView implements MarkdownSubView {
 			extensions: [
 				this.#livePreview.of(editorLivePreviewField.init(() => this.#isLivePreview)),
 				markdownEditorExtensions(this.view, this.#plugins),
-				this.#footer.of(footerField(this.#footerEl)),
+				elementField(this.titleEl, -1),
+				this.#footer.of(elementField(this.#footerEl, 1)),
 				EditorView.updateListener.of((u) => this.#onUpdate(u)),
 			],
 		});
@@ -191,16 +203,16 @@ export class MarkdownEditView implements MarkdownSubView {
 	// Shows `el` under the last line, or nothing.
 	setFooter(el: HTMLElement | null) {
 		if (el === this.#footerEl || this.#destroyed) return;
-		if (this.#footerEl) this.#footerObserver.unobserve(this.#footerEl);
+		if (this.#footerEl) this.#sizeObserver.unobserve(this.#footerEl);
 		this.#footerEl = el;
-		if (el) this.#footerObserver.observe(el);
-		this.editor.cm.dispatch({ effects: this.#footer.reconfigure(footerField(el)) });
+		if (el) this.#sizeObserver.observe(el);
+		this.editor.cm.dispatch({ effects: this.#footer.reconfigure(elementField(el, 1)) });
 	}
 
 	destroy() {
 		if (this.#destroyed) return;
 		this.#destroyed = true;
-		this.#footerObserver.disconnect();
+		this.#sizeObserver.disconnect();
 		this.#stopMigration();
 		this.#quickPreview.cancel();
 		this.editor.cm.destroy();
@@ -266,6 +278,7 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 	previewEl: HTMLElement;
 	renderer: MarkdownPreviewRenderer;
 	metadataEditor: MetadataEditor;
+	titleEl = createInlineTitle();
 	#data = "";
 	// The text whose render last finished; null until the file has one.
 	#rendered: string | null = null;
@@ -294,7 +307,7 @@ export class MarkdownPreviewView extends MarkdownRenderer implements MarkdownSub
 		host.focusBody = () => this.focus();
 		host.showSource = () => void this.view.setMode(this.view.editMode).then(() => showSource?.());
 		this.metadataEditor = this.addChild(new MetadataEditor(host));
-		this.renderer.headerEl.appendChild(this.metadataEditor.containerEl);
+		this.renderer.headerEl.append(this.titleEl, this.metadataEditor.containerEl);
 		this.#strictBreaks = this.app.vault.getConfig("strictLineBreaks") === true;
 		this.#syncOptions();
 		this.registerEvent(

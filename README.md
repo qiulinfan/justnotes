@@ -64,6 +64,7 @@ Windows 更新时保留原安装目录, 只替换发布包里的应用文件, �
 - 设置有 Obsidian 的常规, 编辑器, 文件与链接, 外观几页, 还有快捷键和插件. `.obsidian/themes` 和 `.obsidian/snippets` 里的主题和 CSS 片段可以切换, 不会下载东西.
 - 不带 vault 打开时先出一个 vault 选择窗口 (最近的 vault, 打开文件夹, 新建 vault). 左下角切换 vault, 菜单栏有完整的 justnotes 菜单.
 - 属性: 在 Live Preview 和阅读视图里直接改, 按类型显示 (文本, 列表, 数字, 勾选, 日期, 标签).
+- 改文件名像 Obsidian: 直接改笔记顶上的标题 (内联标题, 设置的外观页可以关掉) 或标签页标题栏里的文件名, 按 Enter 生效, Esc 取消; `F2` 跳到标题并选中名字. 链接跟着更新.
 - 标签页可以拖动: 重排, 换到别的组, 拖到边上分屏, 拖出窗口变成弹出窗口. 文件栏的文件可以拖进笔记 (插入链接) 或终端 (输入路径).
 - 命令行 `justnotes`: Obsidian 自带的命令行命令 (同名同语法, Publish 和 Sync 除外) 加上插件注册的命令, 另外每个命令都能 `--json`, 只读的命令不开 app 也能用, 需要 app 时会自己启动它. `justnotes help` 列出全部, `justnotes completion fish` 生成补全. 放进 PATH: `ln -s "$PWD/src/cli/justnotes.ts" ~/.local/bin/justnotes` (需要 Bun).
 - tex 和 txt 也是笔记: `.tex` 用内置的 LaTeX 编辑器 (就是 LaTeX Live: 补全, 实时预览, 用本机 TeX 编译, PDF 预览和 SyncTeX 双向跳转, 导出 HTML), `.txt` 用纯文本编辑器. 它们在文件栏, 快速切换, 搜索, 大纲, 图谱, 反向链接里都和 md 一样, `[[main.tex]]` 这种链接也能用. 往 `.tex` 里粘贴图片会存成附件, 弹出一个小表单选宽度, 标题, 标签. 需要装 TeX (MacTeX 或 TeX Live), 补全需要 texlab.
@@ -74,7 +75,7 @@ Windows 更新时保留原安装目录, 只替换发布包里的应用文件, �
 - LaTeX 和终端在设置的 "Core plugins" 页可以关掉. 开着时 justnotes 不加载社区插件 latex-live 和 terminal (它们在 Obsidian 里照常用).
 - 测过的 Obsidian 插件: Copy Location, Quick LaTeX, Completr, YOLO Completion Only, Background, kgdistiller, LaTeX Live, Git, omp, QuickAdd, Terminal, Translate.
 
-还没有的: 设置里的 vim 键位, 内联标题, 拼写检查语言, 幻灯片的演讲者备注.
+还没有的: 设置里的 vim 键位, 拼写检查语言, 幻灯片的演讲者备注.
 
 justnotes 在 `.obsidian/` 里只写三个文件, 都和 Obsidian 共用: `bookmarks.json`, 以及改设置时的 `app.json` 和 `appearance.json`. 只写你改的那几项, Obsidian 或 git 同时做的改动会保留. 所以和 Obsidian 交替打开同一个 vault 没问题.
 

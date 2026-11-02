@@ -380,3 +380,32 @@ body.theme-dark .cm-editor .cm-panels {
 	border-left-color: var(--interactive-accent);
 	border-left-width: 2px;
 }
+
+/* The inline title (markdown-preview.ts): the note's name above its text in
+   both modes, a textarea that grows with the name. */
+.inline-title {
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	field-sizing: content;
+	resize: none;
+	overflow: hidden;
+	margin: 0 0 0.5em;
+	padding: 0;
+	border: none;
+	background: transparent;
+	outline: none;
+	font-family: var(--inline-title-font);
+	font-size: var(--inline-title-size);
+	font-style: var(--inline-title-style);
+	font-variant: var(--inline-title-variant);
+	font-weight: var(--inline-title-weight);
+	line-height: var(--inline-title-line-height);
+	letter-spacing: -0.015em;
+	color: var(--inline-title-color);
+	caret-color: var(--text-normal);
+}
+
+body:not(.show-inline-title) .inline-title {
+	display: none;
+}

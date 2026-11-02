@@ -671,6 +671,7 @@ export class AppearanceTab extends SettingTab {
 				type: "group",
 				heading: "Interface",
 				items: [
+					{ name: "Show inline title", desc: "Display the filename as an editable title inline with the file contents.", control: { type: "toggle", key: "showInlineTitle" } },
 					{ name: "Show tab title bar", desc: "Display the header at the top of every tab.", aliases: ["view header"], control: { type: "toggle", key: "showViewHeader" } },
 					{ name: "Show ribbon", desc: "Display vertical toolbar on the side of the window.", control: { type: "toggle", key: "showRibbon" } },
 				],

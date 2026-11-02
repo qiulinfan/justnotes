@@ -231,6 +231,14 @@ body {
 	--h4-size: 1.25em;
 	--h5-size: 1.1em;
 	--h6-size: 1em;
+	/* The note's name above its text: Obsidian's defaults follow h1's. */
+	--inline-title-color: inherit;
+	--inline-title-font: inherit;
+	--inline-title-line-height: 1.2;
+	--inline-title-size: var(--h1-size);
+	--inline-title-style: normal;
+	--inline-title-variant: normal;
+	--inline-title-weight: var(--font-bold);
 	/* Graph view; the canvas reads them through the .graph-view.color-* probes. */
 	--graph-controls-width: 240px;
 	--graph-text: var(--text-normal);

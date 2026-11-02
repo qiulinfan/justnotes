@@ -1,4 +1,5 @@
 import type { App } from "../api/app";
+import { promptRename } from "../api/file-title";
 import { setIcon } from "../api/icons";
 import { Keymap } from "../api/keymap";
 import { attempt, MoveModal, PromptModal } from "../api/ui/file-modals";
@@ -8,7 +9,7 @@ import { type FuzzyMatch, FuzzySuggestModal } from "../api/ui/suggest";
 import { excludedLast, isFileShown } from "../api/file-visibility";
 import { debounce, prepareFuzzySearch } from "../api/util";
 import { type TAbstractFile, TFile, TFolder } from "../api/vault";
-import { ItemView } from "../api/view";
+import { FileView, ItemView } from "../api/view";
 import type { WorkspaceLeaf } from "../api/workspace";
 
 export class EmptyView extends ItemView {
@@ -93,9 +94,12 @@ export class FileExplorerView extends ItemView {
 		// The explorer's file actions also appear in a note's tab and More options
 		// menus and in file menus plugins open (obsidian-git's source control view),
 		// as Obsidian's do; its own menu adds them itself, link menus go without.
+		// Rename in a view's own menu edits its title in place.
 		this.registerEvent(
-			this.app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile, source: string) => {
-				if (source !== "file-explorer-context-menu" && source !== "link-context-menu") this.#addFileItems(menu, file);
+			this.app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile, source: string, leaf?: WorkspaceLeaf) => {
+				if (source === "file-explorer-context-menu" || source === "link-context-menu") return;
+				const view = leaf?.view;
+				this.#addFileItems(menu, file, view instanceof FileView && view.file === file ? () => view.editTitle() : undefined);
 			}),
 		);
 		this.#expanded = new Set(this.app.loadLocalStorage("justnotes-expanded") ?? []);
@@ -287,9 +291,9 @@ export class FileExplorerView extends ItemView {
 		menu.showAtMouseEvent(evt);
 	}
 
-	#addFileItems(menu: Menu, file: TAbstractFile) {
+	#addFileItems(menu: Menu, file: TAbstractFile, rename = () => renameFile(this.app, file)) {
 		if (file instanceof TFolder && file.isRoot()) return;
-		menu.addItem((i) => i.setTitle("Rename...").setIcon("pencil").setSection("action").onClick(() => renameFile(this.app, file)));
+		menu.addItem((i) => i.setTitle("Rename...").setIcon("pencil").setSection("action").onClick(rename));
 		menu.addItem((i) =>
 			i
 				.setTitle(file instanceof TFolder ? "Move folder to..." : "Move file to...")
@@ -333,12 +337,12 @@ function newFolder(app: App, parent: TFolder) {
 	new PromptModal(app, "New folder", "Untitled", (name) => attempt(() => app.vault.createFolder(parent.isRoot() ? name : `${parent.path}/${name}`))).open();
 }
 
+// A file is renamed as its title is (same checks); a folder by its name.
 function renameFile(app: App, file: TAbstractFile) {
-	const isMd = file instanceof TFile && file.extension === "md";
-	const current = isMd ? (file as TFile).basename : file.name;
-	new PromptModal(app, "Rename", current, (name) => {
+	if (file instanceof TFile) return promptRename(app, file, file.extension === "md" ? file.basename : file.name);
+	new PromptModal(app, "Rename", file.name, (name) => {
 		const dir = file.parent && !file.parent.isRoot() ? `${file.parent.path}/` : "";
-		return attempt(() => app.fileManager.renameFile(file, `${dir}${name}${isMd ? ".md" : ""}`));
+		return attempt(() => app.fileManager.renameFile(file, `${dir}${name}`));
 	}).open();
 }
 

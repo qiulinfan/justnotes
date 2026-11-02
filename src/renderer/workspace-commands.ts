@@ -1,6 +1,7 @@
 import type { App } from "../api/app";
 import { Notice } from "../api/ui/notice";
 import type { Hotkey, Modifier } from "../api/keymap";
+import { FileView } from "../api/view";
 import type { WorkspaceLeaf, WorkspaceTabs } from "../api/workspace";
 
 // Obsidian's navigation, split and tab commands, with its ids and default keys.
@@ -44,6 +45,11 @@ export function registerWorkspaceCommands(app: App) {
 	);
 	command("workspace:move-to-new-window", "Move current tab to new window", undefined, (leaf, act) =>
 		when(workspace.inMainArea(leaf) && !workspace.isOnlyLeafOfWindow(leaf), act, () => workspace.moveLeafToPopout(leaf)),
+	);
+	// Obsidian's "Rename file": the note's inline title, else the tab title
+	// bar's, else the Rename dialog.
+	command("workspace:edit-file-title", "Rename file", keys([], "F2"), (leaf, act) =>
+		when(leaf.view instanceof FileView && !!leaf.view.file, act, () => (leaf.view as FileView).editTitle()),
 	);
 	command("workspace:toggle-pin", "Toggle pin", undefined, (leaf, act) => when(true, act, () => leaf.togglePinned()));
 	command("workspace:close-others", "Close all other tabs", undefined, (leaf, act) =>

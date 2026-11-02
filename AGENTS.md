@@ -421,6 +421,27 @@ plain style. Development notes belong in this file.
   unknown folder's plugins. The built-in `open` and `new` refuse a `file=` or
   `name=` with a `..` or hidden (`.obsidian`, `.git`) segment
   (`urlPathOutsideNotes`): a link must never write plugin code or settings.
+- Renaming from the title (`file-title.ts`), as in Obsidian: a FileView's
+  tab title bar title (`.view-header-title`) becomes `contenteditable`
+  (plaintext-only) on mousedown when it shows the file's name or basename
+  (a plugin view showing something else stays plain), and a MarkdownView
+  shows the inline title (`.inline-title`, `--inline-title-*` variables)
+  in both modes: in the editor a block widget before the first line (with
+  the backlinks footer, `ElementWidget` in `markdown-preview.ts`), in the
+  reading view the first child of `.mod-header`. It is a `<textarea>`
+  sized by `field-sizing: content`, not contenteditable (see the Properties
+  block on nested editing hosts). Enter or leaving the field renames
+  through `fileManager.renameFile` in the same folder (`titleRenamePath`:
+  a title showing the whole name, as a TeX or code file's does, is edited
+  as the whole name, else the extension stays; Windows' illegal characters
+  and a leading dot are refused with a Notice and the name put back);
+  Escape puts the name back. Enter in the inline title puts the caret at
+  the start of the note's text, Escape leaves it where it was.
+  `workspace:edit-file-title` ("Rename file", F2) calls
+  `FileView.editTitle`: the inline title when shown (scrolled to first in
+  a long note), else the title bar's, else the Rename dialog. The
+  explorer's "Rename..." in a view's own tab and More options menus does
+  the same; elsewhere it opens the dialog, which checks names the same way.
 - Stacked sidebar panes (justnotes' own; Obsidian has none): a tab group that
   shares a sidebar column with another (kgdistiller's Lookup above its
   Capture) shows a collapse button, `.workspace-tab-header-collapse`, before
@@ -595,8 +616,9 @@ plain style. Development notes belong in this file.
     `--font-*-override` variables (00-base.css chains them before the
     theme's), the font size `--font-text-size`; Quick font size adjustment
     is Mod+wheel (or a pinch) by a pixel per 50 px of scroll, unless a view
-    that zooms itself took the wheel; Show ribbon and Show tab title bar
-    are body classes `show-ribbon` and `show-view-header`, as in Obsidian;
+    that zooms itself took the wheel; Show ribbon, Show tab title bar and
+    Show inline title are body classes `show-ribbon`, `show-view-header`
+    and `show-inline-title`, as in Obsidian (see Renaming from the title);
     the zoom slider sets `webFrame`'s zoom factor, and a zoom from the View
     menu is recorded on the next resize. Themes come from
     `.obsidian/themes` (no downloading); the folder buttons open the
@@ -604,7 +626,7 @@ plain style. Development notes belong in this file.
   - Left out because justnotes cannot honour them: vim key bindings (no Vim
     mode), spellcheck languages (Electron sets them only on Windows and
     Linux; macOS's checker detects the language), Show editing mode in
-    status bar, Show inline title (justnotes has no inline title), Ribbon
+    status bar, Ribbon
     menu configuration, Native menus, Window frame style, Custom app icon,
     Translucent window, Hardware acceleration, Override config folder,
     Allow URI callbacks, Rebuild vault cache and the account. General's

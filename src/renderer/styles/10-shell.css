@@ -508,3 +508,10 @@ body:not(.show-ribbon) .workspace-ribbon {
 body:not(.show-view-header) .workspace-leaf-content > .view-header {
 	display: none;
 }
+
+/* The title renames the file while edited (FileView). */
+.view-header-title[contenteditable] {
+	outline: none;
+	color: var(--text-normal);
+	cursor: text;
+}

@@ -1,7 +1,7 @@
 // The Appearance settings that style the whole window, applied at boot and
 // again whenever the vault's settings change: the base color scheme and
 // accent, the fonts and font size, the body classes Obsidian's themes read
-// (`show-ribbon`, `show-view-header`), and Mod+wheel font size changes. The
+// (`show-ribbon`, `show-view-header`, `show-inline-title`), and Mod+wheel font size changes. The
 // zoom level is the app's, not the vault's: Chromium shares it between the
 // windows of the page's origin, and localStorage `zoom-factor` keeps it.
 import { webFrame } from "electron";
@@ -56,6 +56,7 @@ export function installAppearance(app: App) {
 		}
 		body.toggleClass("show-ribbon", vault.getConfig("showRibbon") !== false);
 		body.toggleClass("show-view-header", vault.getConfig("showViewHeader") !== false);
+		body.toggleClass("show-inline-title", vault.getConfig("showInlineTitle") !== false);
 	};
 	media.addEventListener("change", apply);
 	vault.on("config-changed", apply);

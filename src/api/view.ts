@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import type { App } from "./app";
 import { AppResizeObserver, onWindowAdded } from "./dom";
 import { Component, Events } from "./events";
+import { bindTitleField, promptRename } from "./file-title";
 import { setIcon, setTooltip } from "./icons";
 import type { Scope } from "./keymap";
 import { Menu } from "./ui/menu";
@@ -265,6 +266,48 @@ export abstract class FileView extends ItemView {
 	// The path this view last showed for its file: the vault renames TFiles in
 	// place, so a changed path is how a rename of the file or a parent folder shows.
 	#path: string | null = null;
+
+	// The tab title bar's title renames the file, as in Obsidian: it is
+	// editable while focused, when it shows the file's name (a plugin's view
+	// may show something else).
+	constructor(leaf: WorkspaceLeaf) {
+		super(leaf);
+		const title = this.titleEl;
+		bindTitleField(
+			this.app,
+			{ el: title, shown: () => this.getDisplayText(), read: () => title.textContent ?? "", write: (text) => title.setText(text) },
+			() => this.file,
+			() => this.app.workspace.setActiveLeaf(this.leaf, { focus: true }),
+		);
+		title.addEventListener("mousedown", () => this.#editableTitle());
+		title.addEventListener("blur", () => title.removeAttribute("contenteditable"));
+	}
+
+	#editableTitle() {
+		const file = this.file;
+		const shown = this.getDisplayText();
+		const ok = !!file && (shown === file.basename || shown === file.name);
+		if (ok) this.titleEl.setAttr("contenteditable", "plaintext-only");
+		return ok;
+	}
+
+	// "Rename file": focuses a title that renames the file, with its text
+	// selected, or opens the Rename dialog when no such title is shown.
+	editTitle() {
+		const file = this.file;
+		if (!file) return;
+		if (this.focusTitle()) return;
+		promptRename(this.app, file, this.getDisplayText() === file.name ? file.name : file.basename);
+	}
+
+	// Focuses a shown title that renames the file; false when there is none.
+	focusTitle() {
+		const title = this.titleEl;
+		if (!title.isShown() || !this.#editableTitle()) return false;
+		title.focus();
+		title.doc.getSelection()?.selectAllChildren(title);
+		return true;
+	}
 
 	onload() {
 		this.registerEvent(this.app.vault.on("rename", () => this.#onRename()));
