@@ -305,6 +305,13 @@ export class FileExplorerView extends ItemView {
 		menu.addItem((i) => i.setTitle("Show in system explorer").setIcon("arrow-up-right").setSection("system").onClick(() => this.app.showInFolder(file.path)));
 		menu.addItem((i) =>
 			i
+				.setTitle("Copy file location")
+				.setIcon("copy")
+				.setSection("system")
+				.onClick(() => navigator.clipboard.writeText(this.app.vault.adapter.getFullPath(file.path))),
+		);
+		menu.addItem((i) =>
+			i
 				.setTitle("Delete")
 				.setIcon("trash-2")
 				.setWarning(true)
