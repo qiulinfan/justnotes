@@ -21,6 +21,7 @@ import { registerCoreCommands } from "./commands";
 import { installDevCapture } from "./dev-capture";
 import { defaultRightSidebar, installCorePlugins, registerCorePluginViews } from "./core-plugins";
 import { registerEpubView } from "./epub/epub-view";
+import { registerPdfView } from "./pdf/pdf-view";
 import { registerMediaViews } from "./media-view";
 import { SearchView } from "./search";
 import { registerPlainTextView } from "./plain-text-view";
@@ -130,6 +131,7 @@ async function boot() {
 	registerPlainTextView(app);
 	registerMediaViews(app);
 	registerEpubView(app);
+	registerPdfView(app);
 	installBases(app);
 	registerCorePluginViews(app);
 	registerCodeView(app);

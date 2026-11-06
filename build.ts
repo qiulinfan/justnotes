@@ -99,6 +99,11 @@ await Promise.all([
 	Bun.write(`${lib}/pdfjs/pdf.min.mjs`, Bun.file(`${pdfjs}/build/pdf.min.mjs`)),
 	Bun.write(`${lib}/pdfjs/pdf.worker.min.mjs`, Bun.file(`${pdfjs}/build/pdf.worker.min.mjs`)),
 	...["cmaps", "standard_fonts", "wasm", "iccs"].map((dir) => fs.cp(`${pdfjs}/${dir}`, `${lib}/pdfjs/${dir}`, { recursive: true })),
+	// The viewer components the PDF view (renderer/pdf) builds on, with the
+	// stylesheet and the icons it refers to.
+	Bun.write(`${lib}/pdfjs/web/pdf_viewer.mjs`, Bun.file(`${pdfjs}/web/pdf_viewer.mjs`)),
+	Bun.write(`${lib}/pdfjs/web/pdf_viewer.css`, Bun.file(`${pdfjs}/web/pdf_viewer.css`)),
+	fs.cp(`${pdfjs}/web/images`, `${lib}/pdfjs/web/images`, { recursive: true }),
 	Bun.write(`${lib}/mermaid/mermaid.min.js`, Bun.file("node_modules/mermaid/dist/mermaid.min.js")),
 	Bun.write(`${lib}/prism/prism.js`, await prismBundle()),
 ]);

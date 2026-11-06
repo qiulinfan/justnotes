@@ -21,6 +21,7 @@
 		"dist:win": "bun scripts/dist.ts --win"
 	},
 	"dependencies": {
+		"@cantoo/pdf-lib": "2.11.1",
 		"@codemirror/autocomplete": "^6.20.4",
 		"@codemirror/collab": "^6.1.1",
 		"@codemirror/commands": "^6.11.1",

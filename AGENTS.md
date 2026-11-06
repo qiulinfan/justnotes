@@ -96,8 +96,8 @@ plain style. Development notes belong in this file.
 - `src/renderer/`: host UI (`loader.ts` runs the bundle, `boot.ts` starts the
   app; core commands, file explorer, search, view
   and workspace commands, bases view, the core plugins in `core-plugins.ts`
-  and the modules it installs, `plain-text-view.ts`, `epub/` for the EPUB
-  view, `terminal/` for the Terminal core plugin) and `styles/NN-*.css`,
+  and the modules it installs, `plain-text-view.ts`, `epub/` and `pdf/` for the EPUB and
+  PDF views, `terminal/` for the Terminal core plugin) and `styles/NN-*.css`,
   which keep Obsidian's CSS variable and class names so plugin stylesheets
   apply (`93-latex.css` is latex-live's `styles.css`).
 - `src/latex/`: obsidian-latex-live built in, the `latex` core plugin (see
@@ -1018,6 +1018,119 @@ plain style. Development notes belong in this file.
   contents pane lists them below the contents, and a book opened with no
   saved place starts at its start-of-text landmark.
 
+## PDF
+
+- `.pdf` opens in the PDF view (`renderer/pdf/pdf-view.ts`, view type `pdf`,
+  Obsidian's), on pdf.js's viewer components: `web/pdf_viewer.mjs`, its
+  stylesheet and icons, copied by build.ts to `dist/lib/pdfjs/web/`. The
+  module reads the library from `globalThis.pdfjsLib`, which `loadPdfJs`
+  sets, and is `import()`ed from there (code-cached scripts import through
+  Node's loader, see Caches); the stylesheet goes first in `<head>` on the
+  first PDF, so the app's and the theme's rules win. One `PDFViewer` per view
+  with `EventBus`, `PDFLinkService` (outside links open as `_blank`, which
+  main's window-open handler gives the browser), `PDFFindController`, the
+  built-in English `GenericL10n`, forms on (`AnnotationMode.ENABLE_FORMS`)
+  and the annotation editors on (`AnnotationEditorType.NONE` to start).
+  `getDocument` takes over the bytes it is given (to its worker), so it gets
+  a copy; a password-protected PDF asks for its password; cancelling destroys the
+  loading task, so the load ends with a message instead of waiting.
+- The toolbar: sidebar, previous/next page, page number, zoom (presets,
+  out, in; Mod+wheel and pinches zoom about the pointer with `updateScale`,
+  Mod+=/-/0), the tools (select, highlight, text, draw, image, note: editor
+  modes NONE, HIGHLIGHT, FREETEXT, INK, STAMP, and the view's own note
+  tool over NONE), the current tool's colours and size (localStorage
+  `justnotes-pdf-tools`), undo of a page change, print, search. Picking a tool
+  unselects annotations first: pdf.js sends parameter changes to the
+  selected annotations instead of the tool's defaults when any is selected.
+  In select mode pdf.js shows its floating Highlight button on a text
+  selection. pdf.js handles Mod+Z only while a tool is on; in select mode
+  the view undoes and redoes annotation edits (`uiManager.undo`/`redo`, as
+  `editingstateschanged` reports them), then page changes. ArrowLeft/Right,
+  Home and End turn pages unless an annotation is selected. Find bar (Mod+F):
+  match case, whole words, previous/next, count. Dark pages (pane menu,
+  `justnotes-pdf-dark-pages`) invert the canvases with the hue kept.
+- Images and signatures (the image tool's menu) become pdf.js image
+  annotations through `CREATE` with a `bitmapFile`, never pdf.js's own
+  `<input type=file>`: an image from the vault, an image file through main's
+  `dialog.showOpenDialog` (stub it there in tests), or a signature
+  (`signature.ts`: drawn on a canvas or typed in a script face, cropped to the
+  ink as a transparent PNG; the last five are kept per viewer in
+  `justnotes-pdf-signatures`). The viewer's container is its own stacking
+  context (`isolation: isolate`): pdf.js's editors use z-indexes that would
+  otherwise cover modals and menus.
+- Notes: with the note tool, a click on a page (not on an annotation) asks
+  for the text and adds a sticky note there (`addNote`: a Text annotation,
+  shown by pdf.js as an icon that opens it). The sidebar's Notes tab lists
+  every annotation but links, fields and popups (`listAnnotations`, read
+  from the current bytes, so annotations not yet saved are there too): a
+  click goes to it, a note's text can be edited and any other annotation
+  but a text box (whose contents are its text) given a comment, shown by
+  pdf.js in the annotation's popup (`setAnnotationContents`; a comment may
+  be emptied, a note may not), and any of them deleted with its popup
+  (`deleteAnnotation`). The list may be older than the file (pdf.js's
+  editors add and remove annotations, shifting places in /Annots), so each
+  action finds its annotation again in the current bytes by page, kind,
+  place and text (`relocate`) and refuses when it is gone. These are
+  page changes: written at once, undoable.
+- Printing (`print.ts`, the toolbar and the pane menu) renders every page
+  for printing at 150 dpi with the print annotation storage (unsaved
+  annotations and form values included) to PNGs in a temporary folder, loads
+  a page of them in a hidden `BrowserWindow` (through `@electron/remote`;
+  sandboxed, no JavaScript) and prints it with `webContents.print`, the
+  system's dialog. Its callback says whether it printed; a failure other
+  than a cancelled dialog shows its reason. The window and the folder go
+  after. `view.print(options)` passes options to `webContents.print`:
+  tests use `{ silent: true, deviceName: "<none such>" }`, which goes the
+  whole way without a dialog or a printer and comes back with Electron's
+  "Invalid deviceName provided".
+- The sidebar: thumbnails (rendered when scrolled near, `IntersectionObserver`)
+  and the outline (`getOutline`, collapsible, `goToDestination`).
+  Thumbnails select with click, Mod-click and Shift-click; their menu and
+  Delete/Backspace act on the selection (or the clicked page): rotate either
+  way, duplicate, insert a blank page before or after (the neighbour's
+  size), insert another vault PDF's pages after, extract to `<name> (pN).pdf`
+  beside the file (opened in a new tab), delete. Dragging thumbnails moves
+  them between pages (`movedOrder`); the drag names its file, so thumbnails
+  dropped from another PDF's view go in as copies of those pages. PDF files
+  dropped there from Finder or the explorer go in at that place. The pane menu adds rotate all, insert a
+  PDF at the end, document info (title, author, subject, keywords).
+- Annotations and form values live in pdf.js's `annotationStorage` and save
+  through `saveDocument` (an incremental update of the bytes pdf.js loaded,
+  with every annotation added so far) 2 s after the last change, on Mod+S,
+  when the tab closes and on the workspace `quit` event. Page changes and
+  document info go through `pages.ts` (pdf-lib, the maintained fork
+  `@cantoo/pdf-lib`; tested in `test/pdf-pages.test.ts`): the current bytes
+  (`saveDocument` when annotations exist, else `getData`), the change, a
+  write in place, and the document reloaded at the same page; the bytes
+  before go on an undo stack (10 deep), cleared when annotations change
+  afterwards (undoing would write the bytes from before them) and on a
+  reload from disk. Saves, changes and undos run one at a time (`#busy`),
+  which also keeps their own writes' vault `modify` from reading as an
+  outside change. Nothing is written to a file the vault no longer has. Pages that stay keep their objects
+  (annotations, links, fields). pdf-lib corrupts its page tree counts when a
+  removed page goes back in, so reordering rewrites the tree flat, with what
+  each page inherited from intermediate nodes moved onto the page first.
+  Encrypted PDFs read but cannot have their pages changed.
+- Where each PDF was left (page, zoom, offsets from `updateviewarea`) and
+  whether the sidebar shows are per viewer in localStorage
+  (`justnotes-pdf-positions`, `justnotes-pdf-sidebar`); a link's `#page=N`
+  (ephemeral state) goes to that page. A tab restored in the background has
+  no layout for pdf.js to scroll in: its place is set when it first shows
+  (`onResize`). A change on disk from elsewhere (a TeX build, a sync)
+  reloads at the same page unless annotations are unsaved.
+- In a popout window: pdf.js's editors listen on the vault window and read
+  its document's selection and focus, so `popout-bridge.ts` replays the
+  popout's pointer events and selection changes in the vault window and
+  hands its keys (the PDF's own, or the popout's body when the PDF is the
+  active tab) to the editors' manager, while the vault document's
+  `getSelection` and `activeElement` answer for the popout's. The bridge
+  follows the view's window (`#ensureBridge` on load, resize, tool changes
+  and `onWindowMigrated`): a view restored into a popout can load before it
+  is there. Highlighting a selection, undo and redo were tested there.
+- Comments and signatures are the view's own (above): pdf.js's comment
+  sidebar and signature dialogs belong to its viewer application, not to
+  the components.
+
 ## Packaging and releases
 
 - Run from the repo (`bun run start`, scripts/start.ts, and the `justnotes`
@@ -1060,7 +1173,7 @@ plain style. Development notes belong in this file.
   page require at runtime, and node-pty (unpacked: `asarUnpack`, since its
   `.node` files, `spawn-helper` and Windows worker cannot run from inside
   the asar); every other dependency is bundled by esbuild or copied into
-  `dist/lib` (MathJax, pdf.js, Mermaid, Prism). A new runtime `require` of a
+  `dist/lib` (MathJax, pdf.js and its viewer components, Mermaid, Prism). A new runtime `require` of a
   package needs an entry in `files`. node-pty, the one native module, ships
   prebuilt N-API binaries, so nothing is rebuilt (`npmRebuild: false`). Its
   `prebuilds/{darwin,win32}-${arch}` both go into every package: a

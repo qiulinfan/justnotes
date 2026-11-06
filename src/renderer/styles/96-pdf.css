@@ -1,0 +1,409 @@
+/* PDF view: a toolbar, a find bar, then the sidebar (thumbnails or the
+   outline) beside pdf.js's viewer. pdf_viewer.css (loaded first, on the
+   first PDF) styles the pages and their layers. */
+.workspace-leaf-content[data-type="pdf"] .view-content.pdf-view {
+	display: flex;
+	flex-direction: column;
+	padding: 0;
+	overflow: hidden;
+}
+
+.pdf-toolbar {
+	flex: 0 0 auto;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-1) var(--size-4-3);
+	padding: var(--size-4-1) var(--size-4-2);
+	border-bottom: var(--border-width) solid var(--background-modifier-border);
+	background: var(--background-primary);
+	font-size: var(--font-ui-small);
+}
+
+.pdf-toolbar-group {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-1);
+}
+
+.pdf-toolbar-end {
+	margin-inline-start: auto;
+}
+
+.pdf-toolbar-button.is-active {
+	color: var(--interactive-accent);
+	background: var(--background-modifier-hover);
+}
+
+.pdf-page-input {
+	width: 3.5em;
+	text-align: end;
+	font-size: var(--font-ui-small);
+	padding: 0 var(--size-2-2);
+	height: var(--input-height, 28px);
+}
+
+.pdf-page-count {
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.pdf-zoom-select,
+.pdf-size-select {
+	font-size: var(--font-ui-small);
+}
+
+.pdf-tools {
+	padding-inline-start: var(--size-4-2);
+	border-inline-start: var(--border-width) solid var(--background-modifier-border);
+}
+
+.pdf-swatch {
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	cursor: pointer;
+	border: 1px solid var(--background-modifier-border-hover);
+}
+
+.pdf-swatch.is-active {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.pdf-findbar {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	padding: var(--size-4-1) var(--size-4-2);
+	border-bottom: var(--border-width) solid var(--background-modifier-border);
+	background: var(--background-primary);
+	font-size: var(--font-ui-small);
+}
+
+.pdf-find-input {
+	flex: 0 1 18rem;
+	min-width: 8rem;
+}
+
+.pdf-find-input.is-not-found {
+	border-color: var(--text-error);
+}
+
+.pdf-find-toggle {
+	font-size: var(--font-ui-smaller);
+	padding: 0 var(--size-2-3);
+}
+
+.pdf-find-toggle.is-active {
+	color: var(--text-on-accent);
+	background: var(--interactive-accent);
+}
+
+.pdf-find-count {
+	color: var(--text-muted);
+	min-width: 5em;
+}
+
+.pdf-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	display: flex;
+}
+
+.pdf-sidebar {
+	flex: 0 0 auto;
+	width: 200px;
+	min-width: 0;
+	overflow: hidden;
+	user-select: none;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	border-inline-end: var(--border-width) solid var(--background-modifier-border);
+	background: var(--background-secondary);
+}
+
+.pdf-sidebar-tabs {
+	display: flex;
+	gap: var(--size-2-2);
+	padding: var(--size-4-1) var(--size-4-2);
+	font-size: var(--font-ui-small);
+}
+
+.pdf-sidebar-tab {
+	padding: var(--size-2-1) var(--size-4-2);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	color: var(--text-muted);
+}
+
+.pdf-sidebar-tab.is-active {
+	background: var(--background-modifier-active-hover);
+	color: var(--text-normal);
+}
+
+.pdf-thumbs,
+.pdf-outline {
+	flex: 1 1 auto;
+	overflow-y: auto;
+	min-height: 0;
+}
+
+.pdf-thumbs {
+	padding: var(--size-4-2) 0 var(--size-4-6);
+}
+
+.pdf-thumb {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--size-2-2);
+	padding: var(--size-4-2) 0;
+	border-block: 2px solid transparent;
+	cursor: pointer;
+	user-select: none;
+}
+
+.pdf-thumb-frame {
+	width: 140px;
+	border-radius: var(--radius-s);
+	outline: 1px solid var(--background-modifier-border);
+	background: white;
+	line-height: 0;
+}
+
+.pdf-thumb-frame canvas {
+	width: 100%;
+	min-height: 60px;
+	border-radius: var(--radius-s);
+}
+
+.pdf-thumb-label {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	padding: 0 var(--size-4-1);
+	border-radius: var(--radius-s);
+}
+
+.pdf-thumb.is-current .pdf-thumb-label {
+	background: var(--background-modifier-active-hover);
+	color: var(--text-normal);
+}
+
+.pdf-thumb.is-selected .pdf-thumb-frame {
+	outline: 3px solid var(--interactive-accent);
+}
+
+.pdf-thumb.is-drop-before {
+	border-top-color: var(--interactive-accent);
+}
+
+.pdf-thumb.is-drop-after {
+	border-bottom-color: var(--interactive-accent);
+}
+
+.pdf-outline {
+	padding: var(--size-4-1) var(--size-4-1) var(--size-4-6);
+	font-size: var(--font-ui-small);
+}
+
+.pdf-outline-title {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-2-1);
+	padding-block: var(--size-2-2);
+	padding-inline-end: var(--size-4-1);
+	border-radius: var(--radius-s);
+	color: var(--nav-item-color, var(--text-muted));
+	line-height: 1.35;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.pdf-outline-title:hover {
+	background: var(--nav-item-background-hover, var(--background-modifier-hover));
+	color: var(--text-normal);
+}
+
+.pdf-outline-toggle {
+	flex: 0 0 14px;
+	display: flex;
+	color: var(--text-faint);
+}
+
+.pdf-outline-toggle svg {
+	width: 14px;
+	height: 14px;
+}
+
+.pdf-outline-empty,
+.pdf-message {
+	padding: var(--size-4-4);
+	color: var(--text-muted);
+}
+
+.pdf-main {
+	position: relative;
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+/* pdf.js wants its container absolutely positioned and scrolling. */
+.pdf-container {
+	position: absolute;
+	inset: 0;
+	overflow: auto;
+	background: var(--background-secondary-alt, var(--background-secondary));
+	outline: none;
+	/* pdf.js's editors use large z-indexes; they stay inside the viewer, under
+	   menus and dialogs. */
+	z-index: 0;
+	isolation: isolate;
+}
+
+.pdf-view .pdfViewer {
+	padding-block: var(--size-4-4);
+}
+
+.pdf-view .pdfViewer .page {
+	border: none;
+	margin: 0 auto var(--size-4-4);
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+	background-color: white;
+}
+
+/* Dark pages (pane menu): inverted colours, hues kept. */
+.pdf-view.is-dark-pages .pdfViewer .page canvas,
+.pdf-view.is-dark-pages .pdf-thumb-frame canvas {
+	filter: invert(0.9) hue-rotate(180deg);
+}
+
+.pdf-view.is-dark-pages .pdfViewer .page {
+	background-color: #1a1a1a;
+}
+
+/* Notes: every annotation, with a note's text. */
+.pdf-notes {
+	flex: 1 1 auto;
+	overflow-y: auto;
+	min-height: 0;
+	padding: var(--size-4-1) var(--size-4-1) var(--size-4-6);
+	font-size: var(--font-ui-small);
+}
+
+.pdf-note {
+	padding: var(--size-2-3) var(--size-4-2);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+}
+
+.pdf-note:hover {
+	background: var(--background-modifier-hover);
+}
+
+.pdf-note-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	color: var(--text-muted);
+}
+
+.pdf-note-kind {
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.pdf-note-actions {
+	margin-inline-start: auto;
+	display: flex;
+	opacity: 0;
+}
+
+.pdf-note:hover .pdf-note-actions {
+	opacity: 1;
+}
+
+.pdf-note-text {
+	margin-top: var(--size-2-1);
+	color: var(--text-normal);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.pdf-note-input {
+	width: 100%;
+	min-height: 6em;
+	resize: vertical;
+}
+
+/* The note tool: a click on a page places a note. */
+.pdf-view.is-note-tool .pdfViewer .page,
+.pdf-view.is-note-tool .pdfViewer .textLayer {
+	cursor: copy;
+}
+
+/* The signature dialog. */
+.pdf-signature-modal {
+	width: min(640px, 92vw);
+}
+
+.pdf-signature-saved {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-3);
+}
+
+.pdf-signature-saved-item {
+	position: relative;
+	padding: var(--size-2-3);
+	border: var(--border-width) solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: white;
+}
+
+.pdf-signature-saved-item img {
+	display: block;
+	height: 48px;
+	cursor: pointer;
+}
+
+.pdf-signature-remove {
+	position: absolute;
+	top: -10px;
+	right: -10px;
+	padding: 2px;
+	background: var(--background-primary);
+	border-radius: 50%;
+}
+
+.pdf-signature-tabs {
+	display: flex;
+	gap: var(--size-2-2);
+	margin-bottom: var(--size-4-2);
+}
+
+.pdf-signature-tabs button.is-active {
+	color: var(--text-on-accent);
+	background: var(--interactive-accent);
+}
+
+.pdf-signature-canvas {
+	display: block;
+	width: 100%;
+	aspect-ratio: 1000 / 360;
+	border: var(--border-width) dashed var(--background-modifier-border-hover);
+	border-radius: var(--radius-m);
+	background: white;
+	touch-action: none;
+	cursor: crosshair;
+}
+
+.pdf-signature-input {
+	width: 100%;
+	margin-top: var(--size-4-2);
+}
