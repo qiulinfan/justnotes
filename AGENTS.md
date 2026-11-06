@@ -1081,7 +1081,11 @@ plain style. Development notes belong in this file.
   a page of them in a hidden `BrowserWindow` (through `@electron/remote`;
   sandboxed, no JavaScript) and prints it with `webContents.print`, the
   system's dialog. Its callback says whether it printed; a failure other
-  than a cancelled dialog shows its reason. The window and the folder go
+  than a cancelled dialog shows its reason. Without a printer set up
+  Electron opens no dialog and fails at once ("No printers available on the
+  network"), so `getPrintersAsync` is asked first and an empty list says to
+  add a printer, before any page is rendered (a named `deviceName` skips the
+  check). The window and the folder go
   after. `view.print(options)` passes options to `webContents.print`:
   tests use `{ silent: true, deviceName: "<none such>" }`, which goes the
   whole way without a dialog or a printer and comes back with Electron's

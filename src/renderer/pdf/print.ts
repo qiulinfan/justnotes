@@ -17,9 +17,18 @@ export interface PrintResult {
 	reason: string;
 }
 
+// Without a printer set up Electron opens no dialog and fails at once ("No
+// printers available on the network"), so that is checked before any page
+// is rendered; a named device (options.deviceName) is left to Electron.
+export const NO_PRINTERS = "no-printers";
+
 export async function printPdf(doc: any, lib: any, progress: (done: number, total: number) => void = () => {}, options: Record<string, unknown> = {}): Promise<PrintResult> {
-	const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "justnotes-print-"));
 	const { remote } = getElectron();
+	if (!options.deviceName) {
+		const printers: unknown[] = await remote.getCurrentWebContents().getPrintersAsync();
+		if (!printers.length) return { printed: false, reason: NO_PRINTERS };
+	}
+	const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "justnotes-print-"));
 	let win: any = null;
 	try {
 		const storage = doc.annotationStorage.print;

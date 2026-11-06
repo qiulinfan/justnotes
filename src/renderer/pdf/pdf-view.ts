@@ -11,12 +11,12 @@ import { Notice } from "../../api/ui/notice";
 import { Setting } from "../../api/ui/setting";
 import { FuzzySuggestModal } from "../../api/ui/suggest";
 import { setTooltip } from "../../api/ui/tooltip";
-import { debounce } from "../../api/util";
+import { debounce, Platform } from "../../api/util";
 import { type TAbstractFile, TFile } from "../../api/vault";
 import { FileView } from "../../api/view";
 import type { Tasks, WorkspaceLeaf } from "../../api/workspace";
 import { bridgeToMain } from "./popout-bridge";
-import { printPdf } from "./print";
+import { NO_PRINTERS, printPdf } from "./print";
 import { SignatureModal } from "./signature";
 import {
 	addNote,
@@ -433,7 +433,8 @@ export class PdfView extends FileView {
 		const notice = new Notice("Preparing to print...", 0);
 		try {
 			const result = await printPdf(doc, this.#lib, (done, total) => notice.setMessage(`Preparing page ${done} of ${total}...`), options);
-			if (!result.printed && result.reason !== "cancelled") new Notice(`Could not print: ${result.reason || "the printer refused the job"}`);
+			if (result.reason === NO_PRINTERS) new Notice(`No printer is set up on this computer. Add one in ${Platform.isMacOS ? "System Settings → Printers & Scanners" : "Settings → Bluetooth & devices → Printers & scanners"}, then print again.`);
+			else if (!result.printed && result.reason !== "cancelled") new Notice(`Could not print: ${result.reason || "the printer refused the job"}`);
 			return result;
 		} catch (err) {
 			new Notice(`Could not print: ${err instanceof Error ? err.message : err}`);
