@@ -96,8 +96,8 @@ plain style. Development notes belong in this file.
 - `src/renderer/`: host UI (`loader.ts` runs the bundle, `boot.ts` starts the
   app; core commands, file explorer, search, view
   and workspace commands, bases view, the core plugins in `core-plugins.ts`
-  and the modules it installs, `plain-text-view.ts`, `terminal/` for the
-  Terminal core plugin) and `styles/NN-*.css`,
+  and the modules it installs, `plain-text-view.ts`, `epub/` for the EPUB
+  view, `terminal/` for the Terminal core plugin) and `styles/NN-*.css`,
   which keep Obsidian's CSS variable and class names so plugin stylesheets
   apply (`93-latex.css` is latex-live's `styles.css`).
 - `src/latex/`: obsidian-latex-live built in, the `latex` core plugin (see
@@ -894,6 +894,129 @@ plain style. Development notes belong in this file.
   text (`isTextFile`: under 10 MB, no NUL byte and valid UTF-8 in its first
   8 KB), such as an uninstalled plugin's JSON board, which is highlighted as
   JSON when its text parses; only the rest goes to the system's default app.
+
+## EPUB
+
+- `.epub` opens in the EPUB view (`renderer/epub/epub-view.ts`, view type
+  `epub`, registered in boot like the media views; `epub` is always shown in
+  the explorer). `book.ts` is the book without UI: fflate unzips the whole
+  file into memory, the OPF gives manifest, spine and metadata, the table of
+  contents comes from EPUB 3's nav (`epub:type="toc"`) else the NCX, and
+  `toBytes` rezips in the book's entry order with `mimetype` first and
+  stored (compressed media stored, the rest deflated). `chapter.ts` is a
+  chapter between the book and the frame, `toc-edit.ts` edits the nav and
+  the NCX alike (an adapter per kind), `text-index.ts` is a chapter's text
+  as search sees it. All of it is tested with jsdom in `test/epub.test.ts`.
+- One spine item shows at a time in an `<iframe sandbox=
+  "allow-same-origin">` (the book's scripts and forms never run; this page
+  reaches into it). Its document starts as an empty srcdoc page and each
+  chapter's parsed root is imported into it, never re-parsed as HTML (XHTML's
+  `<div/>` would swallow the rest). Images, stylesheets (their `url()` and
+  `@import` rewritten too), SVG images, media and fonts are served as blob
+  URLs made from the zip entries, cached per book and revoked on unload;
+  fonts obfuscated per META-INF/encryption.xml (IDPF: the first 1040 bytes
+  XORed with the SHA-1 of the unique identifier, whitespace removed; Adobe:
+  the first 1024 with the identifier's UUID bytes) are served deobfuscated
+  (`book.resource`), the zip keeps their bytes. A `<style>` appended last
+  sets the theme's text colour, readable width and the text size
+  (localStorage `justnotes-epub-text-size`, pane menu); on the dark theme
+  the book's text colours and backgrounds give way with `!important`.
+  Links inside the book go to their spine item and fragment, others to
+  `shell.openExternal`. Listeners are attached from this page on every frame
+  load (a move to a popout reloads the frame, which then gets the chapter
+  again), including the app keymap.
+- Reading scrolls the chapter, or turns pages (pane menu, localStorage
+  `justnotes-epub-layout`): CSS columns one readable width wide whose gap is
+  the page's two margins, so each page is the frame's width and the frame's
+  window scrolls sideways a page at a time (`#turnTo`). Arrows, Page Up/Down,
+  Space and a wheel gesture turn pages, and past either end of a chapter go
+  on into the next or the previous one's last page; scrolled, ArrowLeft/Right
+  change chapter. Editing and the source always scroll. Where each book was
+  left (spine index and a fraction of the chapter, of its height or its
+  pages) and whether the contents pane shows are per viewer in localStorage
+  (`justnotes-epub-positions`, `justnotes-epub-toc`).
+- Search (Mod+F, the bar above the page) runs over every spine item's text
+  (`book.search`: the body's text through `textIndex`, which spaces blocks
+  and folds whitespace, cached until the chapter changes; at most 500
+  hits) and lists the hits by chapter in place of the contents. The page
+  marks its matches and the current one with CSS Custom Highlights
+  (`::highlight(justnotes-search)`), which leave the DOM alone, so editing
+  and saving never see them; the n-th hit of a chapter is the n-th match of
+  the same `textIndex` over the frame's body. In the source, Mod+F is
+  CodeMirror's own search.
+- Editing: the pencil action turns on `designMode` (Enter makes `<p>`,
+  Mod-click follows a link) and shows the edit toolbar (undo, redo,
+  paragraph style through `formatBlock`, bold, italic, strikethrough,
+  super/subscript, lists, separator, link, image, clear formatting, all
+  `execCommand`; its buttons never take the focus). Pasted text is plain;
+  pasted and dropped images, and images picked from the vault, go into the
+  book (`addResource` in `imageDir`, the folder holding most of its images,
+  a unique name, a manifest item) and in at the cursor by hand:
+  `insertImage` and `insertHTML` copy the computed style around the cursor
+  (the reader's colours included) onto what they insert. Every `input`
+  commits the frame's `<body>` into the book at once (`commitBody`, a few
+  ms for the largest chapters seen), because a closing tab removes the
+  frame before the view's `close()` runs. `commitBody` serializes the body
+  with XMLSerializer (carrying the root's namespace declarations so
+  `epub:type` keeps its prefix), puts the display URLs back to the file's
+  references (a new image's URL is added to the chapter's map) and splices
+  the new `<body>` into the chapter's own text, so the head, doctype and
+  declaration keep their bytes; a chapter that only parsed as HTML is
+  written back whole as XHTML. The code action edits the chapter's XHTML in
+  CodeMirror (`lang-html`); text that is not well-formed is saved as typed
+  with a notice and renders as HTML. Book info edits title, author,
+  language, publisher and description in the OPF element by element and
+  updates `dcterms:modified` when present.
+- Chapters (the contents' and the pane menu): new chapter after, rename,
+  move up or down, indent or outdent in the contents, delete. They act on a section, a contents entry's spine
+  item and those after it up to the next entry's (`sectionOf`: a story split
+  over several files is one). A new chapter is an XHTML file in the
+  section's folder linking its stylesheets (XHTML 1.1 doctype in EPUB 2),
+  with a manifest item, an itemref and an entry in each contents document,
+  placed so the contents keep the reading order: right before the first
+  entry of a later chapter, in its list, else right after the last entry of
+  an earlier one (`insertEntry`). Deleting removes the itemrefs, items,
+  files and entries (sub-entries move up; the nav document and the last
+  chapter stay) and the landmarks that named the file. Moving up or down
+  swaps the chapter with its neighbour at its level of the contents, each
+  as a block of its own and its sub-entries' files (`moveSection`; none at
+  that level, or contents and spine disagreeing there, refuses); a book
+  whose contents do not list the chapter moves by sections. `moveChapter`
+  reorders itemrefs, and in the lists holding the moved chapter's entries
+  the entries for spine items trade places into spine order (others keep
+  their slots). After every NCX edit the book renumbers its playOrder
+  (`renumberPlayOrder`): navPoints and pageTargets together, by their
+  targets' place in the spine, one number per target. Indenting makes a chapter's first entry the last child of
+  the entry before it; outdenting puts it right after the entry it was under,
+  and the entries after it in its old list become its children, so the
+  reading order stays (`indentEntry`, `outdentEntry`). Each change pushes a snapshot of the entry map
+  (`snapshot`/`restore`; entries are replaced, never mutated) for undo
+  (Mod+Z while reading, pane menu, 20 deep). A snapshot is the whole book,
+  so any other edit (text, source, images, book info) and a reload from disk
+  clear the stack: undoing past them would take them back too.
+- The frame's page is built from the chapter's display copy, made when the
+  chapter loads; edits go to the book. A page filled again (switching to
+  pages and back, a move to a popout) is rebuilt from the book's text when
+  it differs from what the copy was made from (`chapter.shown`), or the
+  next edit would write the old body back.
+- Saving rewrites the whole file in place through `vault.modifyBinary`, 2 s
+  after the last edit, on Mod+S, when the tab closes, on the workspace
+  `quit` event, and synchronously on a `beforeunload` the workspace did not
+  flush; never to a file the vault no longer has (a deleted book's pending
+  save must not bring it back; FileView unloads it, which saves). A 7 MB book saves in about 0.1 s and is searched in about 0.15 s
+  (0.05 s once its texts are cached). A change on disk from elsewhere
+  reloads the book at the same place unless it holds unsaved edits, which
+  are kept (a notice says the next save replaces the outside change).
+- Landmarks (`landmarks.ts`; Mark as in the chapter menu, a section's first
+  file; marking it again unmarks): cover, title page, contents, start of
+  text, preface, foreword, acknowledgments, bibliography, glossary, index,
+  colophon, each with its EPUB 3 `epub:type` and its guide type. They go in
+  the landmarks nav (the book's own, else a hidden one made after the other
+  navs) and in the OPF's `<guide>` (made after the spine in EPUB 2 or a book
+  without a nav, kept up to date wherever one exists); one entry per kind.
+  `book.landmarks()` reads the nav, then guide references it lacks. The
+  contents pane lists them below the contents, and a book opened with no
+  saved place starts at its start-of-text landmark.
 
 ## Packaging and releases
 

@@ -1,0 +1,213 @@
+/* EPUB view: contents on the left, the chapter's page (or its source) and a
+   chapter bar below. The page's own look is set inside its frame
+   (epub-view.ts, #applyStyle). */
+.workspace-leaf-content[data-type="epub"] .view-content.epub-view {
+	display: flex;
+	padding: 0;
+	overflow: hidden;
+}
+
+.epub-toc {
+	flex: 0 0 15rem;
+	max-width: 40%;
+	overflow-y: auto;
+	padding: var(--size-4-2) var(--size-4-1);
+	border-inline-end: var(--border-width) solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	font-size: var(--font-ui-small);
+}
+
+.epub-toc-title {
+	padding: var(--size-4-1) var(--size-4-3) var(--size-4-2);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.epub-toc-item {
+	padding-block: var(--size-2-2);
+	padding-inline-end: var(--size-4-2);
+	border-radius: var(--radius-s);
+	color: var(--nav-item-color, var(--text-muted));
+	line-height: 1.35;
+}
+
+.epub-toc-item:hover {
+	background: var(--nav-item-background-hover, var(--background-modifier-hover));
+	color: var(--text-normal);
+}
+
+.epub-toc-item.is-active {
+	background: var(--nav-item-background-active, var(--background-modifier-active-hover));
+	color: var(--text-normal);
+}
+
+.epub-toc-item.is-disabled {
+	cursor: default;
+	color: var(--text-faint);
+}
+
+.epub-main {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.epub-frame {
+	flex: 1 1 auto;
+	width: 100%;
+	border: none;
+	background: transparent;
+}
+
+.epub-source {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.epub-source .cm-editor {
+	height: 100%;
+}
+
+.epub-source .cm-scroller {
+	padding: var(--size-4-4) var(--size-4-6);
+	font-family: var(--font-monospace);
+	font-size: var(--code-size, var(--font-smaller));
+}
+
+.epub-message {
+	padding: var(--size-4-8);
+	color: var(--text-muted);
+}
+
+.epub-footer {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-1) var(--size-4-3);
+	border-top: var(--border-width) solid var(--background-modifier-border);
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.epub-label {
+	flex: 1 1 auto;
+	min-width: 0;
+	text-align: center;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.epub-footer .epub-nav {
+	font-size: var(--font-ui-small);
+}
+
+.workspace-leaf-content[data-type="epub"] .view-action.is-active {
+	color: var(--interactive-accent);
+}
+
+/* Search: the bar above the page, the results in place of the contents. */
+.epub-searchbar,
+.epub-format {
+	flex: 0 0 auto;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-2-2);
+	padding: var(--size-4-1) var(--size-4-2);
+	border-bottom: var(--border-width) solid var(--background-modifier-border);
+	font-size: var(--font-ui-small);
+}
+
+.epub-search-input {
+	flex: 0 1 20rem;
+	min-width: 8rem;
+}
+
+.epub-search-toggle {
+	font-size: var(--font-ui-smaller);
+	padding: 0 var(--size-2-3);
+}
+
+.epub-search-toggle.is-active {
+	color: var(--text-on-accent);
+	background: var(--interactive-accent);
+}
+
+.epub-search-count {
+	color: var(--text-muted);
+	min-width: 5em;
+}
+
+.epub-result-chapter {
+	padding: var(--size-4-2) var(--size-4-2) var(--size-2-2);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.epub-result {
+	padding: var(--size-2-2) var(--size-4-2);
+	border-radius: var(--radius-s);
+	color: var(--text-muted);
+	line-height: 1.4;
+	overflow-wrap: anywhere;
+}
+
+.epub-result:hover {
+	background: var(--background-modifier-hover);
+}
+
+.epub-result.is-active {
+	background: var(--background-modifier-active-hover);
+	color: var(--text-normal);
+}
+
+.epub-result-match {
+	color: var(--text-normal);
+	background: var(--text-highlight-bg, rgba(255, 208, 0, 0.4));
+	border-radius: 2px;
+}
+
+/* The edit toolbar. */
+.epub-format-button {
+	padding: var(--size-2-1);
+}
+
+.epub-format-block {
+	font-size: var(--font-ui-small);
+}
+
+.epub-format-sep {
+	width: 1px;
+	align-self: stretch;
+	margin: 2px var(--size-2-2);
+	background: var(--background-modifier-border);
+}
+
+/* Long titles and snippets wrap (tree-item-self alone would cut them). */
+.epub-toc-item,
+.epub-result {
+	white-space: normal;
+}
+
+.epub-landmarks-title {
+	margin-top: var(--size-4-4);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.epub-landmark {
+	padding: var(--size-2-2) var(--size-4-3);
+	border-radius: var(--radius-s);
+	color: var(--nav-item-color, var(--text-muted));
+}
+
+.epub-landmark:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}

@@ -8,8 +8,8 @@ import type { TFile } from "./vault";
 
 // Shown whatever "Detect all file extensions" says: Markdown, TeX and plain
 // text (first-class in justnotes, unlike Obsidian), images, audio, video,
-// PDFs, canvases and bases.
-const ALWAYS_SHOWN = new Set(["md", "tex", "txt", "pdf", "canvas", "base", ...IMAGE_EXTENSIONS, ...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS]);
+// PDFs, EPUBs, canvases and bases.
+const ALWAYS_SHOWN = new Set(["md", "tex", "txt", "pdf", "epub", "canvas", "base", ...IMAGE_EXTENSIONS, ...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS]);
 
 // What justnotes opens itself, and what a plugin registered a view for.
 export function isSupportedExtension(app: App, extension: string) {

@@ -69,6 +69,7 @@ Windows 更新时保留原安装目录, 只替换发布包里的应用文件, �
 - 命令行 `justnotes`: Obsidian 自带的命令行命令 (同名同语法, Publish 和 Sync 除外) 加上插件注册的命令, 另外每个命令都能 `--json`, 只读的命令不开 app 也能用, 需要 app 时会自己启动它. `justnotes help` 列出全部, `justnotes completion fish` 生成补全. 放进 PATH: `ln -s "$PWD/src/cli/justnotes.ts" ~/.local/bin/justnotes` (需要 Bun).
 - tex 和 txt 也是笔记: `.tex` 用内置的 LaTeX 编辑器 (就是 LaTeX Live: 补全, 实时预览, 用本机 TeX 编译, PDF 预览和 SyncTeX 双向跳转, 导出 HTML), `.txt` 用纯文本编辑器. 它们在文件栏, 快速切换, 搜索, 大纲, 图谱, 反向链接里都和 md 一样, `[[main.tex]]` 这种链接也能用. 往 `.tex` 里粘贴图片会存成附件, 弹出一个小表单选宽度, 标题, 标签. 需要装 TeX (MacTeX 或 TeX Live), 补全需要 texlab.
 - 代码和数据文件 (json, yaml, cpp, py, rust, ts, js, css, html 等) 在 justnotes 里直接打开, 有语法高亮, 也能改.
+- epub 在 justnotes 里直接打开: 左边目录, 用书自己的样式, 图片和字体, 跟随深浅色主题, 书内链接能跳, 记住读到哪里. 可以滚动着读, 也可以翻页 (右上角菜单切换, 方向键和空格翻页). `⌘F` 搜整本书. 铅笔按钮直接在页面上改文字, 带一排格式按钮 (标题, 粗体, 斜体, 列表, 链接, 插图), 图片可以粘贴或拖进来; `</>` 按钮改这一章的 XHTML 源码, ⓘ 按钮改书名, 作者, 语言, 出版社, 简介. 目录右键可以新建, 改名, 移动, 缩进, 删除章节, 也可以标记封面, 正文开始等 (第一次打开时从正文开始读), `⌘Z` 撤销. 改完自动存回 `.epub`. 字号在右上角菜单里调.
 - 内置终端: 在标签页里开你的登录 shell, 字体, 配色和背景图沿用 Ghostty 的配置. 命令面板 "Terminal: Open terminal" 或侧栏按钮打开.
 - 不在任何 vault 里的文件 (没有上层 `.obsidian`, 也不是打开过的 vault) 会单独开一个窗口: 只有这个文件和它引用的图片, 链接, 不扫描文件夹, 不加载插件, 不进 vault 列表, 也不在文件夹里建 `.obsidian`. 能编辑保存, 有大纲; 反向链接, 搜索, 图谱这些没有. 窗口里改的设置不保存.
 - 默认显示所有类型的文件.

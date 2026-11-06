@@ -20,6 +20,7 @@ import { registerCodeView } from "./code-view";
 import { registerCoreCommands } from "./commands";
 import { installDevCapture } from "./dev-capture";
 import { defaultRightSidebar, installCorePlugins, registerCorePluginViews } from "./core-plugins";
+import { registerEpubView } from "./epub/epub-view";
 import { registerMediaViews } from "./media-view";
 import { SearchView } from "./search";
 import { registerPlainTextView } from "./plain-text-view";
@@ -128,6 +129,7 @@ async function boot() {
 	app.viewRegistry.registerExtensions(["md"], "markdown");
 	registerPlainTextView(app);
 	registerMediaViews(app);
+	registerEpubView(app);
 	installBases(app);
 	registerCorePluginViews(app);
 	registerCodeView(app);
