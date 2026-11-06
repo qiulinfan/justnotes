@@ -30,7 +30,7 @@ plain style. Development notes belong in this file.
   user data folder, so test instances with their own `--profile` stay
   independent): a second launch on a running profile hands
   its arguments and working folder to the running instance (`second-instance`;
-  `--vault` folders, Markdown files and `obsidian://` URLs open there, read by
+  `--vault` folders, Markdown, TeX, PDF and EPUB files and `obsidian://` URLs open there, read by
   `launchRequest` in `launch-args.ts` as the first launch's are; with none
   the vault window comes to the front) and quits. While the app quits a
   second launch's arguments are dropped.
@@ -877,8 +877,11 @@ plain style. Development notes belong in this file.
   (`singleFileLayout`: the file, the outline on the right, the file explorer
   in the collapsed left sidebar) and the file opens after layout-ready (a
   `.tex` waits for the LaTeX core plugin's `latex-live:api-ready`, which
-  registers its view later). Launch arguments take Markdown files only;
-  `.tex` arrives through macOS `open-file`.
+  registers its view later). Launch arguments take Markdown, TeX, PDF and
+  EPUB files (`isDocument` in `launch-args.ts`); macOS `open-file` hands
+  over any file. PDFs and EPUBs open in their views there as in a vault; the
+  package's file associations stay Markdown and TeX only, so justnotes never
+  claims PDFs or EPUBs from the system's reader.
 
 ## Code files
 

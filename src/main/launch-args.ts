@@ -6,12 +6,14 @@ import * as path from "node:path";
 // the checkout, which counts as any other argument).
 
 export const isObsidianUrl = (arg: string) => /^obsidian:/i.test(arg);
-export const isMarkdown = (file: string) => /\.(md|markdown)$/i.test(file);
+// The files a launch opens: notes (Markdown, TeX) and the documents
+// justnotes reads and edits itself (PDF, EPUB).
+export const isDocument = (file: string) => /\.(md|markdown|tex|pdf|epub)$/i.test(file);
 
 // The arguments `justnotes restart` relaunches with: the launch's own options
 // (--profile, Electron and Chromium flags), a --vault for each vault window
 // open now, and nothing the launch opened: no --vault of its own, no
-// Markdown file and no obsidian: URL, which would open or run again.
+// document and no obsidian: URL, which would open or run again.
 export function restartArgs(args: string[], openVaults: string[]): string[] {
 	const kept: string[] = [];
 	for (let i = 0; i < args.length; i++) {
@@ -21,14 +23,14 @@ export function restartArgs(args: string[], openVaults: string[]): string[] {
 		} else if (arg === "--profile") {
 			kept.push(...args.slice(i, i + 2));
 			i++;
-		} else if (!isObsidianUrl(arg) && !isMarkdown(arg)) {
+		} else if (!isObsidianUrl(arg) && !isDocument(arg)) {
 			kept.push(arg);
 		}
 	}
 	return [...kept, ...openVaults.flatMap((vault) => ["--vault", vault])];
 }
 
-// What a launch asks to open: the --vault folders, the Markdown files given
+// What a launch asks to open: the --vault folders, the documents given
 // as arguments (only existing files) and the obsidian: URLs, with relative
 // paths taken from the launch's working folder. A second launch on a running
 // instance's profile hands its arguments over (main.ts), so they are read
@@ -48,7 +50,7 @@ export function launchRequest(args: string[], cwd: string): LaunchRequest {
 			if (arg === "--vault" && value) launch.vaults.push(path.resolve(cwd, value));
 		} else if (isObsidianUrl(arg)) {
 			launch.urls.push(arg);
-		} else if (isMarkdown(arg) && fs.statSync(path.resolve(cwd, arg), { throwIfNoEntry: false })?.isFile()) {
+		} else if (isDocument(arg) && fs.statSync(path.resolve(cwd, arg), { throwIfNoEntry: false })?.isFile()) {
 			launch.files.push(path.resolve(cwd, arg));
 		}
 	}

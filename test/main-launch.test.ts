@@ -19,6 +19,8 @@ describe("restartArgs", () => {
 			"/tmp/profile.md",
 			"--remote-debugging-port=9963",
 			"Readme.markdown",
+			"book.epub",
+			"paper.pdf",
 		];
 		expect(restartArgs(launch, ["/v/notes", "/v/other"])).toEqual([
 			"/repo",
@@ -41,14 +43,17 @@ describe("launchRequest", () => {
 	const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jn-launch-")));
 	fs.mkdirSync(path.join(cwd, "notes"));
 	fs.writeFileSync(path.join(cwd, "notes/a.md"), "");
+	fs.writeFileSync(path.join(cwd, "notes/b.pdf"), "");
+	fs.writeFileSync(path.join(cwd, "notes/c.epub"), "");
+	fs.writeFileSync(path.join(cwd, "notes/d.png"), "");
 	fs.mkdirSync(path.join(cwd, "folder.md"));
 	afterAll(() => fs.rmSync(cwd, { recursive: true, force: true }));
 
-	test("vaults and files are resolved against the launch's folder; only existing Markdown files count", () => {
-		const args = ["/repo", "--profile", "notes/a.md", "--vault", "notes", "notes/a.md", "missing.md", "folder.md", "obsidian://open?vault=notes&file=a", "--vault", "/abs"];
+	test("vaults and files are resolved against the launch's folder; only existing notes, PDFs and EPUBs count", () => {
+		const args = ["/repo", "--profile", "notes/a.md", "--vault", "notes", "notes/a.md", "missing.md", "folder.md", "notes/b.pdf", "notes/c.epub", "notes/d.png", "obsidian://open?vault=notes&file=a", "--vault", "/abs"];
 		expect(launchRequest(args, cwd)).toEqual({
 			vaults: [path.join(cwd, "notes"), "/abs"],
-			files: [path.join(cwd, "notes/a.md")],
+			files: [path.join(cwd, "notes/a.md"), path.join(cwd, "notes/b.pdf"), path.join(cwd, "notes/c.epub")],
 			urls: ["obsidian://open?vault=notes&file=a"],
 		});
 	});
