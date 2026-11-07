@@ -1684,6 +1684,25 @@ export class Workspace extends Events {
 	}
 
 	async openLinkText(linktext: string, sourcePath: string, newLeaf?: PaneType | boolean, openViewState?: OpenViewState) {
+		// A plain click on a link to a place in a book or PDF already open in
+		// another tab goes there, and the note it was clicked in stays (an
+		// EPUB's highlights note beside the book).
+		if (!newLeaf) {
+			const { path, subpath } = parseLinktext(linktext);
+			const file = this.app.metadataCache.getFirstLinkpathDest(path, sourcePath);
+			let open: WorkspaceLeaf | null = null;
+			if (file && subpath && file.path !== sourcePath && (file.extension === "epub" || file.extension === "pdf")) {
+				this.iterateAllLeaves((leaf) => {
+					if (!open && (leaf.view as { file?: TFile | null }).file === file) open = leaf;
+				});
+			}
+			if (open) {
+				const leaf: WorkspaceLeaf = open;
+				await this.revealLeaf(leaf);
+				leaf.setEphemeralState({ ...openViewState?.eState, subpath });
+				return;
+			}
+		}
 		// A new tab takes focus unless the user turned "Always focus new tabs" off.
 		const active = openViewState?.active ?? (newLeaf ? this.app.vault.getConfig("focusNewTab") !== false : true);
 		await this.openLinkTextIn(() => this.getLeaf(newLeaf), linktext, sourcePath, { ...openViewState, active });
