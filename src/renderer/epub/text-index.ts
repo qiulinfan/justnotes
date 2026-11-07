@@ -76,3 +76,28 @@ export function rangeAt(index: TextIndex, start: number, length: number, doc: Do
 	range.setEnd(index.nodes[to]!, index.offsets[to] + 1);
 	return range;
 }
+
+// The first and last characters of `index` that `range` covers, without the
+// spaces at either end; [-1, -1] for none.
+export function spanOf(index: TextIndex, range: Range): [number, number] {
+	let start = -1;
+	let end = -1;
+	let node: Text | null = null;
+	let inside = false;
+	for (let i = 0; i < index.nodes.length; i++) {
+		const at = index.nodes[i];
+		if (!at) continue;
+		if (at !== node) {
+			node = at;
+			inside = range.intersectsNode(at);
+		}
+		if (!inside) continue;
+		const offset = index.offsets[i];
+		if (range.comparePoint(at, offset) < 0 || range.comparePoint(at, offset + 1) > 0) continue;
+		if (start < 0) start = i;
+		end = i;
+	}
+	while (start >= 0 && start <= end && index.text[start] === " ") start++;
+	while (end >= start && index.text[end] === " ") end--;
+	return start >= 0 && start <= end ? [start, end] : [-1, -1];
+}

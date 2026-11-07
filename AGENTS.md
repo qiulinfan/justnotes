@@ -946,6 +946,29 @@ plain style. Development notes belong in this file.
   the book's text for it changes. Every link followed in the text (not the
   contents pane) pushes where it was read from; the footer's Back and
   Backspace return there.
+- Highlights (`highlights.ts`, tested in `test/epub-highlights.test.ts`)
+  live in a Markdown note beside the book, `Book.highlights.md` next to
+  `Book.epub`, never in the book. Each is a callout whose type is its colour
+  (yellow, green, blue, pink, purple; `|underline` or `|wavy` after it for
+  those styles) titled by a link back, `[[Book.epub#chapter-path:offset|
+  Book · Chapter]]`, the offset being where the quote starts in the
+  chapter's `textIndex` text; the quote (Markdown-escaped) is the callout's
+  body and the text after it, up to the next one, is the reader's note.
+  Other text in the file is kept where it is; entries are written in the
+  book's order through `vault.process`, so typing in the note meanwhile is
+  kept. A highlight is found again as the occurrence of its quote nearest
+  its offset (`locate`). It is drawn as a CSS highlight (`jn-<colour>-
+  <style>`), not markup; a selection while reading brings the bar
+  (`#justnotes-marker`, outside `<body>` like the note popover; a press on
+  it keeps the selection), a click on a highlight its own bar (Note,
+  Remove), a rest on one with a note shows the note. A selection over
+  highlights takes them in. The note is read again on any vault change to
+  it, and is renamed with the book. The header's highlighter opens it in a
+  split; `setEphemeralState` takes a link's `#chapter:offset`, and
+  `workspace.openLinkText` sends a plain click on a link with a subpath to
+  an EPUB or PDF already open in another tab to that tab, so the note stays.
+  Callout types yellow to purple have their colours in `71-callouts.css` and
+  the highlighter icon in `markdown.ts`.
 - Reading scrolls the chapter, or turns pages (pane menu, localStorage
   `justnotes-epub-layout`): CSS columns one readable width wide whose gap is
   the page's two margins, so each page is the frame's width and the frame's

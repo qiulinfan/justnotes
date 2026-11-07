@@ -515,6 +515,21 @@ export class EpubBook {
 	}
 
 	// The label the contents give a chapter (its first entry), or "".
+	// The labels from the contents' top down to the first entry for `path`
+	// ("Book Two", "Chapter One"); empty when no entry names it.
+	tocTrail(path: string): string[] {
+		const find = (entries: TocEntry[], above: string[]): string[] => {
+			for (const e of entries) {
+				const here = [...above, e.label];
+				if (e.path === path) return here;
+				const sub = find(e.children, here);
+				if (sub.length) return sub;
+			}
+			return [];
+		};
+		return find(this.toc, []);
+	}
+
 	tocLabel(path: string) {
 		const find = (entries: TocEntry[]): string => {
 			for (const e of entries) {

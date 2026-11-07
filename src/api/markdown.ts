@@ -1135,6 +1135,12 @@ const breaksFor = (app: App) => !app.vault.getConfig("strictLineBreaks");
 
 const CALLOUT_ICONS: Record<string, string> = {
 	note: "lucide-pencil",
+	// An EPUB's highlights note (renderer/epub/highlights.ts).
+	yellow: "lucide-highlighter",
+	green: "lucide-highlighter",
+	blue: "lucide-highlighter",
+	pink: "lucide-highlighter",
+	purple: "lucide-highlighter",
 	abstract: "lucide-clipboard-list",
 	summary: "lucide-clipboard-list",
 	tldr: "lucide-clipboard-list",

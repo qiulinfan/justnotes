@@ -211,3 +211,23 @@
 	background: var(--background-modifier-hover);
 	color: var(--text-normal);
 }
+
+/* A highlight's note. */
+.epub-highlight-note-modal {
+	width: min(560px, 92vw);
+}
+
+.epub-highlight-quote {
+	margin-bottom: var(--size-4-3);
+	padding-inline-start: var(--size-4-3);
+	border-inline-start: 3px solid var(--background-modifier-border-hover);
+	color: var(--text-muted);
+	max-height: 8em;
+	overflow: auto;
+}
+
+.epub-highlight-input {
+	width: 100%;
+	min-height: 8em;
+	resize: vertical;
+}

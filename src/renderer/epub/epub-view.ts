@@ -25,8 +25,9 @@ import type { Tasks, WorkspaceLeaf } from "../../api/workspace";
 import { type BookMetadata, dirname, EpubBook, isExternalHref, METADATA_FIELDS, parseXml, relativeHref, resolvePath, type SearchHit, type TocEntry } from "./book";
 import { type Chapter, commitBody, loadChapter, rewriteCss } from "./chapter";
 import { kindOf, LANDMARKS } from "./landmarks";
+import { COLORS, type Color, type Highlight, type Highlights, highlightsPath, locate, parseHighlights, sameHighlight, STYLES, type Style, writeHighlights } from "./highlights";
 import { type Note, noteFor, noteRoot } from "./notes";
-import { occurrences, rangeAt, textIndex } from "./text-index";
+import { occurrences, rangeAt, spanOf, textIndex } from "./text-index";
 
 export const EPUB_VIEW = "epub";
 
@@ -64,10 +65,39 @@ const XHTML = "http://www.w3.org/1999/xhtml";
 const NOTE_ID = "justnotes-note";
 const NOTE_DELAY = 250;
 const NOTE_LINGER = 300;
+// The bar over a selection or a highlight: colours, styles, its note.
+const MARKER_ID = "justnotes-marker";
+// The highlight colours, as RGB, on both themes.
+const HIGHLIGHT_RGB: Record<Color, string> = {
+	yellow: "250, 204, 21",
+	green: "74, 222, 128",
+	blue: "96, 165, 250",
+	pink: "244, 114, 182",
+	purple: "167, 139, 250",
+};
+// The colour and style a new highlight gets: the last one used.
+const HIGHLIGHT_PEN = "justnotes-epub-highlight";
 
 interface Position {
 	index: number;
 	fraction: number;
+}
+
+// The note over the page; `anchor` is what it stands beside: a note's mark
+// (`link`), or a highlight with a note.
+interface Popover {
+	el: Element;
+	anchor: Anchor;
+	link: Element | null;
+	highlight: Highlight | null;
+	path: string;
+	pinned: boolean;
+}
+
+// What a popover stands beside: an element, a range, or one line of it.
+interface Anchor {
+	getClientRects(): ArrayLike<DOMRect>;
+	getBoundingClientRect(): DOMRect;
 }
 
 interface Place {
@@ -122,13 +152,20 @@ export class EpubView extends FileView {
 	#storePosition = debounce(() => this.#rememberPosition(), 300, true);
 	#searchSoon = debounce(() => this.#runSearch(), 250, true);
 	// The note over the page, the link it belongs to and where it is.
-	#note: { el: Element; link: Element; path: string; found: Note; pinned: boolean } | null = null;
+	#note: Popover | null = null;
 	#noteTimer = 0;
 	#noteDocs = new Map<string, { text: string; doc: Document }>();
 	// Where each link followed in the text was read from, for Back (by
 	// path: chapters added or moved since leave it right).
 	#jumps: { path: string; fraction: number }[] = [];
 	#backEl: HTMLButtonElement;
+	// The book's highlights (its note beside it), those drawn in this chapter
+	// and the bar over a selection or one of them.
+	#highlights: Highlights = { preamble: "", entries: [] };
+	#drawn: { highlight: Highlight; range: Range }[] = [];
+	#marker: { el: Element; highlight: Highlight | null } | null = null;
+	#pendingPlace: { path: string; offset: number } | null = null;
+	#hoverAt = 0;
 
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
@@ -197,6 +234,7 @@ export class EpubView extends FileView {
 		this.contentEl.addEventListener("keydown", (evt) => this.#onKey(evt));
 
 		this.addAction("info", "Book info", () => this.#editInfo());
+		this.addAction("highlighter", "Highlights", () => void this.#openHighlights());
 		this.#modeActions = {
 			source: this.addAction("code-xml", "Edit chapter source", () => void this.setMode("source")),
 			edit: this.addAction("pencil", "Edit chapter text", () => void this.setMode("edit")),
@@ -224,6 +262,15 @@ export class EpubView extends FileView {
 	onload() {
 		super.onload();
 		this.registerEvent(this.app.vault.on("modify", (file: TAbstractFile) => void this.#onModify(file)));
+		// The highlights note, changed here or anywhere else.
+		for (const name of ["create", "modify", "delete", "rename"] as const) {
+			this.registerEvent(
+				this.app.vault.on(name, (file: TAbstractFile, old?: string) => {
+					const mine = highlightsPath(this.#path);
+					if (this.#path && (file.path === mine || old === mine)) void this.#loadHighlights();
+				}),
+			);
+		}
 		this.registerEvent(this.app.workspace.on("quit", (tasks: Tasks) => tasks.add(() => this.save())));
 		this.registerEvent(this.app.workspace.on("css-change", () => this.#applyStyle()));
 		// A reload the workspace did not flush (nothing async finishes during
@@ -257,13 +304,26 @@ export class EpubView extends FileView {
 		this.#mtime = file.stat.mtime;
 		this.#messageEl.hide();
 		this.#renderToc();
+		await this.#loadHighlights(false);
 		const saved = this.#positions()[file.path];
 		// A book opened for the first time starts where its "Start of text"
 		// landmark says, else at its first linear chapter.
 		const start = this.#book.landmarks().find((l) => l.type === "bodymatter");
 		const startIndex = start ? this.#book.spineIndexOf(start.path) : -1;
 		const first = startIndex >= 0 ? startIndex : Math.max(0, this.#book.spine.findIndex((item) => item.linear));
-		await this.#show(saved && saved.index < this.#book.spine.length ? saved.index : first, { fraction: saved?.fraction ?? 0 });
+		const place = this.#pendingPlace;
+		this.#pendingPlace = null;
+		if (place && this.#book.spineIndexOf(place.path) >= 0) await this.#goToPlace(place, false);
+		else await this.#show(saved && saved.index < this.#book.spine.length ? saved.index : first, { fraction: saved?.fraction ?? 0 });
+	}
+
+	// A link's subpath into the book (the highlights note's): "#chapter:offset".
+	setEphemeralState(state: any) {
+		const m = /^#?(.+):(\d+)$/.exec(typeof state?.subpath === "string" ? state.subpath : "");
+		if (!m) return;
+		const place = { path: m[1], offset: Number(m[2]) };
+		if (this.#book && this.#chapter) void this.#goToPlace(place, true);
+		else this.#pendingPlace = place;
 	}
 
 	async onUnloadFile(_file: TFile) {
@@ -275,6 +335,16 @@ export class EpubView extends FileView {
 	}
 
 	async onRename(file: TFile) {
+		// The highlights note goes with the book (its links follow by themselves).
+		const notes = this.app.vault.getFileByPath(highlightsPath(this.#path));
+		const next = highlightsPath(file.path);
+		if (notes && notes.path !== next && !this.app.vault.getAbstractFileByPath(next)) {
+			try {
+				await this.app.fileManager.renameFile(notes, next);
+			} catch (err) {
+				new Notice(`Could not move ${notes.path}: ${err instanceof Error ? err.message : err}`);
+			}
+		}
 		const positions = this.#positions();
 		if (positions[this.#path]) {
 			positions[file.path] = positions[this.#path];
@@ -442,6 +512,7 @@ export class EpubView extends FileView {
 		const next = mode === this.#mode ? "read" : mode;
 		const fraction = this.#fraction();
 		this.#hideNote();
+		this.#hideMarker();
 		this.#commitChapter();
 		const prev = this.#mode;
 		this.#mode = next;
@@ -511,6 +582,7 @@ export class EpubView extends FileView {
 		const book = this.#book;
 		if (book?.has(chapter.path) && book.text(chapter.path) !== chapter.shown) chapter = this.#chapter = loadChapter(book, chapter.path, (p) => this.#url(p));
 		this.#hideNote();
+		this.#hideMarker();
 		const root = doc.importNode(chapter.display.documentElement, true);
 		doc.replaceChild(root, doc.documentElement);
 		if (!doc.head) root.prepend(doc.createElement("head"));
@@ -528,6 +600,7 @@ export class EpubView extends FileView {
 		else win.scrollTo(0, (at.fraction ?? 0) * Math.max(0, doc.documentElement.scrollHeight - win.innerHeight));
 		// The search's matches are marked again; a hit scrolls to itself.
 		this.#markMatches(at.hit);
+		this.#drawHighlights();
 		this.#rememberPosition();
 	}
 
@@ -540,6 +613,20 @@ export class EpubView extends FileView {
 		doc.addEventListener("click", (evt) => this.#onClick(evt));
 		doc.addEventListener("mouseover", (evt) => this.#onHover(evt));
 		doc.addEventListener("mouseout", (evt) => this.#onHoverOut(evt));
+		doc.addEventListener("mousemove", (evt) => this.#onPointerMove(evt));
+		doc.addEventListener("mousedown", (evt) => {
+			// The bar's buttons keep the selection they act on.
+			if (this.#marker?.el.contains(evt.target as Node)) evt.preventDefault();
+		});
+		doc.addEventListener("mouseup", (evt) => {
+			// A press on the bar is its click's (making the bar again would
+			// take the button away before the click arrives).
+			if (this.#marker?.el.contains(evt.target as Node)) return;
+			window.setTimeout(() => this.#onSelect(), 0);
+		});
+		doc.addEventListener("selectionchange", () => {
+			if (this.#marker && !this.#marker.highlight && this.#frame.contentDocument?.getSelection()?.isCollapsed) this.#hideMarker();
+		});
 		doc.addEventListener("keydown", (evt) => this.#onKey(evt));
 		doc.addEventListener("input", () => this.#edited());
 		doc.addEventListener("paste", (evt) => this.#onPaste(evt));
@@ -549,6 +636,7 @@ export class EpubView extends FileView {
 		win.addEventListener("scroll", () => {
 			this.#storePosition();
 			this.#hideNote();
+			this.#hideMarker();
 		});
 		win.addEventListener("wheel", (evt) => this.#onWheel(evt), { passive: false });
 		if (this.#chapter && doc.body && !doc.body.childNodes.length) void this.#fill({ fraction: this.#positions()[this.#path]?.fraction ?? 0 });
@@ -637,6 +725,13 @@ export class EpubView extends FileView {
 
 	#onClick(evt: MouseEvent) {
 		const el = evt.target as Element | null;
+		const marker = this.#marker;
+		if (marker && el && marker.el.contains(el)) {
+			evt.preventDefault();
+			this.#onMarker(el);
+			return;
+		}
+		if (marker) this.#hideMarker();
 		const note = this.#note;
 		if (note && el && note.el.contains(el) && el.closest?.(".justnotes-note-go")) {
 			evt.preventDefault();
@@ -646,7 +741,16 @@ export class EpubView extends FileView {
 		const link = el?.closest?.("a[href]");
 		// A click away from the note puts it away.
 		if (note && !(el && note.el.contains(el)) && link !== note.link) this.#hideNote();
-		if (!link) return;
+		// The end of a selection is no click on a link.
+		const selecting = this.#mode === "read" && !!this.#frame.contentDocument?.getSelection()?.toString();
+		if (link && selecting) return;
+		if (!link) {
+			// A click on a highlight brings up its bar.
+			const sel = this.#frame.contentDocument?.getSelection();
+			const hit = this.#mode === "read" && (!sel || sel.isCollapsed) ? this.#highlightAt(evt.clientX, evt.clientY) : null;
+			if (hit) this.#showMarker(hit.range, hit.highlight);
+			return;
+		}
 		// While editing, a click places the cursor; Mod-click follows the link.
 		if (this.#mode === "edit" && !Keymap.isModEvent(evt)) return;
 		evt.preventDefault();
@@ -709,7 +813,7 @@ export class EpubView extends FileView {
 		const el = evt.target as Element | null;
 		if (this.#mode !== "read" || !el?.closest) return;
 		const note = this.#note;
-		if (note && (note.el.contains(el) || note.link.contains(el))) {
+		if (note && (note.el.contains(el) || note.link?.contains(el))) {
 			window.clearTimeout(this.#noteTimer);
 			return;
 		}
@@ -724,14 +828,14 @@ export class EpubView extends FileView {
 	#onHoverOut(evt: MouseEvent) {
 		const note = this.#note;
 		const to = evt.relatedTarget as Element | null;
-		if (note && to && (note.el.contains(to) || note.link.contains(to))) return;
+		if (note && to && (note.el.contains(to) || note.link?.contains(to))) return;
 		const from = evt.target as Element | null;
 		// Leaving a link before its note showed: it does not.
 		if (!note) {
 			if (from?.closest?.("a[href]")) window.clearTimeout(this.#noteTimer);
 			return;
 		}
-		if (note.pinned || !(note.el.contains(from) || note.link.contains(from))) return;
+		if (note.pinned || !(note.el.contains(from) || note.link?.contains(from))) return;
 		window.clearTimeout(this.#noteTimer);
 		this.#noteTimer = window.setTimeout(() => this.#hideNote(), NOTE_LINGER);
 	}
@@ -799,12 +903,18 @@ export class EpubView extends FileView {
 		go.setAttribute("class", "justnotes-note-go");
 		go.setAttribute("role", "button");
 		go.textContent = "Go to note ›";
-		// Outside <body>, the note takes the book's face from it.
-		if (doc.body) el.style.setProperty("font-family", win.getComputedStyle(doc.body).fontFamily);
-		doc.documentElement.append(el);
-		this.#note = { el, link, path: hit.path, found: hit.found, pinned };
-		this.#placeNote();
+		this.#putNote(el, { anchor: link, link, highlight: null, path: hit.path, pinned });
 		return true;
+	}
+
+	#putNote(el: HTMLElement, note: Omit<Popover, "el">) {
+		const doc = el.ownerDocument;
+		const win = doc.defaultView;
+		// Outside <body>, the note takes the book's face from it.
+		if (doc.body && win) el.style.setProperty("font-family", win.getComputedStyle(doc.body).fontFamily);
+		doc.documentElement.append(el);
+		this.#note = { el, ...note };
+		this.#placeNote();
 	}
 
 	// Below the link, or above it when there is more room there, inside the page.
@@ -813,7 +923,7 @@ export class EpubView extends FileView {
 		const win = this.#frame.contentWindow;
 		if (!note || !win) return;
 		const style = (note.el as HTMLElement).style;
-		const at = note.link.getClientRects()[0] ?? note.link.getBoundingClientRect();
+		const at = note.anchor.getClientRects()[0] ?? note.anchor.getBoundingClientRect();
 		const width = note.el.getBoundingClientRect().width;
 		const height = note.el.getBoundingClientRect().height;
 		const margin = 8;
@@ -834,7 +944,7 @@ export class EpubView extends FileView {
 	// Goes to the note shown, marking it for a moment; Back returns to its mark.
 	async #goToNote() {
 		const note = this.#note;
-		if (!note) return;
+		if (!note?.link) return;
 		const fragment = note.link.getAttribute("href")?.split("#")[1] ?? "";
 		let id = fragment;
 		try {
@@ -848,14 +958,18 @@ export class EpubView extends FileView {
 		if (target) this.#markArrival(target);
 	}
 
-	#markArrival(target: Element) {
+	#markArrival(target: Element | Range) {
 		const win = this.#frame.contentWindow as (Window & typeof globalThis) | null;
 		const doc = this.#frame.contentDocument;
 		if (!win?.CSS?.highlights || !doc) return;
-		const roots = noteRoot(target);
-		const range = doc.createRange();
-		range.setStartBefore(roots[0]);
-		range.setEndAfter(roots[roots.length - 1]);
+		let range: Range;
+		if (target instanceof win.Range) range = target;
+		else {
+			const roots = noteRoot(target as Element);
+			range = doc.createRange();
+			range.setStartBefore(roots[0]);
+			range.setEndAfter(roots[roots.length - 1]);
+		}
 		win.CSS.highlights.set("justnotes-arrival", new win.Highlight(range));
 		window.setTimeout(() => win.CSS.highlights.delete("justnotes-arrival"), 1800);
 	}
@@ -905,9 +1019,10 @@ export class EpubView extends FileView {
 			return;
 		}
 		if (this.#mode !== "read" || typing || evt.metaKey || evt.ctrlKey || evt.altKey) return;
-		if (evt.key === "Escape" && this.#note) {
+		if (evt.key === "Escape" && (this.#note || this.#marker)) {
 			evt.preventDefault();
 			this.#hideNote();
+			this.#hideMarker();
 			return;
 		}
 		if (evt.key === "Backspace" && this.#jumps.length) {
@@ -933,6 +1048,317 @@ export class EpubView extends FileView {
 			evt.preventDefault();
 			void this.#step(evt.key === "ArrowLeft" ? -1 : 1);
 		}
+	}
+
+	// --- Highlights ----------------------------------------------------------
+
+	// The highlights note beside the book, read again (and drawn) when it
+	// changes, here or in any other view.
+	async #loadHighlights(draw = true) {
+		const file = this.app.vault.getFileByPath(highlightsPath(this.#path));
+		let text = "";
+		if (file) {
+			try {
+				text = await this.app.vault.read(file);
+			} catch {}
+		}
+		this.#highlights = parseHighlights(text);
+		if (draw) this.#drawHighlights();
+	}
+
+	// This chapter's highlights, as CSS highlights (one per colour and style):
+	// the book's markup is never touched.
+	#drawHighlights() {
+		const win = this.#frame.contentWindow as (Window & typeof globalThis) | null;
+		const doc = this.#frame.contentDocument;
+		const chapter = this.#chapter;
+		const registry = win?.CSS?.highlights;
+		this.#drawn = [];
+		if (!win || !doc?.body || !chapter || !registry) return;
+		for (const key of Array.from(registry.keys()) as string[]) if (key.startsWith("jn-")) registry.delete(key);
+		const mine = this.#highlights.entries.filter((h) => h.path === chapter.path);
+		if (!mine.length) return;
+		const index = textIndex(doc.body);
+		const groups = new Map<string, Range[]>();
+		for (const highlight of mine) {
+			const at = locate(index, highlight);
+			const range = at === null ? null : rangeAt(index, at, highlight.quote.length, doc);
+			if (!range) continue;
+			this.#drawn.push({ highlight, range });
+			const key = `jn-${highlight.color}-${highlight.style}`;
+			groups.set(key, [...(groups.get(key) ?? []), range]);
+		}
+		for (const [key, ranges] of groups) registry.set(key, new win.Highlight(...ranges));
+	}
+
+	// The highlight under a point of the page.
+	#highlightAt(x: number, y: number) {
+		for (const drawn of this.#drawn) {
+			for (const r of Array.from(drawn.range.getClientRects())) if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return drawn;
+		}
+		return null;
+	}
+
+	// What the reader selected, as the chapter's text sees it.
+	#selected(): { range: Range; place: Pick<Highlight, "path" | "offset" | "quote"> } | null {
+		const doc = this.#frame.contentDocument;
+		const chapter = this.#chapter;
+		const sel = doc?.getSelection();
+		if (!doc?.body || !chapter || !sel || sel.isCollapsed || !sel.rangeCount) return null;
+		const range = sel.getRangeAt(0);
+		if (!doc.body.contains(range.commonAncestorContainer)) return null;
+		const index = textIndex(doc.body);
+		const [start, end] = spanOf(index, range);
+		if (start < 0) return null;
+		return { range, place: { path: chapter.path, offset: start, quote: index.text.slice(start, end + 1) } };
+	}
+
+	#onSelect() {
+		if (this.#mode !== "read" || this.#marker?.highlight) return;
+		const selected = this.#selected();
+		if (selected) this.#showMarker(selected.range, null);
+	}
+
+	// The bar over `anchor`: the colours and styles (the highlight's own
+	// marked), its note, and Remove for a highlight already made.
+	#showMarker(anchor: Range, highlight: Highlight | null) {
+		const doc = this.#frame.contentDocument;
+		const win = this.#frame.contentWindow;
+		if (!doc || !win) return;
+		this.#hideMarker();
+		this.#hideNote();
+		const pen = this.#pen();
+		const el = doc.createElementNS(XHTML, "div") as HTMLElement;
+		el.id = MARKER_ID;
+		el.setAttribute("role", "toolbar");
+		const add = (cls: string, attrs: Record<string, string>, text = "") => {
+			const item = el.appendChild(doc.createElementNS(XHTML, "span"));
+			item.setAttribute("class", cls);
+			item.setAttribute("role", "button");
+			for (const [k, v] of Object.entries(attrs)) item.setAttribute(k, v);
+			item.textContent = text;
+			return item;
+		};
+		for (const color of COLORS) {
+			const active = (highlight?.color ?? null) === color;
+			add(`jn-swatch${active ? " is-active" : ""}`, { "data-color": color, title: color[0].toUpperCase() + color.slice(1), style: `background: rgb(${HIGHLIGHT_RGB[color]})` });
+		}
+		add("jn-sep", {});
+		const styleNames: Record<Style, [string, string]> = { highlight: ["A", "Highlight"], underline: ["U", "Underline"], wavy: ["~", "Wavy underline"] };
+		for (const style of STYLES) {
+			const current = highlight ? highlight.style : pen.style;
+			add(`jn-tool jn-style-${style}${current === style ? " is-active" : ""}`, { "data-style": style, title: styleNames[style][1] }, styleNames[style][0]);
+		}
+		add("jn-sep", {});
+		add("jn-tool", { "data-action": "note", title: highlight?.note ? "Edit the note" : "Add a note" }, highlight?.note ? "Edit note" : "Note");
+		if (highlight) add("jn-tool jn-remove", { "data-action": "remove", title: "Remove the highlight" }, "Remove");
+		doc.documentElement.append(el);
+		this.#marker = { el, highlight };
+		// Above the text, or below it when the page's top is in the way.
+		const rects = Array.from(anchor.getClientRects());
+		const first = rects[0] ?? anchor.getBoundingClientRect();
+		const last = rects[rects.length - 1] ?? first;
+		const box = el.getBoundingClientRect();
+		const margin = 8;
+		const above = first.top - box.height - 8;
+		const top = above >= margin ? above : Math.min(win.innerHeight - box.height - margin, last.bottom + 8);
+		const left = Math.max(margin, Math.min(first.left + (first.width - box.width) / 2, win.innerWidth - box.width - margin));
+		el.style.setProperty("left", `${left}px`, "important");
+		el.style.setProperty("top", `${top}px`, "important");
+		el.style.setProperty("visibility", "visible", "important");
+	}
+
+	#hideMarker() {
+		this.#marker?.el.remove();
+		this.#marker = null;
+	}
+
+	#pen(): { color: Color; style: Style } {
+		const stored = this.app.loadLocalStorage(HIGHLIGHT_PEN);
+		const color = COLORS.includes(stored?.color) ? stored.color : "yellow";
+		const style = STYLES.includes(stored?.style) ? stored.style : "highlight";
+		return { color, style };
+	}
+
+	// A button of the bar: a colour or style makes the selection a highlight
+	// (or changes the highlight's), Note opens its note, Remove takes it away.
+	#onMarker(target: Element) {
+		const marker = this.#marker;
+		const button = target.closest("[data-color], [data-style], [data-action]");
+		if (!marker || !button) return;
+		const existing = marker.highlight;
+		const color = button.getAttribute("data-color") as Color | null;
+		const style = button.getAttribute("data-style") as Style | null;
+		const action = button.getAttribute("data-action");
+		if (color || style) {
+			const pen = this.#pen();
+			const next = { color: color ?? existing?.color ?? pen.color, style: style ?? existing?.style ?? pen.style };
+			this.app.saveLocalStorage(HIGHLIGHT_PEN, next);
+			this.#hideMarker();
+			if (existing) void this.#changeHighlights((doc) => doc.entries.filter((h) => sameHighlight(h, existing)).forEach((h) => Object.assign(h, next)));
+			else void this.#addHighlight(next);
+			return;
+		}
+		this.#hideMarker();
+		if (action === "remove" && existing) {
+			void this.#changeHighlights((doc) => {
+				doc.entries = doc.entries.filter((h) => !sameHighlight(h, existing));
+			});
+		} else if (action === "note") {
+			if (existing) this.#editNote(existing);
+			else void this.#addHighlight(this.#pen()).then((made) => made && this.#editNote(made));
+		}
+	}
+
+	// The selection as a new highlight. One it overlaps is taken in: the new
+	// one spans both, their notes kept.
+	async #addHighlight(pen: { color: Color; style: Style }) {
+		const selected = this.#selected();
+		const doc = this.#frame.contentDocument;
+		if (!selected || !doc?.body) return null;
+		const index = textIndex(doc.body);
+		let start = selected.place.offset;
+		let end = start + selected.place.quote.length;
+		const merged: Highlight[] = [];
+		for (const drawn of this.#drawn) {
+			const at = locate(index, drawn.highlight);
+			if (at === null || at >= end || at + drawn.highlight.quote.length <= start) continue;
+			merged.push(drawn.highlight);
+			start = Math.min(start, at);
+			end = Math.max(end, at + drawn.highlight.quote.length);
+		}
+		const made: Highlight = {
+			path: selected.place.path,
+			offset: start,
+			quote: index.text.slice(start, end),
+			...pen,
+			label: this.#placeLabel(this.#index),
+			note: merged.map((h) => h.note.trim()).filter(Boolean).join("\n\n"),
+		};
+		doc.getSelection()?.removeAllRanges();
+		await this.#changeHighlights((notes) => {
+			notes.entries = notes.entries.filter((h) => !merged.some((m) => sameHighlight(h, m)));
+			notes.entries.push(made);
+		});
+		return made;
+	}
+
+	// Where a highlight is, for its note: the contents' entries down to the
+	// chapter ("Book Two · Chapter One"), or the chapter's label.
+	#placeLabel(index: number) {
+		const book = this.#book;
+		if (!book) return "";
+		for (let i = index; i >= 0; i--) {
+			const trail = book.tocTrail(book.spine[i].path).filter(Boolean);
+			if (trail.length) return trail.join(" · ");
+		}
+		return this.#chapterLabel(index);
+	}
+
+	#editNote(highlight: Highlight) {
+		new HighlightNoteModal(this.app, highlight, (note) => {
+			void this.#changeHighlights((doc) => doc.entries.filter((h) => sameHighlight(h, highlight)).forEach((h) => (h.note = note)));
+		}).open();
+	}
+
+	// Changes the highlights note: read, changed and written in one step, so
+	// what was typed into it elsewhere meanwhile stays.
+	async #changeHighlights(change: (doc: Highlights) => void) {
+		const file = this.file;
+		const book = this.#book;
+		if (!file || !book) return;
+		const path = highlightsPath(file.path);
+		const link = this.app.metadataCache.fileToLinktext(file, path, true);
+		const rank = (h: Highlight) => {
+			const i = book.spineIndexOf(h.path);
+			return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+		};
+		const apply = (text: string) => {
+			const doc = parseHighlights(text);
+			change(doc);
+			this.#highlights = doc;
+			return writeHighlights(doc, link, rank);
+		};
+		try {
+			const existing = this.app.vault.getFileByPath(path);
+			if (existing) await this.app.vault.process(existing, apply);
+			else await this.app.vault.create(path, apply(""));
+		} catch (err) {
+			new Notice(`Could not save the highlights to ${path}: ${err instanceof Error ? err.message : err}`);
+			await this.#loadHighlights(false);
+		}
+		this.#drawHighlights();
+	}
+
+	// A highlight's note shows when the pointer rests on it.
+	#onPointerMove(evt: MouseEvent) {
+		if (this.#mode !== "read" || this.#marker || this.#note?.pinned || this.#note?.link) return;
+		const now = performance.now();
+		if (now - this.#hoverAt < 60) return;
+		this.#hoverAt = now;
+		const el = evt.target as Element | null;
+		if (this.#note?.el.contains(el)) {
+			window.clearTimeout(this.#noteTimer);
+			return;
+		}
+		const hit = this.#highlightAt(evt.clientX, evt.clientY);
+		const shown = this.#note?.highlight;
+		if (hit && shown && sameHighlight(shown, hit.highlight)) {
+			window.clearTimeout(this.#noteTimer);
+			return;
+		}
+		window.clearTimeout(this.#noteTimer);
+		// Beside the line the pointer is on.
+		const line = hit ? Array.from(hit.range.getClientRects()).find((r) => evt.clientY >= r.top && evt.clientY <= r.bottom) : undefined;
+		const anchor: Anchor | undefined = line && { getClientRects: () => [line], getBoundingClientRect: () => line };
+		if (hit?.highlight.note.trim()) this.#noteTimer = window.setTimeout(() => this.#showHighlightNote(hit.highlight, anchor ?? hit.range), NOTE_DELAY);
+		else if (shown) this.#noteTimer = window.setTimeout(() => this.#hideNote(), NOTE_LINGER);
+	}
+
+	#showHighlightNote(highlight: Highlight, anchor: Anchor) {
+		const doc = this.#frame.contentDocument;
+		if (!doc || this.#mode !== "read") return;
+		this.#hideNote();
+		const el = doc.createElementNS(XHTML, "div") as HTMLElement;
+		el.id = NOTE_ID;
+		el.setAttribute("role", "note");
+		el.setAttribute("class", "is-highlight-note");
+		for (const para of highlight.note.trim().split(/\n\s*\n/)) el.appendChild(doc.createElementNS(XHTML, "p")).textContent = para.trim();
+		this.#putNote(el, { anchor, link: null, highlight, path: highlight.path, pinned: false });
+	}
+
+	// Opens the highlights note beside the book.
+	async #openHighlights() {
+		const file = this.app.vault.getFileByPath(highlightsPath(this.#path));
+		if (!file) {
+			new Notice("No highlights in this book yet: select some text to make one.");
+			return;
+		}
+		const open = this.app.workspace.getLeavesOfType("markdown").find((leaf) => (leaf.view as any).file === file);
+		if (open) {
+			this.app.workspace.revealLeaf(open);
+			return;
+		}
+		await this.app.workspace.getLeaf("split", "vertical").openFile(file);
+	}
+
+	// Goes to a highlight's place (a link from its note), marking it for a
+	// moment; Back returns when the book was being read.
+	async #goToPlace(place: { path: string; offset: number }, jump: boolean) {
+		const book = this.#book;
+		const index = book?.spineIndexOf(place.path) ?? -1;
+		if (!book || index < 0) return;
+		this.#hideNote();
+		this.#hideMarker();
+		if (jump) this.#pushJump();
+		if (index !== this.#index || !this.#chapter || this.#mode === "source") await this.#show(index);
+		const drawn = this.#drawn.find((d) => d.highlight.path === place.path && d.highlight.offset === place.offset);
+		const win = this.#frame.contentWindow;
+		if (!drawn || !win) return;
+		const rect = drawn.range.getBoundingClientRect();
+		if (this.#paged()) this.#turnTo(this.#pageOf(rect.left));
+		else win.scrollBy(0, rect.top - win.innerHeight / 3);
+		this.#markArrival(drawn.range);
 	}
 
 	// --- Pages ---------------------------------------------------------------
@@ -1008,6 +1434,9 @@ export class EpubView extends FileView {
 	}
 
 	onResize() {
+		// What stood beside the text is no longer where the text is.
+		this.#hideNote();
+		this.#hideMarker();
 		if (!this.#paged()) return;
 		const fraction = this.#fraction();
 		this.#applyStyle();
@@ -1323,6 +1752,25 @@ html.is-editing body { outline: none; caret-color: ${v("--text-accent")}; }
 #${NOTE_ID} :not(a):not(a *) { color: inherit !important; background-color: transparent !important; }
 #${NOTE_ID} .justnotes-note-go { margin-top: 0.35em; font-family: ${v("--font-interface") || "sans-serif"}; font-size: 0.8rem; color: ${v("--text-accent")} !important; cursor: pointer; user-select: none; }
 #${NOTE_ID} .justnotes-note-go:hover { text-decoration: underline; }
+#${NOTE_ID}.is-highlight-note { font-family: ${v("--font-interface") || "sans-serif"} !important; }
+${COLORS.map((c) => {
+	const rgb = HIGHLIGHT_RGB[c];
+	return `::highlight(jn-${c}-highlight) { background-color: rgba(${rgb}, ${dark ? 0.34 : 0.42}); }
+::highlight(jn-${c}-underline) { text-decoration: underline 2px rgb(${rgb}); }
+::highlight(jn-${c}-wavy) { text-decoration: underline wavy 1.5px rgb(${rgb}); }`;
+}).join("\n")}
+#${MARKER_ID} { position: fixed !important; z-index: 2147483647 !important; visibility: hidden; display: flex !important; align-items: center; gap: 6px; margin: 0 !important; padding: 6px 8px !important; background: ${v("--background-primary")} !important; color: ${v("--text-normal")} !important; border: 1px solid ${v("--background-modifier-border-hover") || v("--background-modifier-border")} !important; border-radius: 8px !important; box-shadow: 0 6px 24px rgba(0, 0, 0, ${dark ? 0.5 : 0.18}) !important; font: 500 12.5px/1 ${v("--font-interface") || "sans-serif"} !important; text-indent: 0 !important; user-select: none; -webkit-user-select: none; }
+#${MARKER_ID} .jn-swatch { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; box-sizing: border-box; border: 2px solid transparent; }
+#${MARKER_ID} .jn-swatch:hover { transform: scale(1.12); }
+#${MARKER_ID} .jn-swatch.is-active { border-color: ${v("--text-normal")}; }
+#${MARKER_ID} .jn-sep { width: 1px; height: 18px; background: ${v("--background-modifier-border")} !important; }
+#${MARKER_ID} .jn-tool { padding: 4px 6px; border-radius: 4px; cursor: pointer; color: ${v("--text-muted")} !important; white-space: nowrap; }
+#${MARKER_ID} .jn-tool:hover { background: ${v("--background-modifier-hover")} !important; color: ${v("--text-normal")} !important; }
+#${MARKER_ID} .jn-tool.is-active { color: ${v("--text-accent")} !important; }
+#${MARKER_ID} .jn-style-highlight { background: rgba(250, 204, 21, 0.35) !important; color: ${v("--text-normal")} !important; }
+#${MARKER_ID} .jn-style-underline { text-decoration: underline 2px; }
+#${MARKER_ID} .jn-style-wavy { text-decoration: underline wavy 1.5px; }
+#${MARKER_ID} .jn-remove:hover { color: ${v("--text-error")} !important; }
 `;
 		doc.documentElement.classList.toggle("is-editing", this.#mode === "edit");
 		doc.documentElement.classList.toggle("is-paged", this.#paged());
@@ -1612,4 +2060,28 @@ function stylesheetsLoaded(doc: Document) {
 
 export function registerEpubView(app: App) {
 	app.viewRegistry.registerViewWithExtensions(["epub"], EPUB_VIEW, (leaf) => new EpubView(leaf));
+}
+
+// A highlight's note: Markdown, as it is in the highlights note.
+class HighlightNoteModal extends Modal {
+	constructor(app: App, highlight: Highlight, onSubmit: (note: string) => void) {
+		super(app);
+		this.setTitle("Note");
+		this.modalEl.addClass("epub-highlight-note-modal");
+		this.contentEl.createDiv({ cls: "epub-highlight-quote", text: highlight.quote });
+		const input = this.contentEl.createEl("textarea", { cls: "epub-highlight-input", attr: { rows: "6", placeholder: "Your note (Markdown)" } });
+		input.value = highlight.note;
+		const submit = () => {
+			this.close();
+			if (input.value.trim() !== highlight.note.trim()) onSubmit(input.value.trim());
+		};
+		this.scope.register(["Mod"], "Enter", () => {
+			submit();
+			return false;
+		});
+		const buttons = this.contentEl.createDiv("modal-button-container");
+		buttons.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
+		buttons.createEl("button", { text: "Save", cls: "mod-cta" }).addEventListener("click", submit);
+		this.onOpen = () => input.focus();
+	}
 }
