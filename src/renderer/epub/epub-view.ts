@@ -25,6 +25,7 @@ import type { Tasks, WorkspaceLeaf } from "../../api/workspace";
 import { type BookMetadata, dirname, EpubBook, isExternalHref, METADATA_FIELDS, parseXml, relativeHref, resolvePath, type SearchHit, type TocEntry } from "./book";
 import { type Chapter, commitBody, loadChapter, rewriteCss } from "./chapter";
 import { kindOf, LANDMARKS } from "./landmarks";
+import { type Note, noteFor, noteRoot } from "./notes";
 import { occurrences, rangeAt, textIndex } from "./text-index";
 
 export const EPUB_VIEW = "epub";
@@ -57,6 +58,12 @@ const BLOCKS: [string, string][] = [
 // document root replaces its root. The sandbox lets this page reach into it
 // and keeps the book's scripts and forms from running.
 const FRAME_PAGE = '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>';
+const XHTML = "http://www.w3.org/1999/xhtml";
+// The note shown over the page: an element of the frame's own, outside its
+// <body> (which is all a commit writes back), so the book's styles apply.
+const NOTE_ID = "justnotes-note";
+const NOTE_DELAY = 250;
+const NOTE_LINGER = 300;
 
 interface Position {
 	index: number;
@@ -114,6 +121,14 @@ export class EpubView extends FileView {
 	#autosave = debounce(() => void this.save(), 2000, true);
 	#storePosition = debounce(() => this.#rememberPosition(), 300, true);
 	#searchSoon = debounce(() => this.#runSearch(), 250, true);
+	// The note over the page, the link it belongs to and where it is.
+	#note: { el: Element; link: Element; path: string; found: Note; pinned: boolean } | null = null;
+	#noteTimer = 0;
+	#noteDocs = new Map<string, { text: string; doc: Document }>();
+	// Where each link followed in the text was read from, for Back (by
+	// path: chapters added or moved since leave it right).
+	#jumps: { path: string; fraction: number }[] = [];
+	#backEl: HTMLButtonElement;
 
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
@@ -172,6 +187,9 @@ export class EpubView extends FileView {
 		this.#source = new EditorView({ parent: this.#sourceEl, state: this.#sourceState("") });
 		const footer = main.createDiv("epub-footer");
 		this.#prevEl = footer.createEl("button", { cls: "epub-nav", text: "‹ Previous" });
+		this.#backEl = footer.createEl("button", { cls: "epub-nav epub-back", text: "↩ Back" });
+		this.#backEl.hide();
+		this.#backEl.addEventListener("click", () => void this.#back());
 		this.#labelEl = footer.createDiv("epub-label");
 		this.#nextEl = footer.createEl("button", { cls: "epub-nav", text: "Next ›" });
 		this.#prevEl.addEventListener("click", () => void this.#step(-1));
@@ -225,6 +243,9 @@ export class EpubView extends FileView {
 		this.#dirty = this.#chapterDirty = false;
 		this.#undo = [];
 		this.#hits = [];
+		this.#jumps = [];
+		this.#noteDocs.clear();
+		this.#updateBack();
 		try {
 			const book = EpubBook.read(await this.app.vault.readBinary(file));
 			if (!book.spine.length) throw new Error("The book's spine lists no chapters");
@@ -420,6 +441,7 @@ export class EpubView extends FileView {
 		if (!this.#book || !this.#chapter) return;
 		const next = mode === this.#mode ? "read" : mode;
 		const fraction = this.#fraction();
+		this.#hideNote();
 		this.#commitChapter();
 		const prev = this.#mode;
 		this.#mode = next;
@@ -488,6 +510,7 @@ export class EpubView extends FileView {
 		// from the book's text.
 		const book = this.#book;
 		if (book?.has(chapter.path) && book.text(chapter.path) !== chapter.shown) chapter = this.#chapter = loadChapter(book, chapter.path, (p) => this.#url(p));
+		this.#hideNote();
 		const root = doc.importNode(chapter.display.documentElement, true);
 		doc.replaceChild(root, doc.documentElement);
 		if (!doc.head) root.prepend(doc.createElement("head"));
@@ -515,13 +538,18 @@ export class EpubView extends FileView {
 		// App hotkeys work while the page has the focus.
 		this.app.keymap.attachWindow(win);
 		doc.addEventListener("click", (evt) => this.#onClick(evt));
+		doc.addEventListener("mouseover", (evt) => this.#onHover(evt));
+		doc.addEventListener("mouseout", (evt) => this.#onHoverOut(evt));
 		doc.addEventListener("keydown", (evt) => this.#onKey(evt));
 		doc.addEventListener("input", () => this.#edited());
 		doc.addEventListener("paste", (evt) => this.#onPaste(evt));
 		doc.addEventListener("drop", (evt) => this.#onDrop(evt));
 		doc.addEventListener("selectionchange", () => this.#updateBlockSelect());
 		doc.addEventListener("focusin", () => this.app.workspace.setActiveLeaf(this.leaf));
-		win.addEventListener("scroll", () => this.#storePosition());
+		win.addEventListener("scroll", () => {
+			this.#storePosition();
+			this.#hideNote();
+		});
 		win.addEventListener("wheel", (evt) => this.#onWheel(evt), { passive: false });
 		if (this.#chapter && doc.body && !doc.body.childNodes.length) void this.#fill({ fraction: this.#positions()[this.#path]?.fraction ?? 0 });
 	}
@@ -608,15 +636,35 @@ export class EpubView extends FileView {
 	}
 
 	#onClick(evt: MouseEvent) {
-		const link = (evt.target as Element | null)?.closest?.("a[href]");
+		const el = evt.target as Element | null;
+		const note = this.#note;
+		if (note && el && note.el.contains(el) && el.closest?.(".justnotes-note-go")) {
+			evt.preventDefault();
+			void this.#goToNote();
+			return;
+		}
+		const link = el?.closest?.("a[href]");
+		// A click away from the note puts it away.
+		if (note && !(el && note.el.contains(el)) && link !== note.link) this.#hideNote();
 		if (!link) return;
 		// While editing, a click places the cursor; Mod-click follows the link.
 		if (this.#mode === "edit" && !Keymap.isModEvent(evt)) return;
 		evt.preventDefault();
-		void this.#follow(link.getAttribute("href") ?? "");
+		// A note's mark shows the note and stays where it is; Mod-click goes
+		// to the note.
+		if (this.#mode === "read" && !Keymap.isModEvent(evt) && this.#showNote(link, true)) return;
+		void this.#follow(link.getAttribute("href") ?? "", this.#linkBase(link));
 	}
 
-	async #follow(href: string) {
+	// The chapter a link's href is relative to: a note's own, for a link in
+	// the note shown over the page.
+	#linkBase(link: Element) {
+		const note = this.#note;
+		return note && note.el.contains(link) ? note.path : (this.#chapter?.path ?? "");
+	}
+
+	// Follows a link in the text; Back returns to where it was read from.
+	async #follow(href: string, base: string) {
 		const book = this.#book;
 		const chapter = this.#chapter;
 		if (!book || !chapter || !href) return;
@@ -626,7 +674,12 @@ export class EpubView extends FileView {
 		}
 		const hash = href.indexOf("#");
 		const fragment = hash < 0 ? "" : decodeURIComponent(href.slice(hash + 1));
-		const target = hash === 0 ? chapter.path : resolvePath(dirname(chapter.path), href);
+		const target = hash === 0 ? base : resolvePath(dirname(base), href);
+		if (book.spineIndexOf(target) < 0) {
+			new Notice(`${target} is not a chapter of this book`);
+			return;
+		}
+		this.#pushJump();
 		await this.#go(target, fragment);
 	}
 
@@ -641,11 +694,202 @@ export class EpubView extends FileView {
 		if (index === this.#index && this.#mode !== "source") {
 			const doc = this.#frame.contentDocument;
 			const target = fragment ? (doc?.getElementById(fragment) ?? doc?.getElementsByName(fragment)[0]) : null;
-			if (target) target.scrollIntoView();
+			if (this.#paged()) this.#turnTo(target ? this.#pageOf(target.getBoundingClientRect().left) : 0);
+			else if (target) target.scrollIntoView();
 			else this.#frame.contentWindow?.scrollTo(0, 0);
 			return;
 		}
 		await this.#show(index, { fragment });
+	}
+
+	// --- Notes and Back ------------------------------------------------------
+
+	// Hovering a note's mark shows the note over the page, after a moment.
+	#onHover(evt: MouseEvent) {
+		const el = evt.target as Element | null;
+		if (this.#mode !== "read" || !el?.closest) return;
+		const note = this.#note;
+		if (note && (note.el.contains(el) || note.link.contains(el))) {
+			window.clearTimeout(this.#noteTimer);
+			return;
+		}
+		// A pinned note stays until a click elsewhere.
+		if (note?.pinned) return;
+		const link = el.closest("a[href]");
+		if (!link) return;
+		window.clearTimeout(this.#noteTimer);
+		this.#noteTimer = window.setTimeout(() => this.#showNote(link, false), NOTE_DELAY);
+	}
+
+	#onHoverOut(evt: MouseEvent) {
+		const note = this.#note;
+		const to = evt.relatedTarget as Element | null;
+		if (note && to && (note.el.contains(to) || note.link.contains(to))) return;
+		const from = evt.target as Element | null;
+		// Leaving a link before its note showed: it does not.
+		if (!note) {
+			if (from?.closest?.("a[href]")) window.clearTimeout(this.#noteTimer);
+			return;
+		}
+		if (note.pinned || !(note.el.contains(from) || note.link.contains(from))) return;
+		window.clearTimeout(this.#noteTimer);
+		this.#noteTimer = window.setTimeout(() => this.#hideNote(), NOTE_LINGER);
+	}
+
+	// The note `link` is the mark of, from this chapter or another; null
+	// when it marks none.
+	#findNote(link: Element): { found: Note; path: string; fragment: string } | null {
+		const book = this.#book;
+		const chapter = this.#chapter;
+		const href = link.getAttribute("href") ?? "";
+		const hash = href.indexOf("#");
+		if (!book || !chapter || hash < 0 || isExternalHref(href)) return null;
+		let fragment = href.slice(hash + 1);
+		try {
+			fragment = decodeURIComponent(fragment);
+		} catch {}
+		if (!fragment) return null;
+		const base = this.#linkBase(link);
+		const path = hash === 0 ? base : resolvePath(dirname(base), href);
+		let doc: Document | null;
+		if (path === chapter.path) doc = this.#frame.contentDocument;
+		else if (book.has(path) && book.spineIndexOf(path) >= 0) doc = this.#noteDoc(path);
+		else return null;
+		const target = doc?.getElementById(fragment) ?? doc?.getElementsByName(fragment)[0];
+		if (!target || target.closest(`#${NOTE_ID}`)) return null;
+		const found = noteFor(link, base, target, path);
+		return found ? { found, path, fragment } : null;
+	}
+
+	// Another chapter, parsed with its images served, for its notes; parsed
+	// again once the book's text for it changes.
+	#noteDoc(path: string) {
+		const book = this.#book;
+		if (!book) return null;
+		const text = book.text(path);
+		const known = this.#noteDocs.get(path);
+		if (known?.text === text) return known.doc;
+		try {
+			const doc = loadChapter(book, path, (p) => this.#url(p)).display;
+			this.#noteDocs.set(path, { text, doc });
+			return doc;
+		} catch {
+			return null;
+		}
+	}
+
+	// Shows the note `link` marks over the page, beside the link; pinned, it
+	// stays until a click elsewhere. False when the link marks no note.
+	#showNote(link: Element, pinned: boolean) {
+		const doc = this.#frame.contentDocument;
+		const win = this.#frame.contentWindow;
+		if (!doc || !win || this.#mode !== "read" || !link.isConnected) return false;
+		if (this.#note?.link === link) {
+			this.#note.pinned ||= pinned;
+			return true;
+		}
+		const hit = this.#findNote(link);
+		if (!hit) return false;
+		this.#hideNote();
+		const el = doc.createElementNS(XHTML, "div");
+		el.id = NOTE_ID;
+		el.setAttribute("role", "note");
+		el.append(doc.importNode(hit.found.content, true));
+		const go = el.appendChild(doc.createElementNS(XHTML, "div"));
+		go.setAttribute("class", "justnotes-note-go");
+		go.setAttribute("role", "button");
+		go.textContent = "Go to note ›";
+		// Outside <body>, the note takes the book's face from it.
+		if (doc.body) el.style.setProperty("font-family", win.getComputedStyle(doc.body).fontFamily);
+		doc.documentElement.append(el);
+		this.#note = { el, link, path: hit.path, found: hit.found, pinned };
+		this.#placeNote();
+		return true;
+	}
+
+	// Below the link, or above it when there is more room there, inside the page.
+	#placeNote() {
+		const note = this.#note;
+		const win = this.#frame.contentWindow;
+		if (!note || !win) return;
+		const style = (note.el as HTMLElement).style;
+		const at = note.link.getClientRects()[0] ?? note.link.getBoundingClientRect();
+		const width = note.el.getBoundingClientRect().width;
+		const height = note.el.getBoundingClientRect().height;
+		const margin = 8;
+		const left = Math.max(margin, Math.min(at.left - 16, win.innerWidth - width - margin));
+		const below = win.innerHeight - at.bottom;
+		const top = below >= height + margin * 2 || below >= at.top ? at.bottom + 6 : Math.max(margin, at.top - 6 - height);
+		style.setProperty("left", `${left}px`, "important");
+		style.setProperty("top", `${top}px`, "important");
+		style.setProperty("visibility", "visible", "important");
+	}
+
+	#hideNote() {
+		window.clearTimeout(this.#noteTimer);
+		this.#note?.el.remove();
+		this.#note = null;
+	}
+
+	// Goes to the note shown, marking it for a moment; Back returns to its mark.
+	async #goToNote() {
+		const note = this.#note;
+		if (!note) return;
+		const fragment = note.link.getAttribute("href")?.split("#")[1] ?? "";
+		let id = fragment;
+		try {
+			id = decodeURIComponent(fragment);
+		} catch {}
+		this.#hideNote();
+		this.#pushJump();
+		await this.#go(note.path, id);
+		const doc = this.#frame.contentDocument;
+		const target = doc?.getElementById(id) ?? doc?.getElementsByName(id)[0];
+		if (target) this.#markArrival(target);
+	}
+
+	#markArrival(target: Element) {
+		const win = this.#frame.contentWindow as (Window & typeof globalThis) | null;
+		const doc = this.#frame.contentDocument;
+		if (!win?.CSS?.highlights || !doc) return;
+		const roots = noteRoot(target);
+		const range = doc.createRange();
+		range.setStartBefore(roots[0]);
+		range.setEndAfter(roots[roots.length - 1]);
+		win.CSS.highlights.set("justnotes-arrival", new win.Highlight(range));
+		window.setTimeout(() => win.CSS.highlights.delete("justnotes-arrival"), 1800);
+	}
+
+	#pushJump() {
+		if (!this.#book) return;
+		this.#jumps.push({ path: this.#book.spine[this.#index].path, fraction: this.#fraction() });
+		if (this.#jumps.length > 50) this.#jumps.shift();
+		this.#updateBack();
+	}
+
+	// Back to where the last link followed was read from.
+	async #back() {
+		const place = this.#jumps.pop();
+		this.#updateBack();
+		const index = place && this.#book ? this.#book.spineIndexOf(place.path) : -1;
+		if (!place || index < 0) return;
+		this.#hideNote();
+		if (index !== this.#index || this.#mode === "source") {
+			await this.#show(index, { fraction: place.fraction });
+			return;
+		}
+		const win = this.#frame.contentWindow;
+		const doc = this.#frame.contentDocument;
+		if (!win || !doc) return;
+		if (this.#paged()) this.#turnTo(Math.round(place.fraction * (this.#pageCount() - 1)));
+		else win.scrollTo(0, place.fraction * Math.max(0, doc.documentElement.scrollHeight - win.innerHeight));
+	}
+
+	#updateBack() {
+		const place = this.#jumps[this.#jumps.length - 1];
+		const index = place && this.#book ? this.#book.spineIndexOf(place.path) : -1;
+		this.#backEl.toggle(index >= 0);
+		if (index >= 0) setTooltip(this.#backEl, `Back to ${this.#chapterLabel(index)} (Backspace)`);
 	}
 
 	#onKey(evt: KeyboardEvent) {
@@ -661,6 +905,16 @@ export class EpubView extends FileView {
 			return;
 		}
 		if (this.#mode !== "read" || typing || evt.metaKey || evt.ctrlKey || evt.altKey) return;
+		if (evt.key === "Escape" && this.#note) {
+			evt.preventDefault();
+			this.#hideNote();
+			return;
+		}
+		if (evt.key === "Backspace" && this.#jumps.length) {
+			evt.preventDefault();
+			void this.#back();
+			return;
+		}
 		if (evt.target instanceof HTMLElement && evt.target.closest(".epub-toc") && evt.key !== "ArrowLeft" && evt.key !== "ArrowRight") return;
 		// In pages, the arrows, Page Up/Down and Space turn pages (and go on
 		// into the next or previous chapter); scrolled, the arrows sideways
@@ -1056,10 +1310,19 @@ img, svg, video { max-width: 100%; height: auto; }
 a { color: ${v("--text-accent")}; }
 ::selection { background: ${v("--text-selection")}; }
 ${dark ? `body { color: ${v("--text-normal")} !important; background-color: transparent !important; }
-body :not(a):not(a *) { color: inherit !important; background-color: transparent !important; border-color: ${v("--background-modifier-border")} !important; }` : ""}
+body :not(a):not(a *) { color: inherit !important; background-color: transparent !important; border-color: ${v("--background-modifier-border")} !important; }
+a, a * { color: ${v("--text-accent")} !important; }` : ""}
 html.is-editing body { outline: none; caret-color: ${v("--text-accent")}; }
 ::highlight(justnotes-search) { background-color: ${dark ? "rgba(255, 208, 0, 0.3)" : "rgba(255, 208, 0, 0.45)"}; }
 ::highlight(justnotes-search-current) { background-color: rgb(255, 150, 0); color: black; }
+::highlight(justnotes-arrival) { background-color: ${dark ? "rgba(255, 208, 0, 0.22)" : "rgba(255, 208, 0, 0.35)"}; }
+#${NOTE_ID} { position: fixed !important; z-index: 2147483647 !important; visibility: hidden; box-sizing: border-box !important; margin: 0 !important; width: max-content !important; max-width: min(30em, calc(100vw - 16px)) !important; max-height: min(24em, 50vh) !important; overflow: auto !important; padding: 0.7em 1em 0.55em !important; background: ${v("--background-primary")} !important; color: ${v("--text-normal")} !important; border: 1px solid ${v("--background-modifier-border-hover") || v("--background-modifier-border")} !important; border-radius: 8px !important; box-shadow: 0 6px 24px rgba(0, 0, 0, ${dark ? 0.5 : 0.18}) !important; font-family: ${v("--font-text") || "serif"}; font-size: 0.92rem !important; line-height: 1.65 !important; text-align: start !important; columns: auto !important; }
+#${NOTE_ID} * { text-indent: 0 !important; max-width: 100%; }
+#${NOTE_ID} > div > :first-child, #${NOTE_ID} > div > :first-child > :first-child { margin-top: 0 !important; }
+#${NOTE_ID} p, #${NOTE_ID} dd, #${NOTE_ID} li { margin: 0 0 0.4em !important; }
+#${NOTE_ID} :not(a):not(a *) { color: inherit !important; background-color: transparent !important; }
+#${NOTE_ID} .justnotes-note-go { margin-top: 0.35em; font-family: ${v("--font-interface") || "sans-serif"}; font-size: 0.8rem; color: ${v("--text-accent")} !important; cursor: pointer; user-select: none; }
+#${NOTE_ID} .justnotes-note-go:hover { text-decoration: underline; }
 `;
 		doc.documentElement.classList.toggle("is-editing", this.#mode === "edit");
 		doc.documentElement.classList.toggle("is-paged", this.#paged());

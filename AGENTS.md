@@ -928,6 +928,24 @@ plain style. Development notes belong in this file.
   `shell.openExternal`. Listeners are attached from this page on every frame
   load (a move to a popout reloads the frame, which then gets the chapter
   again), including the app keymap.
+- Notes (`notes.ts`, tested in `test/epub-notes.test.ts`): hovering a
+  note's mark while reading shows the note beside it, a click pins it, its
+  "Go to note" (or Mod-click on the mark) goes there. `noteFor` decides from
+  the link and the element its fragment names: epub:type `noteref`/
+  `footnote`/`endnote`, ARIA `doc-noteref`/`doc-footnote`, `aside`, a link
+  back from the note to an id at the mark (converters and InDesign), note
+  classes, or a short mark ("1", "[2]", "a", "*"); a heading's or nav's
+  link, a target that is or holds a heading, or more than 6000 characters is
+  no note. The note is the nearest note-marked ancestor, a dt's dd elements,
+  a list item, else the target's block widened to a parent holding no other
+  note; the copy loses ids, scripts, the links back and the brackets around
+  them. It is shown as `#justnotes-note`, an element of the frame's own
+  appended to `<html>` outside `<body>` (commits serialize the body only),
+  `position: fixed`, so the book's styles apply and pages do not split it.
+  Notes in other chapters come from their display copy, kept per path until
+  the book's text for it changes. Every link followed in the text (not the
+  contents pane) pushes where it was read from; the footer's Back and
+  Backspace return there.
 - Reading scrolls the chapter, or turns pages (pane menu, localStorage
   `justnotes-epub-layout`): CSS columns one readable width wide whose gap is
   the page's two margins, so each page is the frame's width and the frame's
