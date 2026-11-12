@@ -874,14 +874,18 @@ plain style. Development notes belong in this file.
   cache are not used. Every file window shares the localStorage id
   `single-file`, so justnotes' own settings (the Editor page's justnotes
   section) carry from one file to the next. The layout is fixed
-  (`singleFileLayout`: the file, the outline on the right, the file explorer
-  in the collapsed left sidebar) and the file opens after layout-ready (a
+  (`singleFileLayout`: the file, the outline on the right, open for a note
+  and collapsed for a book or a PDF, which have no headings, and the file
+  explorer in the collapsed left sidebar) and the file opens after
+  layout-ready (a
   `.tex` waits for the LaTeX core plugin's `latex-live:api-ready`, which
   registers its view later). Launch arguments take Markdown, TeX, PDF and
   EPUB files (`isDocument` in `launch-args.ts`); macOS `open-file` hands
-  over any file. PDFs and EPUBs open in their views there as in a vault; the
-  package's file associations stay Markdown and TeX only, so justnotes never
-  claims PDFs or EPUBs from the system's reader.
+  over any file. PDFs and EPUBs open in their views there as in a vault; an
+  EPUB's view admits the book's highlights note (`Book.highlights.md`), so
+  highlights made before show and new ones join them. The package declares
+  no association for PDF, so justnotes never claims PDFs from the system's
+  reader.
 
 ## Code files
 
@@ -1238,10 +1242,10 @@ plain style. Development notes belong in this file.
   fuse RunAsNode must stay on. Under Electron (`process.versions.electron`)
   `appCommand` starts `process.execPath` without that variable; from source
   it starts the checkout's electron.
-- Markdown and TeX files: the macOS app declares `.md`, `.markdown` and
-  `.tex` as an Alternate Editor (offered in Open With, never taking the
-  default app; the owner's environment, myrunbook's `--finder-only`, makes it
-  the default for `.md` and `.tex`);
+- Markdown, TeX and EPUB files: the macOS app declares `.md`, `.markdown`,
+  `.tex` and `.epub` as an Alternate Editor (offered in Open With, never
+  taking the default app; the owner's environment, myrunbook's
+  `--finder-only`, makes it the default for all three);
   Windows declares no association, because NSIS would make justnotes the
   default `.md` handler. A file arrives as `open-file` (macOS, at launch
   before `ready`, and while running, since macOS hands a running app the

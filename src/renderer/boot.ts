@@ -169,7 +169,7 @@ async function boot() {
 	await app.internalPlugins.initialize();
 	installCorePlugins(app);
 	mark("core-plugins-loaded");
-	if (single) await app.workspace.changeLayout(singleFileLayout());
+	if (single) await app.workspace.changeLayout(singleFileLayout(single));
 	else {
 		await app.plugins.initialize();
 		mark("plugins-loaded");

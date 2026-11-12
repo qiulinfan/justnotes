@@ -57,7 +57,7 @@ function installMac() {
 	if (fs.existsSync(app)) fs.renameSync(app, old);
 	fs.renameSync(next, app);
 	fs.rmSync(old, { recursive: true, force: true });
-	// Launch Services learns the new bundle's document types (md, tex) now.
+	// Launch Services learns the new bundle's document types (md, tex, epub) now.
 	run("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", ["-f", app]);
 	console.log(`Installed ${app}`);
 	linkCommand("justnotes", `${app}/Contents/Resources/cli/justnotes`, false);

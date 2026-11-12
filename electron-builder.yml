@@ -67,7 +67,7 @@ mac:
     - from: packaging/justnotes
       to: cli/justnotes
   # Offered in Open With, not taken as the default app: the owner's
-  # environment sets it as the default for .md and .tex itself.
+  # environment sets it as the default for .md, .tex and .epub itself.
   fileAssociations:
     - ext: [md, markdown]
       name: Markdown
@@ -75,6 +75,10 @@ mac:
       rank: Alternate
     - ext: tex
       name: TeX
+      role: Editor
+      rank: Alternate
+    - ext: epub
+      name: EPUB
       role: Editor
       rank: Alternate
 

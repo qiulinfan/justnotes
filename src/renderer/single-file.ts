@@ -12,13 +12,16 @@ import type { TAbstractFile, TFile } from "../api/vault";
 // level deep, whenever its links resolve again. Nothing outside the folder
 // enters, nor hidden files.
 
-// The layout of a file's window: the file, with the outline open beside it
-// and the file explorer in the collapsed left sidebar.
-export function singleFileLayout() {
+// The layout of a file's window: the file, with the outline beside it and
+// the file explorer in the collapsed left sidebar. The outline is open for a
+// note; a book or a PDF has no headings to list (an EPUB shows its own
+// contents), so there it starts collapsed.
+export function singleFileLayout(name: string) {
+	const note = /\.(md|markdown|tex)$/i.test(name);
 	return {
 		main: { type: "split", direction: "vertical", children: [{ type: "tabs", children: [{ type: "leaf", state: { type: "empty" } }] }] },
 		left: { type: "split", direction: "horizontal", collapsed: true, children: [{ type: "tabs", children: [{ type: "leaf", state: { type: "file-explorer" } }] }] },
-		right: { type: "split", direction: "horizontal", children: [{ type: "tabs", children: [{ type: "leaf", state: { type: "outline" } }] }] },
+		right: { type: "split", direction: "horizontal", collapsed: !note, children: [{ type: "tabs", children: [{ type: "leaf", state: { type: "outline" } }] }] },
 	};
 }
 

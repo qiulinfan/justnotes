@@ -304,6 +304,9 @@ export class EpubView extends FileView {
 		this.#mtime = file.stat.mtime;
 		this.#messageEl.hide();
 		this.#renderToc();
+		// A book opened in no vault has only itself in the file table: its
+		// highlights note comes in with it.
+		await this.app.vault.adapter.admit(highlightsPath(file.path));
 		await this.#loadHighlights(false);
 		const saved = this.#positions()[file.path];
 		// A book opened for the first time starts where its "Start of text"
