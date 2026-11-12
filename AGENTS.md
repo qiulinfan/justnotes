@@ -1658,6 +1658,12 @@ stale or corrupt cache gives the same result, more slowly.
 - Reveal rule: inline syntax shows while any selection touches the element;
   line syntax (heading marks, quote marks, list bullets, tasks, rules, block
   math) shows while the selection is on those lines.
+  A note opens with the cursor at offset 0, inside whatever it begins with:
+  that cursor reveals nothing until the user puts it there or edits
+  (`startRevealed` in `live-preview.ts`), so the frontmatter keeps its
+  Properties block and a callout, table, HTML block or processed code block
+  the note begins with stays rendered; once the selection has entered the
+  block its source shows until the selection leaves it.
 - `editorLivePreviewField` false means Source mode: no decorations at all.
 - Fenced code (`code-fences.ts`) shows as Typora shows it, not as Obsidian
   does: a closed block with at least one line of code and its lines to

@@ -263,6 +263,34 @@ describe("frontmatter reveal", () => {
 	});
 });
 
+// The same cursor is inside a callout or table the note begins with.
+describe("a rendered block at the note's start", () => {
+	const callout = "> [!note] Title\n> text\n\nbody";
+	const table = "| a | b |\n| - | - |\n| 1 | 2 |\n\nbody";
+	const blocks = (state: EditorState) => decorations(state).filter((d) => d.block && d.widget === "RenderedBlockWidget").length;
+	const moveTo = (state: EditorState, pos: number, userEvent?: string) => state.update({ selection: { anchor: pos }, userEvent }).state;
+
+	test("stays rendered under the cursor the note opens with", () => {
+		expect(blocks(stateOf(callout, 0))).toBe(1);
+		expect(blocks(stateOf(table, 0))).toBe(1);
+		expect(blocks(moveTo(stateOf(callout, callout.length), 0))).toBe(1);
+	});
+
+	test("shows its source once the user puts the cursor in it", () => {
+		expect(blocks(moveTo(stateOf(callout, 0), 0, "select.pointer"))).toBe(0);
+		expect(blocks(stateOf(callout, 3))).toBe(0);
+		const entered = moveTo(stateOf(callout, 0), 5, "select");
+		expect(blocks(moveTo(entered, 0))).toBe(0);
+		expect(blocks(moveTo(entered, callout.length))).toBe(1);
+	});
+
+	test("a block further down follows the cursor as before", () => {
+		const doc = `intro\n\n${callout}`;
+		expect(blocks(stateOf(doc, 0))).toBe(1);
+		expect(blocks(stateOf(doc, doc.indexOf("> text")))).toBe(0);
+	});
+});
+
 // The view turns editorLivePreviewField off for source mode: every mark then
 // shows and nothing renders, while line classes stay for themes.
 describe("source mode", () => {

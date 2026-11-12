@@ -713,13 +713,15 @@ function mathText(state: EditorState, node: SyntaxNode) {
 	return text + state.sliceDoc(at, node.to);
 }
 
-// The frontmatter shows as YAML once the selection enters it, and until the
-// selection leaves it. A note opens with the cursor at offset 0, which is
-// inside the frontmatter, so a cursor there that the user did not move
-// (opening the note, or code) keeps the Properties block.
-function touchesFrontmatter(state: EditorState) {
+// A note opens with the cursor at offset 0, inside whatever it begins with.
+// What that is shows its source once the selection enters it, and until the
+// selection leaves it; a cursor at offset 0 that the user did not put there
+// (opening the note, or code) reveals nothing. So the frontmatter keeps its
+// Properties block, and a callout, table, HTML block or processed code
+// block the note begins with stays rendered.
+function touchesStart(state: EditorState) {
 	const node = syntaxTree(state).topNode.firstChild;
-	if (node?.name !== "hmd-frontmatter") return false;
+	if (!node) return false;
 	const end = state.doc.lineAt(node.to).to;
 	return state.selection.ranges.some((r) => r.from <= end);
 }
@@ -728,11 +730,12 @@ function atDocStart({ selection }: EditorState) {
 	return selection.ranges.length === 1 && selection.main.empty && selection.main.head === 0;
 }
 
-const frontmatterRevealed = StateField.define<boolean>({
-	create: (state) => touchesFrontmatter(state) && !atDocStart(state),
+const startRevealed = StateField.define<boolean>({
+	create: (state) => touchesStart(state) && !atDocStart(state),
 	update(revealed, tr) {
 		if (!tr.docChanged && !tr.selection) return revealed;
-		return touchesFrontmatter(tr.state) && (revealed || !atDocStart(tr.state) || tr.isUserEvent("select"));
+		const byUser = tr.isUserEvent("select") || tr.isUserEvent("input") || tr.isUserEvent("delete");
+		return touchesStart(tr.state) && (revealed || !atDocStart(tr.state) || byUser);
 	},
 });
 
@@ -775,6 +778,10 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 	const settings = editorSettings(host.app);
 	const touches = (from: number, to: number) => !live || ranges.some((r) => r.from <= to && r.to >= from);
 	const touchesLines = (from: number, to: number) => touches(doc.lineAt(from).from, doc.lineAt(to).to);
+	// A rendered block: touched as its lines are, but for the one a note
+	// begins with under the cursor it opened with (startRevealed).
+	const resting = state.field(startRevealed, false) === false;
+	const touchesBlock = (from: number, to: number) => touchesLines(from, to) && !(resting && doc.lineAt(from).from === 0);
 	const lineClasses = new Map<number, string[]>();
 	const lineAttrs = new Map<number, Record<string, string>>();
 	const quoteDepth = new Map<number, number>();
@@ -844,7 +851,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					if (!closed) return false;
 					addLine(to, "HyperMD-frontmatter-end");
 					const mode = host.app.vault.getConfig("propertiesInDocument") ?? "visible";
-					if (!live || mode === "source" || state.field(frontmatterRevealed)) return false;
+					if (!live || mode === "source" || state.field(startRevealed)) return false;
 					const yaml = doc.sliceString(doc.line(1).to + 1, doc.lineAt(to).from);
 					decos.push(Decoration.replace({ block: true, widget: mode === "hidden" ? undefined : new PropertiesWidget(yaml, host) }).range(from, to));
 					return false;
@@ -880,6 +887,10 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					// inside, until a selection covers the whole block.
 					const fence = live && settings.codeBlockStyle === "typora" ? closedFence(state, node) : null;
 					const boxed = fence && !coversFence(state, fence);
+					const info = node.getChild("CodeInfo");
+					const language = info ? state.sliceDoc(info.from, info.to).trim().split(/\s/)[0] : "";
+					const handler = language ? codeBlockProcessor(language) : undefined;
+					const processed = closed && handler && ownsLines(node) && !touchesBlock(from, to);
 					// The code's line numbers, which CSS shows when they are on.
 					if (closed) eachLine(first.to + 1, last.from - 1, (l) => lineAttrs.set(l.from, { "data-code-line": String(l.number - first.number) }));
 					if (boxed) eachLine(first.to + 1, last.from - 1, (l) => addLine(l.from, "HyperMD-codeblock HyperMD-codeblock-bg"));
@@ -887,12 +898,9 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 						eachLine(from, to, (l) => addLine(l.from, "HyperMD-codeblock HyperMD-codeblock-bg"));
 						addLine(from, "HyperMD-codeblock-begin HyperMD-codeblock-begin-bg");
 						if (closed) addLine(to, "HyperMD-codeblock-end HyperMD-codeblock-end-bg");
-						if (touchesLines(from, to)) return false;
+						if (touchesLines(from, to) && !processed) return false;
 					}
-					const info = node.getChild("CodeInfo");
-					const language = info ? state.sliceDoc(info.from, info.to).trim().split(/\s/)[0] : "";
-					const handler = language ? codeBlockProcessor(language) : undefined;
-					if (closed && handler && ownsLines(node) && !touchesLines(from, to)) {
+					if (processed) {
 						const indent = doc.sliceString(first.from, from);
 						const lines = last.number - first.number > 1 ? doc.sliceString(first.to + 1, last.from - 1).split("\n") : [];
 						const source = lines.map((line) => dedent(line, indent)).join("\n");
@@ -917,7 +925,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 					const first = doc.lineAt(from);
 					if (depth > 1 || !/^\s*>\s*\[![^\]]+\][+-]?/.test(first.text)) return;
 					eachLine(from, to, (l) => addLine(l.from, "HyperMD-callout"));
-					if (touchesLines(from, to) || !ownsLines(node)) return;
+					if (touchesBlock(from, to) || !ownsLines(node)) return;
 					const last = doc.lineAt(to);
 					const widget = new RenderedBlockWidget(doc.sliceString(first.from, last.to), doc.sliceString(first.from, from), "callout", host);
 					decos.push(Decoration.replace({ block: true, widget }).range(first.from, last.to));
@@ -974,7 +982,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 				case "Table": {
 					let row = 0;
 					eachLine(from, to, (l) => addLine(l.from, `HyperMD-table-row HyperMD-table-row-${row++}`));
-					if (touchesLines(from, to) || !ownsLines(node)) return false;
+					if (touchesBlock(from, to) || !ownsLines(node)) return false;
 					const first = doc.lineAt(from);
 					const last = doc.lineAt(to);
 					const widget = new RenderedBlockWidget(doc.sliceString(first.from, last.to), doc.sliceString(first.from, from), "table", host);
@@ -1058,7 +1066,7 @@ function build(state: EditorState, cx: BuildContext): DecorationSet {
 						if (widget) decos.push(Decoration.replace({ widget }).range(from, to));
 						return false;
 					}
-					if (touchesLines(from, to) || !ownsLines(node)) return;
+					if (touchesBlock(from, to) || !ownsLines(node)) return;
 					const first = doc.lineAt(from);
 					const last = doc.lineAt(to);
 					const widget = new RenderedBlockWidget(doc.sliceString(first.from, last.to), doc.sliceString(first.from, from), "html", host);
@@ -1222,7 +1230,7 @@ export function livePreview(host: LivePreviewHost): Extension {
 			return true;
 		},
 	});
-	return [frontmatterRevealed, field, tagClicks, processorRefresh, codeFences(() => editorSettings(host.app).codeBlockStyle === "typora"), Prec.high(keymap.of([{ key: "ArrowUp", run: enterProperties }]))];
+	return [startRevealed, field, tagClicks, processorRefresh, codeFences(() => editorSettings(host.app).codeBlockStyle === "typora"), Prec.high(keymap.of([{ key: "ArrowUp", run: enterProperties }]))];
 }
 
 // ArrowUp out of the note's first line goes to the Properties block above it.
